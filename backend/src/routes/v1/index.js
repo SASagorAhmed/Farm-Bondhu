@@ -1,0 +1,40 @@
+import { Router } from "express";
+import metaRoutes from "./meta.js";
+import authRoutes from "./auth.js";
+import meRoutes from "./me.js";
+import farmsRoutes from "./farms.js";
+import animalsRoutes from "./animals.js";
+import shedsRoutes from "./sheds.js";
+import dashboardRoutes from "./dashboard.js";
+import notificationsRoutes from "./notifications.js";
+import profilesRoutes from "./profiles.js";
+import learningRoutes from "./learning.js";
+import ordersRoutes from "./orders.js";
+import marketplaceRoutes from "./marketplace.js";
+import compatFromRoutes from "./compatFrom.js";
+import toolsRoutes from "./tools.js";
+import aiFarmChatRoutes from "./aiFarmChat.js";
+import publicRoutes from "./public.js";
+import medibondhuRoutes from "./medibondhu.js";
+
+const router = Router();
+
+router.use("/", metaRoutes);
+router.use("/auth", authRoutes);
+router.use("/me", meRoutes);
+router.use("/farms", farmsRoutes);
+router.use("/animals", animalsRoutes);
+router.use("/sheds", shedsRoutes);
+router.use("/dashboard", dashboardRoutes);
+router.use("/notifications", notificationsRoutes);
+router.use("/profiles", profilesRoutes);
+router.use("/learning", learningRoutes);
+router.use("/orders", ordersRoutes);
+router.use("/marketplace", marketplaceRoutes);
+router.use("/compat/from", compatFromRoutes);
+router.use("/tools", toolsRoutes);
+router.use("/ai", aiFarmChatRoutes);
+router.use("/public", publicRoutes);
+router.use("/medibondhu", medibondhuRoutes);
+
+export default router;
