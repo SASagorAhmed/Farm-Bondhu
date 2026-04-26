@@ -1,0 +1,323 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 20% 98%;
+    --foreground: 240 20% 10%;
+
+    --card: 240 15% 97%;
+    --card-foreground: 240 20% 10%;
+
+    --popover: 240 20% 98%;
+    --popover-foreground: 240 20% 10%;
+
+    --primary: 275 78% 69%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 191 87% 49%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 240 15% 93%;
+    --muted-foreground: 240 10% 45%;
+
+    --accent: 275 40% 94%;
+    --accent-foreground: 275 78% 50%;
+
+    --destructive: 357 90% 64%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 15% 88%;
+    --input: 240 15% 88%;
+    --ring: 275 78% 69%;
+
+    --radius: 0.75rem;
+
+    /* Custom FarmBondhu tokens */
+    --farm-green: 275 78% 69%;
+    --farm-green-light: 275 40% 94%;
+    --farm-green-dark: 275 80% 45%;
+    --farm-gold: 191 87% 49%;
+    --farm-gold-light: 191 70% 90%;
+    --farm-amber: 357 90% 64%;
+    --farm-earth: 275 30% 35%;
+    --farm-cream: 240 20% 96%;
+    --farm-sky: 191 87% 49%;
+
+    /* Landing page gradient (unchanged) */
+    --gradient-hero: linear-gradient(to right, hsl(357 90% 64%), hsl(275 78% 69%), hsl(191 87% 49%));
+    --gradient-gold: linear-gradient(to right, hsl(357 90% 64%), hsl(275 78% 69%), hsl(191 87% 49%));
+    --gradient-nature: linear-gradient(180deg, hsl(275 40% 94% / 0), hsl(275 40% 94%));
+
+    /* Dashboard gradient: #eb0000 → #95008a → #3300fc */
+    --dashboard-red: 0 100% 46%;
+    --dashboard-magenta: 305 100% 29%;
+    --dashboard-blue: 248 100% 49%;
+    --gradient-dashboard: linear-gradient(to right, hsl(0 100% 46%), hsl(305 100% 29%), hsl(248 100% 49%));
+
+    --shadow-card: 0 4px 24px -4px hsl(275 78% 69% / 0.08);
+    --shadow-elevated: 0 12px 40px -8px hsl(275 78% 69% / 0.15);
+    --shadow-gold: 0 8px 30px -6px hsl(275 78% 69% / 0.3);
+
+    --font-display: 'Playfair Display', serif;
+    --font-body: 'DM Sans', sans-serif;
+
+    /* Sidebar — landing page gradient theme */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 20% 15%;
+    --sidebar-primary: 275 78% 69%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 275 40% 96%;
+    --sidebar-accent-foreground: 275 78% 50%;
+    --sidebar-border: 240 15% 92%;
+    --sidebar-ring: 275 78% 69%;
+  }
+
+  .dark {
+    --background: 240 20% 6%;
+    --foreground: 240 15% 95%;
+    --card: 240 20% 9%;
+    --card-foreground: 240 15% 95%;
+    --popover: 240 20% 9%;
+    --popover-foreground: 240 15% 95%;
+    --primary: 275 70% 72%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 191 80% 55%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 240 15% 15%;
+    --muted-foreground: 240 10% 60%;
+    --accent: 275 30% 18%;
+    --accent-foreground: 275 70% 80%;
+    --destructive: 357 80% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 15% 18%;
+    --input: 240 15% 18%;
+    --ring: 275 70% 72%;
+    --sidebar-background: 240 20% 8%;
+    --sidebar-foreground: 240 15% 90%;
+    --sidebar-primary: 248 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 15% 14%;
+    --sidebar-accent-foreground: 240 15% 95%;
+    --sidebar-border: 240 15% 14%;
+    --sidebar-ring: 248 80% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-hero);
+  }
+
+  .text-gradient-gold {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-gold);
+  }
+
+  .text-gradient-dashboard {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-dashboard);
+  }
+
+  .bg-gradient-hero {
+    background-image: var(--gradient-hero);
+  }
+
+  .bg-gradient-gold {
+    background-image: var(--gradient-gold);
+  }
+
+  .bg-gradient-dashboard {
+    background-image: var(--gradient-dashboard);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+
+  .shadow-gold {
+    box-shadow: var(--shadow-gold);
+  }
+
+  .btn-shiny {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-shiny::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 40%;
+    height: 200%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    );
+    transform: skewX(-20deg);
+    animation: shiny-sweep 3s ease-in-out infinite;
+  }
+
+  @keyframes shiny-sweep {
+    0%, 100% { left: -60%; }
+    50% { left: 120%; }
+  }
+
+  .text-shadow-sm {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .text-shadow-md {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+
+  .text-shadow-lg {
+    text-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Brand shine/shimmer effect */
+  .brand-shine-text {
+    position: relative;
+    overflow: hidden;
+  }
+  .brand-shine-text::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.5),
+      transparent
+    );
+    animation: brand-shine 3s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes brand-shine {
+    0%, 100% { left: -100%; }
+    50% { left: 150%; }
+  }
+
+  /* Sidebar nav hover: white text + icon color bg */
+  .sidebar-nav-item:hover {
+    color: white !important;
+    background-color: #2563EB !important;
+  }
+  .sidebar-nav-item:hover svg {
+    color: white !important;
+  }
+
+  /* MediBondhu nav hover: cyan brand color — override sidebar-accent */
+  .medibondhu-nav-item:hover,
+  .medibondhu-nav-item:hover *,
+  [data-active="true"].medibondhu-nav-item,
+  .medibondhu-nav-item[data-active="true"] {
+    color: white !important;
+    background-color: #12C2D6 !important;
+  }
+  .medibondhu-nav-item:hover svg,
+  [data-active="true"].medibondhu-nav-item svg {
+    color: white !important;
+  }
+
+  /* Override shadcn sidebar-accent hover for MediBondhu menu buttons */
+  .medibondhu-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(18, 194, 214, 0.12) !important;
+    color: #12C2D6 !important;
+  }
+  .medibondhu-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #12C2D6 !important;
+  }
+  .medibondhu-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .medibondhu-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #12C2D6 !important;
+    color: white !important;
+  }
+  .medibondhu-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .medibondhu-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
+
+  /* Farm sidebar nav hover: Emerald Green #10B981 */
+  .farm-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(16, 185, 129, 0.12) !important;
+    color: #10B981 !important;
+  }
+  .farm-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #10B981 !important;
+  }
+  .farm-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .farm-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #10B981 !important;
+    color: white !important;
+  }
+  .farm-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .farm-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
+  .farm-nav-item:hover,
+  .farm-nav-item:hover * {
+    color: white !important;
+    background-color: #10B981 !important;
+  }
+  .farm-nav-item:hover svg {
+    color: white !important;
+  }
+
+  /* Marketplace sidebar nav hover: Sky Blue #0EA5E9 */
+  .marketplace-nav-item:hover,
+  .marketplace-nav-item:hover * {
+    color: white !important;
+    background-color: #0EA5E9 !important;
+  }
+  .marketplace-nav-item:hover svg {
+    color: white !important;
+  }
+
+  /* Override shadcn sidebar-accent hover for Marketplace menu buttons */
+  .marketplace-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(14, 165, 233, 0.12) !important;
+    color: #0EA5E9 !important;
+  }
+  .marketplace-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #0EA5E9 !important;
+  }
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #0EA5E9 !important;
+    color: white !important;
+  }
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
+}
