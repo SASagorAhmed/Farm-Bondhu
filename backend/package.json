@@ -1,0 +1,34 @@
+{
+  "name": "farmbondhu-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FarmBondhu Express API (Postgres, future: Cloudinary, email, Zego, AI)",
+  "scripts": {
+    "free-port": "node scripts/free-port.js",
+    "predev": "node scripts/free-port.js",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "gen-auth-secret": "node scripts/generate-auth-secret.js",
+    "seed:official-admin": "node scripts/seed-official-super-admin.js",
+    "lint": "node -e \"console.log('add eslint when needed')\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jose": "^5.10.0",
+    "morgan": "^1.10.0",
+    "nodemailer": "^8.0.5",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "kill-port": "^2.0.1"
+  }
+}
