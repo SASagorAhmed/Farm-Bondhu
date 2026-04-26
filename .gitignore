@@ -1,0 +1,30 @@
+# Dependencies (anywhere in repo)
+node_modules/
+**/node_modules/
+
+# Never commit secrets
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Old nested-repo backup (do not commit)
+**/.git.backup/
+frontend/.git.backup/
+
+# Build
+dist/
+build/
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local backup of old nested repo (optional; remove folder when no longer needed)
+frontend-git-history.backup/
