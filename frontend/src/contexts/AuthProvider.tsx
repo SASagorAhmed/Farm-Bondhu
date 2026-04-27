@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, readSession, API_BASE, type AppSession, clearStoredSession } from "@/api/client";
 import { AuthContext, type User, type SignupData, type UserRole } from "./auth-context";
+import { queryClient } from "@/lib/queryClient";
 
 type MeResult = { ok: true; user: User } | { ok: false; error: string };
+
+function meQueryKey(token?: string) {
+  return ["me-profile", token || "anonymous"] as const;
+}
+
+const AUTH_PROFILE_STALE_MS = 120 * 1000;
 
 /** Loads app user from Express `GET /api/v1/me` (Bearer = access_token in localStorage). */
 async function fetchMe(): Promise<MeResult> {
@@ -36,8 +43,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AppSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadProfile = useCallback(async () => {
-    const r = await fetchMe();
+  const loadProfile = useCallback(async (opts?: { force?: boolean }) => {
+    const token = readSession()?.access_token;
+    if (!token) {
+      setUser(null);
+      return;
+    }
+    const key = meQueryKey(token);
+    const cached = queryClient.getQueryData<MeResult>(key);
+    if (cached?.ok) {
+      setUser(cached.user);
+      if (!opts?.force) {
+        // Warm cache gives instant paint; background refresh keeps it fresh.
+        return;
+      }
+    }
+    const r = await queryClient.fetchQuery({
+      queryKey: key,
+      staleTime: AUTH_PROFILE_STALE_MS,
+      queryFn: fetchMe,
+    });
     if (r.ok) setUser(r.user);
     else setUser(null);
   }, []);
@@ -54,15 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setSession(newSession as AppSession | null);
       if (newSession?.user) {
-        await loadProfile();
         if (event === "INITIAL_SESSION") {
+          void loadProfile();
           setIsLoading(false);
+          return;
         }
+        await loadProfile({ force: true });
+        setIsLoading(false);
       } else {
         setUser(null);
-        if (event === "INITIAL_SESSION") {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     });
 
@@ -71,7 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       initialSessionHandled = true;
       setSession(initialSession as AppSession | null);
       if (initialSession?.user) {
-        loadProfile().finally(() => setIsLoading(false));
+        void loadProfile();
+        setIsLoading(false);
       } else {
         setIsLoading(false);
       }
@@ -83,9 +110,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session?.access_token) return;
     let active = true;
+    let lastRefreshAt = 0;
     const refreshIfActive = async () => {
       if (!active) return;
-      await loadProfile();
+      const now = Date.now();
+      if (now - lastRefreshAt < AUTH_PROFILE_STALE_MS) return;
+      lastRefreshAt = now;
+      await loadProfile({ force: true });
     };
     const onFocus = () => {
       void refreshIfActive();
@@ -112,7 +143,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: "No session returned. Check backend /api/v1/auth/sign-in and VITE_API_URL." };
     }
     setSession(s);
-    const me = await fetchMe();
+    const me = await queryClient.fetchQuery({
+      queryKey: meQueryKey(s.access_token),
+      staleTime: AUTH_PROFILE_STALE_MS,
+      queryFn: fetchMe,
+    });
     if (!me.ok) {
       await api.auth.signOut();
       setSession(null);
@@ -157,7 +192,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: "No session after verification. Try signing in." };
     }
     setSession(s);
-    const me = await fetchMe();
+    const me = await queryClient.fetchQuery({
+      queryKey: meQueryKey(s.access_token),
+      staleTime: AUTH_PROFILE_STALE_MS,
+      queryFn: fetchMe,
+    });
     if (!me.ok) {
       await api.auth.signOut();
       setSession(null);
@@ -178,6 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.auth.signOut();
     setUser(null);
     setSession(null);
+    queryClient.removeQueries({ queryKey: ["me-profile"] });
   }, []);
 
   const hasRole = useCallback((role: UserRole) => {
