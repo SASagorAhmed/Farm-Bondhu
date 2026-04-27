@@ -643,6 +643,8 @@ export async function ensureSchema(sql) {
     "request_notes text",
     "scheduled_at timestamptz",
     "completed_at timestamptz",
+    "leave_deadline_at timestamptz",
+    "left_user_id uuid",
     "status text NOT NULL DEFAULT 'pending'",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
