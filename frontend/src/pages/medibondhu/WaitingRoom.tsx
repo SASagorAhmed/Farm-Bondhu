@@ -103,6 +103,14 @@ export default function WaitingRoom() {
           const newStatus = payload.new?.status;
           if (newStatus === "in_progress") {
             handleInProgress(true);
+          } else if (newStatus === "completed" || newStatus === "cancelled") {
+            if (hasNavigatedRef.current) return;
+            hasNavigatedRef.current = true;
+            toast({
+              title: newStatus === "cancelled" ? "Consultation cancelled" : "Consultation completed",
+              description: "Returning to consultations.",
+            });
+            navigate("/medibondhu/consultations");
           } else {
             queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
           }
@@ -113,7 +121,7 @@ export default function WaitingRoom() {
     return () => {
       api.removeChannel(channel);
     };
-  }, [bookingId, handleInProgress, queryClient]);
+  }, [bookingId, handleInProgress, navigate, queryClient]);
 
   // Fallback polling: guarantees patient auto-joins even if realtime update is missed.
   useEffect(() => {

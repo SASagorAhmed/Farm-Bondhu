@@ -72,6 +72,9 @@ export default function ConsultationRoom() {
   const skipZegoLeaveHookRef = useRef(false);
   /** True only after Zego reports a successful room join. */
   const hasJoinedZegoRoomRef = useRef(false);
+  /** Prevent duplicate finalize writes from leave + click races. */
+  const finalizeInFlightRef = useRef(false);
+  const hasFinalizedRef = useRef(false);
   const bookingRef = useRef<any>(null);
 
   useEffect(() => {
@@ -248,16 +251,19 @@ export default function ConsultationRoom() {
     return () => clearInterval(timer);
   }, []);
 
-  const endConsultation = useCallback(async () => {
+  const finalizeConsultation = useCallback(async (source: "button" | "sdk_leave") => {
     if (!bookingId || !user) return;
+    if (finalizeInFlightRef.current || hasFinalizedRef.current) return;
     const b = bookingRef.current;
     if (!b) return;
-    const isVetActor =
-      user.primaryRole === "vet" ||
-      user.primaryRole === "admin" ||
-      b.vet_user_id === user.id ||
-      b.vet_mock_id === user.id;
-    const nextStatus = isVetActor ? "completed" : "cancelled";
+    if (isTerminalBookingStatus(b.status)) {
+      hasFinalizedRef.current = true;
+      navigate(consultationsPath);
+      return;
+    }
+
+    finalizeInFlightRef.current = true;
+    const nextStatus = "completed";
     if (zegoInstanceRef.current) {
       skipZegoLeaveHookRef.current = true;
       try {
@@ -270,18 +276,30 @@ export default function ConsultationRoom() {
         skipZegoLeaveHookRef.current = false;
       });
     }
+
     const { error } = await api
       .from("consultation_bookings")
       .update({ status: nextStatus })
       .eq("id", bookingId);
     if (error) {
+      finalizeInFlightRef.current = false;
       toast.error(error.message || "Unable to update consultation status");
       return;
     }
-    toast.success(nextStatus === "completed" ? "Consultation ended" : "Consultation cancelled");
+    hasFinalizedRef.current = true;
+    finalizeInFlightRef.current = false;
+    if (source === "button") {
+      toast.success("Consultation ended");
+    } else {
+      toast.info("Call closed. Consultation completed.");
+    }
     queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
     navigate(consultationsPath);
   }, [bookingId, consultationsPath, navigate, queryClient, user]);
+
+  const endConsultation = useCallback(async () => {
+    await finalizeConsultation("button");
+  }, [finalizeConsultation]);
 
   // Initialize ZegoCloud for audio/video (deps are primitives so polling does not destroy the room)
   useEffect(() => {
@@ -344,10 +362,9 @@ export default function ConsultationRoom() {
           },
           onLeaveRoom: () => {
             if (skipZegoLeaveHookRef.current) return;
-            // Keep booking status unchanged on SDK-level leave/error; only End/Cancel button mutates status.
             if (!hasJoinedZegoRoomRef.current) return;
             hasJoinedZegoRoomRef.current = false;
-            toast.info("Call window closed. Consultation status is unchanged.");
+            void finalizeConsultation("sdk_leave");
           },
         });
       } catch (err: any) {
@@ -376,7 +393,7 @@ export default function ConsultationRoom() {
         });
       }
     };
-  }, [bookingId, user?.id, user?.name, normalizedConsultMethod]);
+  }, [bookingId, user?.id, user?.name, normalizedConsultMethod, finalizeConsultation]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
