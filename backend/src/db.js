@@ -5,12 +5,16 @@ import postgres from "postgres";
  * can still boot for health checks; routes that need Postgres return 503 until it is configured.
  */
 const connectionString = process.env.DATABASE_URL?.trim();
+const poolMax = Math.max(1, Number(process.env.DB_POOL_MAX || 1));
+const idleTimeoutSec = Math.max(1, Number(process.env.DB_IDLE_TIMEOUT_SEC || 20));
+const connectTimeoutSec = Math.max(1, Number(process.env.DB_CONNECT_TIMEOUT_SEC || 10));
 
 const sql = connectionString
   ? postgres(connectionString, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
+      // Vercel serverless can create many runtimes; keep pool conservative by default.
+      max: poolMax,
+      idle_timeout: idleTimeoutSec,
+      connect_timeout: connectTimeoutSec,
     })
   : null;
 
