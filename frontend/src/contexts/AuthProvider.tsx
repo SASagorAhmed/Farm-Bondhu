@@ -48,14 +48,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = api.auth.onAuthStateChange(async (event, newSession) => {
+      if (event === "INITIAL_SESSION") {
+        if (initialSessionHandled) return;
+        initialSessionHandled = true;
+      }
       setSession(newSession as AppSession | null);
       if (newSession?.user) {
-        setTimeout(async () => {
-          await loadProfile();
-          if (event === "INITIAL_SESSION") {
-            setIsLoading(false);
-          }
-        }, 0);
+        await loadProfile();
+        if (event === "INITIAL_SESSION") {
+          setIsLoading(false);
+        }
       } else {
         setUser(null);
         if (event === "INITIAL_SESSION") {
