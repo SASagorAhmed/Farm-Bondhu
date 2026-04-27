@@ -113,7 +113,29 @@ export default function WaitingRoom() {
     return () => {
       api.removeChannel(channel);
     };
-  }, [bookingId, handleInProgress, navigate]);
+  }, [bookingId, handleInProgress, queryClient]);
+
+  // Fallback polling: guarantees patient auto-joins even if realtime update is missed.
+  useEffect(() => {
+    if (!bookingId) return;
+    let cancelled = false;
+
+    const syncStatus = async () => {
+      if (cancelled || hasNavigatedRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      await fetchBooking();
+    };
+
+    void syncStatus();
+    const interval = setInterval(() => {
+      void syncStatus();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [bookingId, fetchBooking]);
 
   // Timer
   useEffect(() => {
