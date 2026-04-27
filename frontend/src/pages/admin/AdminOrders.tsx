@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,6 +6,8 @@ import { api } from "@/api/client";
 import { ShoppingCart, Loader2, Shield, Package, DollarSign, TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -17,17 +19,48 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AdminOrders() {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: orders = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys().adminOrders(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("orders").select("*").order("created_at", { ascending: false }).limit(200);
+      return data || [];
+    },
+  });
 
   useEffect(() => {
-    const load = async () => {
-      const { data } = await api.from("orders").select("*").order("created_at", { ascending: false }).limit(200);
-      setOrders(data || []);
-      setLoading(false);
+    const channel = api
+      .channel("admin-orders-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload: any) => {
+        const eventType = String(payload?.eventType || "").toUpperCase();
+        if ((eventType === "INSERT" || eventType === "UPDATE") && payload?.new) {
+          queryClient.setQueryData<any[]>(queryKeys().adminOrders(), (prev = []) => {
+            const row = payload.new;
+            const idx = prev.findIndex((o) => o.id === row.id);
+            if (idx >= 0) {
+              const next = prev.slice();
+              next[idx] = row;
+              return next;
+            }
+            return [row, ...prev].slice(0, 200);
+          });
+          return;
+        }
+        if (eventType === "DELETE" && payload?.old?.id) {
+          queryClient.setQueryData<any[]>(queryKeys().adminOrders(), (prev = []) =>
+            prev.filter((o) => o.id !== payload.old.id)
+          );
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: queryKeys().adminOrders() });
+      })
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
     };
-    load();
-  }, []);
+  }, [queryClient]);
 
   const totalOrders = orders.length;
   const totalRevenue = orders.reduce((s, o) => s + Number(o.total || 0), 0);

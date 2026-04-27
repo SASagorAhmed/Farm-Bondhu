@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { API_BASE, readSession } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { CheckCircle, XCircle, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface VetApp {
   id: string;
@@ -41,24 +43,32 @@ async function apiRequest(path: string, init: RequestInit = {}) {
 }
 
 export default function VetApprovals() {
-  const [apps, setApps] = useState<VetApp[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = async () => {
-    setLoading(true);
-    const { res, body } = await apiRequest("/v1/medibondhu/admin/vet-profiles");
-    if (!res.ok) {
-      toast.error(body.error || "Failed to load vet approvals");
-      setLoading(false);
-      return;
-    }
-    setApps((body.data || []) as VetApp[]);
-    setLoading(false);
-  };
+  const queryClient = useQueryClient();
+  const { data: apps = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys().vetApprovals(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { res, body } = await apiRequest("/v1/medibondhu/admin/vet-profiles");
+      if (!res.ok) {
+        toast.error(body.error || "Failed to load vet approvals");
+        return [];
+      }
+      return ((body.data || []) as VetApp[]);
+    },
+  });
 
   useEffect(() => {
-    load();
-  }, []);
+    const channel = api
+      .channel("admin-vet-approvals-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vets" }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys().vetApprovals() });
+      })
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const approve = async (id: string) => {
     const { res, body } = await apiRequest(`/v1/medibondhu/admin/vet-profiles/${id}/approve`, { method: "POST" });
@@ -67,7 +77,7 @@ export default function VetApprovals() {
       return;
     }
     toast.success("Vet approved");
-    load();
+    queryClient.invalidateQueries({ queryKey: queryKeys().vetApprovals() });
   };
 
   const reject = async (id: string) => {
@@ -82,7 +92,7 @@ export default function VetApprovals() {
       return;
     }
     toast.success("Vet rejected");
-    load();
+    queryClient.invalidateQueries({ queryKey: queryKeys().vetApprovals() });
   };
 
   const pending = apps.filter((a) => a.verification_status === "pending");

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2, Shield, ShieldCheck, ShieldAlert, UserPlus, Crown } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface TeamMember {
   id: string;
@@ -48,7 +50,6 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
 export default function AdminTeam() {
   const { user } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
   const [myLevel, setMyLevel] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
@@ -59,11 +60,11 @@ export default function AdminTeam() {
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const isSuperAdmin = myLevel === "super_admin";
 
-  const fetchTeam = async () => {
-    setLoading(true);
+  const fetchTeam = useCallback(async () => {
     const { data, error } = await api
       .from("admin_team")
       .select("*")
@@ -71,8 +72,7 @@ export default function AdminTeam() {
 
     if (error) {
       toast({ title: "Error loading team", description: error.message, variant: "destructive" });
-      setLoading(false);
-      return;
+      return [];
     }
 
     // Fetch profiles for each member
@@ -97,17 +97,36 @@ export default function AdminTeam() {
       added_by_profile: m.added_by ? profiles[m.added_by] || null : null,
     }));
 
-    setMembers(enriched);
+    return enriched;
+  }, [toast, user?.id]);
 
-    // Check current user's level
-    const myEntry = enriched.find((m) => m.user_id === user?.id);
+  const { data: cachedMembers = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys().adminTeam(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: fetchTeam,
+  });
+
+  useEffect(() => {
+    setMembers(cachedMembers);
+    const myEntry = cachedMembers.find((m) => m.user_id === user?.id);
     const level = myEntry?.admin_level || (myEntry as { admin_role?: string })?.admin_role;
     setMyLevel(level && ["super_admin", "co_admin", "moderator"].includes(String(level)) ? String(level) : null);
+  }, [cachedMembers, user?.id]);
 
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchTeam(); }, []);
+  useEffect(() => {
+    const channels = ["admin_team", "profiles"].map((table) =>
+      api
+        .channel(`admin-team-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminTeam() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient]);
 
   const searchUser = async () => {
     if (!searchEmail.trim()) return;
@@ -156,7 +175,7 @@ export default function AdminTeam() {
       setAddOpen(false);
       setSearchEmail("");
       setSearchResult(null);
-      fetchTeam();
+      queryClient.invalidateQueries({ queryKey: queryKeys().adminTeam() });
     }
     setSaving(false);
   };
@@ -168,7 +187,7 @@ export default function AdminTeam() {
     } else {
       toast({ title: "Member removed" });
       setDeleteId(null);
-      fetchTeam();
+      queryClient.invalidateQueries({ queryKey: queryKeys().adminTeam() });
     }
   };
 

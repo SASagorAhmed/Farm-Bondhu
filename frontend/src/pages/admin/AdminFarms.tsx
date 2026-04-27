@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,24 +7,41 @@ import { api } from "@/api/client";
 import { Warehouse, PawPrint, Loader2, Shield, BarChart3 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 export default function AdminFarms() {
-  const [farms, setFarms] = useState<any[]>([]);
-  const [animals, setAnimals] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const load = async () => {
+  const { data: dataBundle, isLoading: loading } = useQuery({
+    queryKey: queryKeys().adminFarmsOverview(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
       const [farmsRes, animalsRes] = await Promise.all([
         api.from("farms").select("*").order("created_at", { ascending: false }),
         api.from("animals").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
-      setFarms(farmsRes.data || []);
-      setAnimals(animalsRes.data || []);
-      setLoading(false);
+      return { farms: farmsRes.data || [], animals: animalsRes.data || [] };
+    },
+  });
+
+  const farms = dataBundle?.farms || [];
+  const animals = dataBundle?.animals || [];
+
+  useEffect(() => {
+    const channels = ["farms", "animals"].map((table) =>
+      api
+        .channel(`admin-farms-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminFarmsOverview() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
     };
-    load();
-  }, []);
+  }, [queryClient]);
 
   const totalFarms = farms.length;
   const totalAnimals = farms.reduce((s, f) => s + (f.total_animals || 0), 0);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, ShieldCheck, Bell, BarChart3 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
@@ -8,6 +8,8 @@ import { ICON_COLORS } from "@/lib/iconColors";
 import { api } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface Stats {
   totalUsers: number;
@@ -26,17 +28,12 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<Stats>({
-    totalUsers: 0,
-    pendingApprovals: 0,
-    totalNotifications: 0,
-    roleDistribution: [],
-    recentActivity: [],
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
+  const queryClient = useQueryClient();
+  const { data: stats, isLoading: loading } = useQuery({
+    queryKey: queryKeys().adminDashboardStats(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async (): Promise<Stats> => {
       const [profilesRes, approvalsRes, rolesRes, recentApprovalsRes] = await Promise.all([
         api.from("profiles").select("id", { count: "exact", head: true }),
         api.from("approval_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -63,17 +60,37 @@ export default function AdminDashboard() {
         type: a.status,
       }));
 
-      setStats({
+      return {
         totalUsers: profilesRes.count || 0,
         pendingApprovals: approvalsRes.count || 0,
         totalNotifications: 0,
         roleDistribution,
         recentActivity,
-      });
-      setLoading(false);
-    }
-    load();
-  }, []);
+      };
+    },
+  });
+
+  useEffect(() => {
+    const channels = ["profiles", "approval_requests", "user_roles"].map((table) =>
+      api
+        .channel(`admin-dashboard-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminDashboardStats() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient]);
+
+  const safeStats: Stats = stats || {
+    totalUsers: 0,
+    pendingApprovals: 0,
+    totalNotifications: 0,
+    roleDistribution: [],
+    recentActivity: [],
+  };
 
   const statusColor = (type: string) =>
     type === "approved" ? "text-secondary" : type === "rejected" ? "text-destructive" : "text-warning";
@@ -86,9 +103,9 @@ export default function AdminDashboard() {
       </motion.div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard title="Total Users" value={loading ? "…" : stats.totalUsers.toLocaleString()} icon={<Users className="h-5 w-5" />} iconColor={ICON_COLORS.users} index={0} />
-        <StatCard title="Pending Approvals" value={loading ? "…" : stats.pendingApprovals.toString()} icon={<ShieldCheck className="h-5 w-5" />} iconColor={ICON_COLORS.shield} index={1} />
-        <StatCard title="Total Roles Assigned" value={loading ? "…" : stats.roleDistribution.reduce((s, r) => s + r.value, 0).toString()} icon={<BarChart3 className="h-5 w-5" />} iconColor={ICON_COLORS.analytics} index={2} />
+        <StatCard title="Total Users" value={loading ? "…" : safeStats.totalUsers.toLocaleString()} icon={<Users className="h-5 w-5" />} iconColor={ICON_COLORS.users} index={0} />
+        <StatCard title="Pending Approvals" value={loading ? "…" : safeStats.pendingApprovals.toString()} icon={<ShieldCheck className="h-5 w-5" />} iconColor={ICON_COLORS.shield} index={1} />
+        <StatCard title="Total Roles Assigned" value={loading ? "…" : safeStats.roleDistribution.reduce((s, r) => s + r.value, 0).toString()} icon={<BarChart3 className="h-5 w-5" />} iconColor={ICON_COLORS.analytics} index={2} />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -102,8 +119,8 @@ export default function AdminDashboard() {
               ) : (
                 <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
-                    <Pie data={stats.roleDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                      {stats.roleDistribution.map((entry, i) => (
+                    <Pie data={safeStats.roleDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
+                      {safeStats.roleDistribution.map((entry, i) => (
                         <Cell key={i} fill={entry.color} />
                       ))}
                     </Pie>
@@ -123,11 +140,11 @@ export default function AdminDashboard() {
             <CardContent>
               {loading ? (
                 <div className="h-[250px] flex items-center justify-center text-muted-foreground">Loading…</div>
-              ) : stats.recentActivity.length === 0 ? (
+              ) : safeStats.recentActivity.length === 0 ? (
                 <div className="h-[250px] flex items-center justify-center text-muted-foreground">No recent activity</div>
               ) : (
                 <div className="space-y-3 max-h-[250px] overflow-y-auto">
-                  {stats.recentActivity.map((a) => (
+                  {safeStats.recentActivity.map((a) => (
                     <div key={a.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                       <span className={`text-sm font-medium capitalize ${statusColor(a.type)}`}>{a.title}</span>
                       <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{a.time}</span>
