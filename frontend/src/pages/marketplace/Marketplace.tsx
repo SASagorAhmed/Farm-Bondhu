@@ -13,6 +13,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const categories = ["all", "feed", "medicine", "vaccines", "equipment", "livestock", "eggs", "meat", "milk", "produce"] as const;
 const catLabels: Record<string, string> = { all: "All", feed: "Feed", medicine: "Medicine", vaccines: "Vaccines", equipment: "Equipment", livestock: "Livestock", eggs: "Eggs", meat: "Meat", milk: "Milk", produce: "Produce" };
@@ -25,15 +27,35 @@ export default function Marketplace() {
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
+  const queryClient = useQueryClient();
   const { addItem, itemCount } = useCart();
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const { data: cachedProducts = [] } = useQuery({
+    queryKey: queryKeys().products(),
+    staleTime: moduleCachePolicy.marketplace.staleTime,
+    gcTime: moduleCachePolicy.marketplace.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("products").select("*").order("created_at", { ascending: false });
+      return (data || []).map(dbToProduct);
+    },
+  });
   useEffect(() => {
-    api.from("products").select("*").order("created_at", { ascending: false }).then(({ data }) => {
-      if (data) setProducts(data.map(dbToProduct));
-    });
-  }, []);
+    setProducts(cachedProducts);
+  }, [cachedProducts]);
+
+  useEffect(() => {
+    const channel = api
+      .channel("marketplace-products-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys().products() });
+      })
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const filtered = products.filter(p => {
     if (category !== "all" && p.category !== category) return false;

@@ -15,6 +15,8 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import AdminChatInbox from "@/components/marketplace/AdminChatInbox";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const categories = ["feed", "medicine", "vaccines", "equipment", "livestock", "eggs", "meat", "milk", "produce"];
 
@@ -36,17 +38,32 @@ const emptyForm = { name: "", category: "feed", price: "", original_price: "", s
 
 export default function FarmBondhuShop() {
   const { user } = useAuth();
-  const [products, setProducts] = useState<FBProduct[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const queryClient = useQueryClient();
 
-  const load = async () => {
-    const { data } = await api.from("products").select("*").eq("seller_name", "FarmBondhu").order("created_at", { ascending: false });
-    if (data) setProducts(data as any);
-  };
+  const { data: products = [] } = useQuery({
+    queryKey: queryKeys().officialShopProducts(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("products").select("*").eq("seller_name", "FarmBondhu").order("created_at", { ascending: false });
+      return (data || []) as FBProduct[];
+    },
+  });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const channel = api
+      .channel("official-shop-products-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
+      })
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const handleSave = async () => {
     if (!form.name || !form.price || !user) return toast.error("Name and price required");
@@ -77,7 +94,7 @@ export default function FarmBondhuShop() {
     setOpen(false);
     setEditing(null);
     setForm(emptyForm);
-    load();
+    queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
   };
 
   const handleEdit = (p: FBProduct) => {
@@ -90,7 +107,7 @@ export default function FarmBondhuShop() {
     const { error } = await api.from("products").delete().eq("id", id);
     if (error) return toast.error(error.message);
     toast.success("Product deleted");
-    load();
+    queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
   };
 
   return (

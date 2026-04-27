@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -121,7 +121,7 @@ import MyPosts from "./pages/community/MyPosts";
 import SavedPosts from "./pages/community/SavedPosts";
 import CommunityHistory from "./pages/community/CommunityHistory";
 
-const queryClient = new QueryClient();
+import { queryClient } from "@/lib/queryClient";
 
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/components/ThemeProvider";

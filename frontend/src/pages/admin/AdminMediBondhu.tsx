@@ -9,6 +9,8 @@ import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 type VetRow = {
   id: string;
@@ -81,21 +83,16 @@ type WithdrawalDetails = {
 };
 
 export default function AdminMediBondhu() {
-  const [vets, setVets] = useState<VetRow[]>([]);
-  const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
   const [actingId, setActingId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [selectedWithdrawalId, setSelectedWithdrawalId] = useState<string | null>(null);
   const [withdrawDetails, setWithdrawDetails] = useState<WithdrawalDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const withdrawalsFetchingRef = useRef(false);
   const detailsFetchingRef = useRef(false);
+  const queryClient = useQueryClient();
 
   const fetchWithdrawals = useCallback(async (options?: { silent?: boolean }) => {
-    if (withdrawalsFetchingRef.current) return;
-    withdrawalsFetchingRef.current = true;
     const token = readSession()?.access_token;
     try {
       const res = await fetch(`${API_BASE}/v1/medibondhu/admin/vet-withdrawals`, {
@@ -103,14 +100,14 @@ export default function AdminMediBondhu() {
       });
       const body = (await res.json().catch(() => ({}))) as { data?: WithdrawalRow[]; error?: string };
       if (!res.ok) throw new Error(body.error || "Failed to load withdrawals");
-      setWithdrawals(Array.isArray(body.data) ? body.data : []);
+      return Array.isArray(body.data) ? body.data : [];
     } catch (error) {
       if (!options?.silent) {
         const message = error instanceof Error ? error.message : "Failed to load withdrawals";
         toast.error(message);
       }
+      return [];
     } finally {
-      withdrawalsFetchingRef.current = false;
     }
   }, []);
 
@@ -140,58 +137,56 @@ export default function AdminMediBondhu() {
     }
   }, []);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [vetsRes, bookingsRes] = await Promise.all([
-          api.from("vets").select("*").order("created_at", { ascending: false }),
-          api.from("consultation_bookings").select("*").order("created_at", { ascending: false }).limit(100),
-          fetchWithdrawals(),
-        ]);
-        setVets(vetsRes.data || []);
-        setBookings(bookingsRes.data || []);
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [fetchWithdrawals]);
+  const { data: vets = [], isLoading: vetsLoading } = useQuery({
+    queryKey: ["admin-medibondhu-vets"],
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const vetsRes = await api.from("vets").select("*").order("created_at", { ascending: false });
+      return (vetsRes.data || []) as VetRow[];
+    },
+  });
+  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+    queryKey: ["admin-medibondhu-bookings"],
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const bookingsRes = await api.from("consultation_bookings").select("*").order("created_at", { ascending: false }).limit(100);
+      return (bookingsRes.data || []) as BookingRow[];
+    },
+  });
+  const { data: cachedWithdrawals = [], isLoading: withdrawalsLoading } = useQuery({
+    queryKey: ["admin-medibondhu-withdrawals"],
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => fetchWithdrawals(),
+  });
 
   useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const poll = async () => {
-      if (document.visibilityState !== "visible") return;
-      await fetchWithdrawals({ silent: true });
-      if (selectedWithdrawalId) {
-        await fetchWithdrawalDetails(selectedWithdrawalId, { silent: true });
-      }
-    };
-    const startPolling = () => {
-      if (intervalId) return;
-      intervalId = setInterval(() => {
-        void poll();
-      }, 10000);
-    };
-    const stopPolling = () => {
-      if (!intervalId) return;
-      clearInterval(intervalId);
-      intervalId = null;
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void poll();
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-    startPolling();
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    setWithdrawals(cachedWithdrawals);
+  }, [cachedWithdrawals]);
+
+  useEffect(() => {
+    const channels = [
+      { key: "admin-medibondhu-vets-live", table: "vets", queryKey: ["admin-medibondhu-vets"] as const },
+      { key: "admin-medibondhu-bookings-live", table: "consultation_bookings", queryKey: ["admin-medibondhu-bookings"] as const },
+      { key: "admin-medibondhu-withdrawals-live", table: "vet_withdrawal_requests", queryKey: ["admin-medibondhu-withdrawals"] as const },
+    ].map((entry) =>
+      api
+        .channel(entry.key)
+        .on("postgres_changes", { event: "*", schema: "public", table: entry.table }, () => {
+          queryClient.invalidateQueries({ queryKey: entry.queryKey });
+          if (selectedWithdrawalId) {
+            void fetchWithdrawalDetails(selectedWithdrawalId, { silent: true });
+          }
+        })
+        .subscribe()
+    );
     return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      channels.forEach((channel) => api.removeChannel(channel));
     };
-  }, [fetchWithdrawalDetails, fetchWithdrawals, selectedWithdrawalId]);
+  }, [fetchWithdrawalDetails, queryClient, selectedWithdrawalId]);
+  const loading = vetsLoading || bookingsLoading || withdrawalsLoading;
 
   const totalVets = vets.length;
   const availableVets = vets.filter(v => v.available).length;
@@ -214,7 +209,7 @@ export default function AdminMediBondhu() {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error || `Failed to ${action} request`);
       toast.success(`Withdrawal ${action}d`);
-      await fetchWithdrawals();
+      queryClient.invalidateQueries({ queryKey: ["admin-medibondhu-withdrawals"] });
       if (selectedWithdrawalId === id) {
         await fetchWithdrawalDetails(id);
       }

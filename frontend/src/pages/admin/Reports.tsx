@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/api/client";
 import { Download } from "lucide-react";
@@ -6,27 +6,44 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 export default function Reports() {
-  const [stats, setStats] = useState({ totalUsers: 0, totalFarms: 0, totalOrders: 0, totalRevenue: 0 });
-
-  useEffect(() => {
-    const load = async () => {
+  const queryClient = useQueryClient();
+  const { data: stats = { totalUsers: 0, totalFarms: 0, totalOrders: 0, totalRevenue: 0 } } = useQuery({
+    queryKey: queryKeys().adminReportsSummary(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
       const [users, farms, orders] = await Promise.all([
         api.from("profiles").select("id", { count: "exact", head: true }),
         api.from("farms").select("id", { count: "exact", head: true }),
         api.from("orders").select("total"),
       ]);
       const totalRevenue = (orders.data || []).reduce((s: number, o: any) => s + Number(o.total), 0);
-      setStats({
+      return {
         totalUsers: users.count || 0,
         totalFarms: farms.count || 0,
         totalOrders: (orders.data || []).length,
         totalRevenue,
-      });
+      };
+    },
+  });
+
+  useEffect(() => {
+    const channels = ["profiles", "farms", "orders"].map((table) =>
+      api
+        .channel(`admin-reports-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminReportsSummary() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
     };
-    load();
-  }, []);
+  }, [queryClient]);
 
   return (
     <div className="space-y-6">

@@ -12,6 +12,8 @@ import StatCard from "@/components/dashboard/StatCard";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface ShopReq {
   id: string;
@@ -39,12 +41,16 @@ export default function ShopApprovals() {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<ShopReq | null>(null);
   const [reviewNote, setReviewNote] = useState("");
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const load = async () => {
+  const { data: cachedRequests = [] } = useQuery({
+    queryKey: queryKeys().shopApprovals(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
       const { data } = await api.from("approval_requests").select("*, profiles:user_id(name, phone, location)").eq("request_type", "shop_access").order("created_at", { ascending: false });
       if (data) {
-        setRequests(data.map((r: any) => ({
+        return data.map((r: any) => ({
           id: r.id,
           userId: r.user_id,
           userName: r.profiles?.name || "Unknown",
@@ -57,11 +63,29 @@ export default function ShopApprovals() {
           requestDate: new Date(r.created_at).toISOString().split("T")[0],
           reviewDate: r.updated_at !== r.created_at ? new Date(r.updated_at).toISOString().split("T")[0] : undefined,
           reviewNote: r.review_notes,
-        })));
+        })) as ShopReq[];
       }
-    };
-    load();
+      return [];
+    },
   }, []);
+
+  useEffect(() => {
+    setRequests(cachedRequests);
+  }, [cachedRequests]);
+
+  useEffect(() => {
+    const channels = ["approval_requests", "profiles"].map((table) =>
+      api
+        .channel(`shop-approvals-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().shopApprovals() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient]);
 
   const filtered = filter === "all" ? requests : requests.filter(r => r.status === filter);
   const pendingCount = requests.filter(r => r.status === "pending").length;
@@ -75,6 +99,7 @@ export default function ShopApprovals() {
     setSelected(null);
     setReviewNote("");
     toast.success(`Shop request ${status}`);
+    queryClient.invalidateQueries({ queryKey: queryKeys().shopApprovals() });
   };
 
   return (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Bell, ShieldCheck, Package, Stethoscope, Tractor, Info, CheckCheck, Loader2, Layers, ShoppingCart, BookOpen, GraduationCap, ExternalLink } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 type NotificationRow = {
   id: string;
@@ -77,8 +78,7 @@ function getDefaultTab(contextFilter?: string[]): string {
 export default function Notifications({ contextFilter }: NotificationsProps) {
   const { user, hasRole, hasCapability } = useAuth();
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState(() => getDefaultTab(contextFilter));
 
   // Filter workspace tabs based on user's actual roles/capabilities
@@ -93,32 +93,55 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
   });
 
   // Always fetch ALL notifications for the user — no context filtering at query level
-  const fetchNotifications = async () => {
-    if (!user) return;
+  const fetchNotifications = async (): Promise<NotificationRow[]> => {
+    if (!user) return [];
     const { data, error } = await api
       .from("notifications")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (!error && data) {
-      setNotifications(data as NotificationRow[]);
-    }
-    setLoading(false);
+    if (error || !data) return [];
+    return data as NotificationRow[];
   };
 
-  useEffect(() => {
-    fetchNotifications();
+  const { data: notifications = [], isLoading } = useQuery({
+    queryKey: ["notifications", user?.id],
+    queryFn: fetchNotifications,
+    enabled: Boolean(user),
+    staleTime: 30 * 1000,
+  });
 
+  useEffect(() => {
+    if (!user?.id) return;
     const channel = api
       .channel("notifications-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => fetchNotifications())
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, (payload: any) => {
+        const eventType = String(payload?.eventType || "").toUpperCase();
+        if (eventType === "INSERT" && payload?.new) {
+          queryClient.setQueryData<NotificationRow[]>(["notifications", user.id], (prev = []) => {
+            const row = payload.new as NotificationRow;
+            if (prev.some((n) => n.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+          return;
+        }
+        if (eventType === "UPDATE" && payload?.new) {
+          queryClient.setQueryData<NotificationRow[]>(["notifications", user.id], (prev = []) => {
+            const row = payload.new as NotificationRow;
+            return prev.map((n) => (n.id === row.id ? row : n));
+          });
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ["notifications", user.id] });
+      })
       .subscribe();
-
-    return () => { api.removeChannel(channel); };
-  }, [user]);
+    return () => {
+      api.removeChannel(channel);
+    };
+  }, [queryClient, user?.id]);
 
   // Filter logic: workspace tabs filter by context, "unread" filters by read state
-  const filtered = (() => {
+  const filtered = useMemo(() => {
     if (filter === "all") return notifications;
     if (filter === "unread") return notifications.filter(n => !n.read);
     const tab = WORKSPACE_TABS.find(t => t.value === filter);
@@ -126,7 +149,7 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
       return notifications.filter(n => tab.contexts!.includes(n.context) || n.context === "general");
     }
     return notifications;
-  })();
+  }, [filter, notifications]);
 
   const totalUnread = notifications.filter(n => !n.read).length;
 
@@ -145,7 +168,9 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
     if (unreadIds.length === 0) return;
     await api.from("notifications").update({ read: true }).in("id", unreadIds);
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+    queryClient.setQueryData<NotificationRow[]>(["notifications", user?.id], (prev = []) =>
+      prev.map((n) => ({ ...n, read: true }))
+    );
   };
 
   const ADMIN_ROUTE_MAP: Record<string, string> = {
@@ -166,7 +191,9 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     // Mark as read
     if (!n.read) {
       await api.from("notifications").update({ read: true }).eq("id", n.id);
-      setNotifications(prev => prev.map(x => (x.id === n.id ? { ...x, read: true } : x)));
+      queryClient.setQueryData<NotificationRow[]>(["notifications", user?.id], (prev = []) =>
+        prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
+      );
     }
     // Navigate if action_url exists
     if (n.action_url) {
@@ -182,7 +209,9 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     const notif = notifications.find(n => n.id === id);
     if (!notif) return;
     await api.from("notifications").update({ read: !notif.read }).eq("id", id);
-    setNotifications(notifications.map(n => (n.id === id ? { ...n, read: !n.read } : n)));
+    queryClient.setQueryData<NotificationRow[]>(["notifications", user?.id], (prev = []) =>
+      prev.map((n) => (n.id === id ? { ...n, read: !n.read } : n))
+    );
   };
 
   // Group by date
@@ -205,7 +234,7 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
 
   const groups = groupByDate(filtered);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

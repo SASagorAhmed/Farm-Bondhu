@@ -21,6 +21,8 @@ import {
   Calendar, Zap, Check, Stethoscope, CreditCard, Clock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const MB = "#12C2D6";
 
@@ -63,7 +65,6 @@ export default function BookConsultation() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [vet, setVet] = useState<Vet | null>(null);
-  const [loading, setLoading] = useState(true);
 
   const [step, setStep] = useState(0);
   const [bookingType, setBookingType] = useState<"instant" | "scheduled">("instant");
@@ -80,21 +81,27 @@ export default function BookConsultation() {
   const [availableSlots, setAvailableSlots] = useState<string[]>(TIME_SLOTS);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  useEffect(() => {
-    if (!vetId) return;
-    api.from("vets").select("*").eq("id", vetId).single().then(({ data }) => {
-      if (data) setVet(dbToVet(data));
-      setLoading(false);
-    });
-  }, [vetId]);
+  const { data: vetData, isLoading: loading } = useQuery({
+    queryKey: queryKeys().vetById(vetId),
+    enabled: Boolean(vetId),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("vets").select("*").eq("id", vetId).single();
+      return data ? dbToVet(data) : null;
+    },
+  });
 
   useEffect(() => {
-    if (!vetId || bookingType !== "scheduled" || !selectedDate) {
-      setAvailableSlots(TIME_SLOTS);
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
+    setVet(vetData || null);
+  }, [vetData]);
+
+  const { data: slotData } = useQuery({
+    queryKey: queryKeys().vetSlots(vetId, selectedDate),
+    enabled: Boolean(vetId && bookingType === "scheduled" && selectedDate),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
       setLoadingSlots(true);
       try {
         const token = readSession()?.access_token;
@@ -105,23 +112,27 @@ export default function BookConsultation() {
           },
         });
         const body = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!res.ok) throw new Error(body?.error || `Failed to load slots (${res.status})`);
-        const slots = Array.isArray(body?.data) ? body.data.map(String) : [];
-        setAvailableSlots(slots);
-      } catch (e) {
-        console.error(e);
-        setAvailableSlots([]);
+        if (!res.ok) {
+          toast.error(body?.error || "Could not load doctor availability for this date");
+          return [];
+        }
+        return Array.isArray(body?.data) ? body.data.map(String) : [];
+      } catch {
         toast.error("Could not load doctor availability for this date");
+        return [];
       } finally {
-        if (!cancelled) setLoadingSlots(false);
+        setLoadingSlots(false);
       }
-    };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vetId, bookingType, selectedDate]);
+    },
+  });
+
+  useEffect(() => {
+    if (bookingType !== "scheduled" || !selectedDate) {
+      setAvailableSlots(TIME_SLOTS);
+      return;
+    }
+    setAvailableSlots(slotData || []);
+  }, [bookingType, selectedDate, slotData]);
 
   useEffect(() => {
     if (selectedTime && !availableSlots.includes(selectedTime)) {

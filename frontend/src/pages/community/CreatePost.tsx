@@ -109,17 +109,16 @@ export default function CreatePost() {
     setLinkLoading(false);
   }, [lastFetchedUrl]);
 
-  // Debounced URL detection
+  // Immediate URL detection to avoid typing-delay before preview starts.
   useEffect(() => {
     const url = extractFirstUrl(body);
     if (url) {
-      const timer = setTimeout(() => fetchLinkPreview(url), 800);
-      return () => clearTimeout(timer);
+      void fetchLinkPreview(url);
     } else {
       setLinkPreview(null);
       setLastFetchedUrl(null);
     }
-  }, [body]);
+  }, [body, fetchLinkPreview]);
 
   const handleSubmit = async () => {
     if (!user || !title.trim() || !category || !animalType) {

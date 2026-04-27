@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import RelatedLinks from "@/components/dashboard/RelatedLinks";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const animalEmoji: Record<string, string> = { chicken: "🐔", duck: "🦆", cow: "🐄", goat: "🐐", sheep: "🐑", turkey: "🦃", pigeon: "🕊️" };
 const healthColors: Record<string, string> = { healthy: "bg-secondary/15 text-secondary", sick: "bg-destructive/15 text-destructive", treatment: "bg-primary/15 text-primary" };
@@ -23,8 +25,7 @@ interface AnimalRow { id: string; farm_id: string; type: string; tracking_mode: 
 
 export default function Animals() {
   const { user } = useAuth();
-  const [animals, setAnimals] = useState<AnimalRow[]>([]);
-  const [farms, setFarms] = useState<FarmRow[]>([]);
+  const queryClient = useQueryClient();
   const [farmFilter, setFarmFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [healthFilter, setHealthFilter] = useState("all");
@@ -37,16 +38,41 @@ export default function Animals() {
   const emptyForm = { farm_id: "", type: "chicken", tracking_mode: "batch", breed: "", age: "", health_status: "healthy", batch_id: "", batch_size: 0, name: "", last_vaccination: "" };
   const [form, setForm] = useState(emptyForm);
 
-  const loadData = async () => {
-    if (!user) return;
-    const [aRes, fRes] = await Promise.all([
-      api.from("animals").select("*").eq("user_id", user.id).order("created_at"),
-      api.from("farms").select("id, name").eq("user_id", user.id),
-    ]);
-    setAnimals((aRes.data || []) as AnimalRow[]);
-    setFarms((fRes.data || []) as FarmRow[]);
-  };
-  useEffect(() => { loadData(); }, [user]);
+  const { data: animals = [] } = useQuery({
+    queryKey: queryKeys().animals(user?.id),
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+    queryFn: async () => {
+      const aRes = await api.from("animals").select("*").eq("user_id", user!.id).order("created_at");
+      return ((aRes.data || []) as AnimalRow[]);
+    },
+  });
+  const { data: farms = [] } = useQuery({
+    queryKey: queryKeys().farms(user?.id),
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+    queryFn: async () => {
+      const fRes = await api.from("farms").select("id, name").eq("user_id", user!.id);
+      return ((fRes.data || []) as FarmRow[]);
+    },
+  });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const channels = ["animals", "farms"].map((table) =>
+      api
+        .channel(`animals-live-${table}-${user.id}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: table === "animals" ? queryKeys().animals(user.id) : queryKeys().farms(user.id) });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient, user?.id]);
 
   const filtered = animals.filter(a => {
     if (farmFilter !== "all" && a.farm_id !== farmFilter) return false;
@@ -66,7 +92,8 @@ export default function Animals() {
       name: form.name || null, last_vaccination: form.last_vaccination || null,
     });
     if (error) { toast.error(error.message); return; }
-    setForm(emptyForm); setAddOpen(false); toast.success("Animal added"); loadData();
+    setForm(emptyForm); setAddOpen(false); toast.success("Animal added");
+    queryClient.invalidateQueries({ queryKey: queryKeys().animals(user.id) });
   };
 
   const handleEdit = async () => {
@@ -77,7 +104,8 @@ export default function Animals() {
       batch_id: form.batch_id || null, batch_size: form.batch_size || null,
       name: form.name || null, last_vaccination: form.last_vaccination || null,
     }).eq("id", editId);
-    setEditOpen(false); setEditId(null); toast.success("Animal updated"); loadData();
+    setEditOpen(false); setEditId(null); toast.success("Animal updated");
+    queryClient.invalidateQueries({ queryKey: queryKeys().animals(user?.id) });
   };
 
   const openEdit = (a: AnimalRow) => {
@@ -88,7 +116,8 @@ export default function Animals() {
   const handleDelete = async () => {
     if (!deleteId) return;
     await api.from("animals").delete().eq("id", deleteId);
-    setDeleteOpen(false); setDeleteId(null); toast.success("Animal deleted"); loadData();
+    setDeleteOpen(false); setDeleteId(null); toast.success("Animal deleted");
+    queryClient.invalidateQueries({ queryKey: queryKeys().animals(user?.id) });
   };
 
   const formFields = (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API_BASE, api, readSession } from "@/api/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, XCircle, Clock, Loader2, Eye, UserCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface ApprovalRequest {
   id: string;
@@ -73,16 +75,15 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function ApprovalQueue() {
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("pending");
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [applicantName, setApplicantName] = useState<string>("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const fetchRequests = async () => {
-    setLoading(true);
+  const fetchRequests = useCallback(async () => {
     let query = api
       .from("approval_requests")
       .select("*")
@@ -95,9 +96,7 @@ export default function ApprovalQueue() {
     const { data, error } = await query;
     if (error) {
       toast({ title: "Error loading requests", description: error.message, variant: "destructive" });
-      setRequests([]);
-      setLoading(false);
-      return;
+      return [];
     }
 
     const requests = (data as any[]) || [];
@@ -115,14 +114,50 @@ export default function ApprovalQueue() {
       });
     }
 
-    setRequests(requests.map((r) => ({
+    return requests.map((r) => ({
       ...r,
       reviewer_profile: r.reviewed_by ? reviewerMap[r.reviewed_by] || null : null,
-    })));
-    setLoading(false);
-  };
+    })) as ApprovalRequest[];
+  }, [filter, toast]);
 
-  useEffect(() => { fetchRequests(); }, [filter]);
+  const { data: cachedRequests = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys().approvalQueue(filter),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: fetchRequests,
+  });
+
+  useEffect(() => {
+    setRequests(cachedRequests);
+  }, [cachedRequests]);
+
+  useEffect(() => {
+    const tables = ["approval_requests", "profiles", "user_roles", "user_capabilities"];
+    const channels = tables.map((table) =>
+      api
+        .channel(`approval-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, (payload: any) => {
+          if (table === "approval_requests" && payload?.new) {
+            queryClient.setQueryData<ApprovalRequest[]>(queryKeys().approvalQueue(filter), (prev = []) => {
+              const row = payload.new as ApprovalRequest;
+              const idx = prev.findIndex((r) => r.id === row.id);
+              if (idx >= 0) {
+                const next = prev.slice();
+                next[idx] = { ...next[idx], ...row };
+                return next;
+              }
+              return [row, ...prev];
+            });
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: queryKeys().approvalQueue(filter) });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [filter, queryClient]);
 
   const openDetail = async (req: ApprovalRequest) => {
     setSelectedRequest(req);
@@ -194,7 +229,7 @@ export default function ApprovalQueue() {
     toast({ title: `Request ${status}`, description: `The request has been ${status}.` });
     setSelectedRequest(null);
     setActionLoading(false);
-    fetchRequests();
+    queryClient.invalidateQueries({ queryKey: queryKeys().approvalQueue(filter) });
   };
 
   const renderDetails = (details: any) => {

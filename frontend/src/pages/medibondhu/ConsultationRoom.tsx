@@ -12,6 +12,8 @@ import {
   ArrowLeft, FileText, PhoneOff,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const MB = "#12C2D6";
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled"]);
@@ -50,6 +52,7 @@ export default function ConsultationRoom() {
   const consultationsPath = location.pathname.startsWith("/vet/")
     ? "/vet/consultations"
     : "/medibondhu/consultations";
+  const queryClient = useQueryClient();
   const [booking, setBooking] = useState<any>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -80,48 +83,57 @@ export default function ConsultationRoom() {
     [booking?.consultation_method]
   );
 
-  // Fetch booking
+  const { data: bookingData } = useQuery({
+    queryKey: queryKeys().consultationRoom(bookingId),
+    enabled: Boolean(bookingId),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
+      const { data, error } = await api
+        .from("consultation_bookings")
+        .select("*")
+        .eq("id", bookingId)
+        .single();
+      if (error) {
+        setRoomError(error.message || "Failed to load consultation details.");
+        return null;
+      }
+      if (!data) {
+        setRoomError("Consultation not found or you do not have access.");
+        return null;
+      }
+      setRoomError(null);
+      return data;
+    },
+  });
   useEffect(() => {
-    if (!bookingId) return;
-    api
-      .from("consultation_bookings")
-      .select("*")
-      .eq("id", bookingId)
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          setRoomError(error.message || "Failed to load consultation details.");
-          return;
-        }
-        if (data) {
-          setRoomError(null);
-          bookingStatusRef.current = data.status ?? null;
-          setBooking((prev: any) => {
-            if (prev && prev.id === data.id && prev.status === data.status) return prev;
-            return data;
-          });
-        } else {
-          setRoomError("Consultation not found or you do not have access.");
-        }
-      });
-  }, [bookingId]);
+    if (!bookingData) return;
+    bookingStatusRef.current = bookingData.status ?? null;
+    setBooking((prev: any) => {
+      if (prev && prev.id === bookingData.id && prev.status === bookingData.status) return prev;
+      return bookingData;
+    });
+  }, [bookingData]);
 
-  // Fetch existing messages
+  const { data: initialMessages } = useQuery({
+    queryKey: ["consultation-room-messages", bookingId || "unknown"],
+    enabled: Boolean(bookingId),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
+      const { data } = await api
+        .from("consultation_messages")
+        .select("*")
+        .eq("booking_id", bookingId)
+        .order("created_at", { ascending: true });
+      return data || [];
+    },
+  });
   useEffect(() => {
-    if (!bookingId) return;
-    api
-      .from("consultation_messages")
-      .select("*")
-      .eq("booking_id", bookingId)
-      .order("created_at", { ascending: true })
-      .then(({ data, error }) => {
-        if (error) return;
-        if (data) {
-          messagesSignatureRef.current = getMessagesSignature(data);
-          setMessages(data);
-        }
-      });
-  }, [bookingId]);
+    if (!initialMessages) return;
+    messagesSignatureRef.current = getMessagesSignature(initialMessages);
+    setMessages(initialMessages);
+  }, [initialMessages]);
 
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
@@ -137,6 +149,11 @@ export default function ConsultationRoom() {
             const nextMessages = [...prev, payload.new];
             messagesSignatureRef.current = getMessagesSignature(nextMessages);
             return nextMessages;
+          });
+          queryClient.setQueryData(["consultation-room-messages", bookingId || "unknown"], (prev: any) => {
+            const current = Array.isArray(prev) ? prev : [];
+            if (current.some((msg: any) => msg.id === payload.new.id)) return current;
+            return [...current, payload.new];
           });
         }
       )
@@ -212,12 +229,11 @@ export default function ConsultationRoom() {
       }
     };
 
+    // Run a single immediate fallback sync; realtime remains the primary updater.
     pollFallback();
-    const interval = setInterval(pollFallback, 3000);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
   }, [bookingId, consultationsPath, navigate]);
 
@@ -263,8 +279,9 @@ export default function ConsultationRoom() {
       return;
     }
     toast.success(nextStatus === "completed" ? "Consultation ended" : "Consultation cancelled");
+    queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
     navigate(consultationsPath);
-  }, [bookingId, consultationsPath, navigate, user]);
+  }, [bookingId, consultationsPath, navigate, queryClient, user]);
 
   // Initialize ZegoCloud for audio/video (deps are primitives so polling does not destroy the room)
   useEffect(() => {

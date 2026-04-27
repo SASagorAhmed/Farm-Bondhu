@@ -1,8 +1,12 @@
+import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
+
 /**
  * FarmBondhu browser client: all data and auth go through the Express API (`/api/v1/...`).
  * Set `VITE_API_URL` (e.g. http://127.0.0.1:3001) so requests go straight to your backend; backend CORS must allow this Vite origin.
  */
 export const API_BASE = `${import.meta.env.VITE_API_URL || ""}/api`;
+const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").trim();
+const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
 const AUTH_KEY = "farmbondhu.session";
 
@@ -1090,21 +1094,47 @@ function from(table: string) {
   return new QueryBuilder(table);
 }
 
+let realtimeClient: SupabaseClient | null = null;
+function getRealtimeClient() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  if (!realtimeClient) {
+    realtimeClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { params: { eventsPerSecond: 10 } },
+    });
+  }
+  return realtimeClient;
+}
+
 function noopChannel() {
   return {
     on() {
       return this;
     },
     subscribe() {
-      return { unsubscribe: () => {} };
+      return this;
+    },
+    unsubscribe() {
+      return Promise.resolve("ok");
     },
   };
 }
 
 export const api = {
   from,
-  channel: () => noopChannel(),
-  removeChannel: () => {},
+  channel: (name: string) => {
+    const client = getRealtimeClient();
+    if (!client) return noopChannel();
+    return client.channel(name);
+  },
+  removeChannel: (channel?: RealtimeChannel | { unsubscribe?: () => unknown }) => {
+    const client = getRealtimeClient();
+    if (client && channel) {
+      return client.removeChannel(channel as RealtimeChannel);
+    }
+    channel?.unsubscribe?.();
+    return Promise.resolve("ok");
+  },
   auth: {
     async getSession() {
       const s = readSession();

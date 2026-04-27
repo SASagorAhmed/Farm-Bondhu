@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,51 +9,51 @@ import { motion } from "framer-motion";
 import StatCard from "@/components/dashboard/StatCard";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { toast } from "@/hooks/use-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 export default function VetDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [pendingBookings, setPendingBookings] = useState<any[]>([]);
-  const [todayBookings, setTodayBookings] = useState<any[]>([]);
   const [accepting, setAccepting] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchBookings = useCallback(async () => {
-    if (!user) return;
+  const { data: bookingData } = useQuery({
+    queryKey: queryKeys().vetBookingsDashboard(user?.id),
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
+      const uid = user!.id;
+      const [pendingRes, todayRes] = await Promise.all([
+        api
+          .from("consultation_bookings")
+          .select("*")
+          .eq("vet_user_id", uid)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false }),
+        api
+          .from("consultation_bookings")
+          .select("*")
+          .eq("vet_user_id", uid)
+          .in("status", ["in_progress", "completed"])
+          .gte("created_at", `${new Date().toISOString().split("T")[0]}T00:00:00`)
+          .order("created_at", { ascending: false }),
+      ]);
+      const today = new Date().toISOString().split("T")[0];
+      const rows = Array.isArray(todayRes.data) ? todayRes.data : [];
+      const filteredToday = rows.filter((row: any) => {
+        const scheduledDate = String(row.scheduled_date || "").slice(0, 10);
+        if (scheduledDate) return scheduledDate === today;
+        const createdDate = String(row.created_at || "").slice(0, 10);
+        return createdDate === today;
+      });
+      return { pendingBookings: pendingRes.data || [], todayBookings: filteredToday };
+    },
+  });
 
-    // Fetch pending bookings for this vet
-    const { data: pending } = await api
-      .from("consultation_bookings")
-      .select("*")
-      .eq("vet_user_id", user.id)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
-
-    setPendingBookings(pending || []);
-
-    // Fetch today's in-progress/completed bookings.
-    // We still query by created_at as a coarse backend filter, then enforce scheduled_date client-side.
-    const today = new Date().toISOString().split("T")[0];
-    const { data: todayData } = await api
-      .from("consultation_bookings")
-      .select("*")
-      .eq("vet_user_id", user.id)
-      .in("status", ["in_progress", "completed"])
-      .gte("created_at", `${today}T00:00:00`)
-      .order("created_at", { ascending: false });
-
-    const rows = Array.isArray(todayData) ? todayData : [];
-    const filteredToday = rows.filter((row) => {
-      const scheduledDate = String(row.scheduled_date || "").slice(0, 10);
-      if (scheduledDate) return scheduledDate === today;
-      const createdDate = String(row.created_at || "").slice(0, 10);
-      return createdDate === today;
-    });
-    setTodayBookings(filteredToday);
-  }, [user]);
-
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  const pendingBookings = bookingData?.pendingBookings || [];
+  const todayBookings = bookingData?.todayBookings || [];
 
   // Realtime subscription for new/updated bookings
   useEffect(() => {
@@ -67,7 +67,7 @@ export default function VetDashboard() {
           table: "consultation_bookings",
         },
         () => {
-          fetchBookings();
+          queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user?.id) });
         }
       )
       .subscribe();
@@ -75,18 +75,7 @@ export default function VetDashboard() {
     return () => {
       api.removeChannel(channel);
     };
-  }, [fetchBookings]);
-
-  // Polling fallback in case realtime updates are delayed/disconnected.
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      fetchBookings();
-    }, 9000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [fetchBookings]);
+  }, [queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {
     setAccepting(bookingId);
@@ -106,6 +95,7 @@ export default function VetDashboard() {
     }
 
     toast({ title: "Consultation accepted!", description: "Joining the room now..." });
+    queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user?.id) });
     navigate(`/vet/room/${bookingId}`);
   };
 

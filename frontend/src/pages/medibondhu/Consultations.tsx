@@ -24,9 +24,18 @@ export default function Consultations() {
   useEffect(() => {
     if (!user) return;
     const token = readSession()?.access_token;
-    api.from("consultation_bookings").select("*").eq("patient_mock_id", user.id).order("created_at", { ascending: false }).then(({ data }) => {
-      if (data) setConsultations(data);
-    });
+    const loadConsultations = () =>
+      api.from("consultation_bookings").select("*").eq("patient_mock_id", user.id).order("created_at", { ascending: false }).then(({ data }) => {
+        if (data) setConsultations(data);
+      });
+    loadConsultations();
+    const channel = api
+      .channel(`consultations-live-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () => {
+        void loadConsultations();
+      })
+      .subscribe();
+
     fetch(`${API_BASE}/v1/medibondhu/spent-summary`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -38,6 +47,9 @@ export default function Consultations() {
       .catch(() => {
         setTotalSpent(0);
       });
+    return () => {
+      api.removeChannel(channel);
+    };
   }, [user]);
 
   const scheduled = consultations.filter(c => c.status === "confirmed" || c.status === "pending").length;

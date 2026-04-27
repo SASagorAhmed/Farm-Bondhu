@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import StatCard from "@/components/dashboard/StatCard";
@@ -9,56 +8,75 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { api } from "@/api/client";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [totalAnimals, setTotalAnimals] = useState(0);
-  const [productionData, setProductionData] = useState<{ date: string; eggs: number; milk: number }[]>([]);
-  const [financials, setFinancials] = useState({ totalRevenue: 0, totalExpenses: 0, profit: 0 });
-  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: React.ReactNode; color: string; text: string; date: string; link: string }[]>([]);
+  const queryClient = useQueryClient();
+  const { data: overviewData } = useQuery({
+    queryKey: ["dashboard-overview", user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const uid = user!.id;
+      const [animalsRes, productionRes, financialRes, healthRes, salesRes, mortRes] = await Promise.all([
+        api.from("animals").select("id", { count: "exact", head: true }).eq("user_id", uid),
+        api.from("production_records").select("*").eq("user_id", uid).order("date", { ascending: true }).limit(10),
+        api.from("financial_records").select("type, amount").eq("user_id", uid),
+        api.from("health_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
+        api.from("sale_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
+        api.from("mortality_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
+      ]);
+
+      const productionData = (productionRes.data || []).map((r) => ({ date: r.date, eggs: r.eggs, milk: Number(r.milk) }));
+      const records = financialRes.data || [];
+      const totalRevenue = records.filter((r) => r.type === "income").reduce((s, r) => s + Number(r.amount), 0);
+      const totalExpenses = records.filter((r) => r.type === "expense").reduce((s, r) => s + Number(r.amount), 0);
+
+      const recentActivity: { id: string; icon: React.ReactNode; color: string; text: string; date: string; link: string }[] = [];
+      (healthRes.data || []).forEach((r) => {
+        recentActivity.push({ id: `h-${r.id}`, icon: <HeartPulse className="h-4 w-4" />, color: ICON_COLORS.health, text: `${r.description} — ${r.animal_label || "Animal"}`, date: r.date, link: "/dashboard/health" });
+      });
+      (salesRes.data || []).forEach((r) => {
+        recentActivity.push({ id: `s-${r.id}`, icon: <ShoppingBag className="h-4 w-4" />, color: ICON_COLORS.finance, text: `${r.product} sold to ${r.buyer} — ৳${Number(r.total).toLocaleString()}`, date: r.date, link: "/dashboard/sales" });
+      });
+      (mortRes.data || []).forEach((r) => {
+        recentActivity.push({ id: `m-${r.id}`, icon: <Skull className="h-4 w-4" />, color: ICON_COLORS.mortality, text: `${r.count} ${r.animal_type} deaths — ${r.cause}`, date: r.date, link: "/dashboard/mortality" });
+      });
+
+      return {
+        totalAnimals: animalsRes.count || 0,
+        productionData,
+        financials: { totalRevenue, totalExpenses, profit: totalRevenue - totalExpenses },
+        recentActivity: recentActivity.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
+      };
+    },
+  });
+
+  const totalAnimals = overviewData?.totalAnimals || 0;
+  const productionData = overviewData?.productionData || [];
+  const financials = overviewData?.financials || { totalRevenue: 0, totalExpenses: 0, profit: 0 };
+  const recentActivity = overviewData?.recentActivity || [];
 
   useEffect(() => {
-    if (!user) return;
-    const uid = user.id;
-
-    // Fetch animals count
-    api.from("animals").select("id", { count: "exact", head: true }).eq("user_id", uid).then(({ count }) => {
-      setTotalAnimals(count || 0);
-    });
-
-    // Fetch production data
-    api.from("production_records").select("*").eq("user_id", uid).order("date", { ascending: true }).limit(10).then(({ data }) => {
-      setProductionData((data || []).map(r => ({ date: r.date, eggs: r.eggs, milk: Number(r.milk) })));
-    });
-
-    // Fetch financial summary
-    api.from("financial_records").select("type, amount").eq("user_id", uid).then(({ data }) => {
-      const records = data || [];
-      const totalRevenue = records.filter(r => r.type === "income").reduce((s, r) => s + Number(r.amount), 0);
-      const totalExpenses = records.filter(r => r.type === "expense").reduce((s, r) => s + Number(r.amount), 0);
-      setFinancials({ totalRevenue, totalExpenses, profit: totalRevenue - totalExpenses });
-    });
-
-    // Build recent activity
-    Promise.all([
-      api.from("health_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-      api.from("sale_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-      api.from("mortality_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-    ]).then(([healthRes, salesRes, mortRes]) => {
-      const items: typeof recentActivity = [];
-      (healthRes.data || []).forEach(r => {
-        items.push({ id: `h-${r.id}`, icon: <HeartPulse className="h-4 w-4" />, color: ICON_COLORS.health, text: `${r.description} — ${r.animal_label || "Animal"}`, date: r.date, link: "/dashboard/health" });
+    if (!user?.id) return;
+    const tables = ["animals", "production_records", "financial_records", "health_records", "sale_records", "mortality_records"];
+    const channels = tables.map((table) =>
+      api
+        .channel(`overview-live-${table}-${user.id}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: ["dashboard-overview", user.id] });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => {
+        api.removeChannel(channel);
       });
-      (salesRes.data || []).forEach(r => {
-        items.push({ id: `s-${r.id}`, icon: <ShoppingBag className="h-4 w-4" />, color: ICON_COLORS.finance, text: `${r.product} sold to ${r.buyer} — ৳${Number(r.total).toLocaleString()}`, date: r.date, link: "/dashboard/sales" });
-      });
-      (mortRes.data || []).forEach(r => {
-        items.push({ id: `m-${r.id}`, icon: <Skull className="h-4 w-4" />, color: ICON_COLORS.mortality, text: `${r.count} ${r.animal_type} deaths — ${r.cause}`, date: r.date, link: "/dashboard/mortality" });
-      });
-      setRecentActivity(items.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5));
-    });
-  }, [user]);
+    };
+  }, [queryClient, user?.id]);
 
   const latestEggs = productionData[productionData.length - 1]?.eggs || 0;
   const latestMilk = productionData[productionData.length - 1]?.milk || 0;

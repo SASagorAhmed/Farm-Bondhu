@@ -17,6 +17,8 @@ import { ICON_COLORS } from "@/lib/iconColors";
 import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { format } from "date-fns";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const ALL_ROLES = ["buyer", "farmer", "vendor", "vet", "admin"] as const;
 type AppRole = (typeof ALL_ROLES)[number];
@@ -57,6 +59,7 @@ export default function UserManagement() {
   const [selected, setSelected] = useState<UserRow | null>(null);
   const [allPermissions, setAllPermissions] = useState<{ code: string; description: string | null }[]>([]);
   const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
 
   const messageFromError = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) return error.message;
@@ -64,7 +67,6 @@ export default function UserManagement() {
   };
 
   const fetchUsers = async () => {
-    setLoading(true);
     try {
       const [profilesRes, rolesRes, capsRes, permsRes] = await Promise.all([
         api.from("profiles").select("*").order("created_at", { ascending: false }),
@@ -129,18 +131,43 @@ export default function UserManagement() {
         vet_profile: vetMap[p.id] || null,
       }));
 
-      setUsers(mapped);
-      setAllPermissions((permsRes.data || []) as { code: string; description: string | null }[]);
+      return {
+        users: mapped,
+        permissions: (permsRes.data || []) as { code: string; description: string | null }[],
+      };
     } catch (error) {
-      setUsers([]);
-      setAllPermissions([]);
       toast.error(messageFromError(error, "Failed to load admin users"));
-    } finally {
-      setLoading(false);
+      return { users: [] as UserRow[], permissions: [] as { code: string; description: string | null }[] };
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  const { data: userData } = useQuery({
+    queryKey: queryKeys().adminUserManagement(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: fetchUsers,
+  });
+
+  useEffect(() => {
+    if (!userData) return;
+    setUsers(userData.users);
+    setAllPermissions(userData.permissions);
+    setLoading(false);
+  }, [userData]);
+
+  useEffect(() => {
+    const channels = ["profiles", "user_roles", "user_capabilities"].map((table) =>
+      api
+        .channel(`admin-user-management-live-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminUserManagement() });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient]);
 
   const filtered = users.filter(u => {
     if (roleFilter !== "all" && !u.roles.includes(roleFilter as AppRole)) return false;

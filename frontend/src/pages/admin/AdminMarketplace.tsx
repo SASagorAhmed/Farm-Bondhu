@@ -12,18 +12,33 @@ import { CheckCircle, ShieldCheck, Store, Package, MapPin, Star, X } from "lucid
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 export default function AdminMarketplace() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [products, setProducts] = useState<any[]>([]);
-  const [shops, setShops] = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const queryClient = useQueryClient();
 
-  const loadProducts = () => api.from("products").select("*").order("created_at", { ascending: false }).then(({ data }) => { if (data) setProducts(data); });
-  const loadShops = () => api.from("shops").select("*").order("created_at", { ascending: false }).then(({ data }) => { if (data) setShops(data); });
-
-  useEffect(() => { loadProducts(); loadShops(); }, []);
+  const { data: products = [] } = useQuery({
+    queryKey: queryKeys().adminMarketplaceProducts(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("products").select("*").order("created_at", { ascending: false });
+      return data || [];
+    },
+  });
+  const { data: shops = [] } = useQuery({
+    queryKey: queryKeys().adminMarketplaceShops(),
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { data } = await api.from("shops").select("*").order("created_at", { ascending: false });
+      return data || [];
+    },
+  });
 
   // Open product detail modal from query param
   useEffect(() => {
@@ -53,9 +68,26 @@ export default function AdminMarketplace() {
     await api.from("products").update({ is_verified_seller: newVal }).eq("seller_id", shop.user_id);
 
     toast.success(newVal ? "Shop verified!" : "Verification removed");
-    loadShops();
-    loadProducts();
+    queryClient.invalidateQueries({ queryKey: queryKeys().adminMarketplaceShops() });
+    queryClient.invalidateQueries({ queryKey: queryKeys().adminMarketplaceProducts() });
   };
+
+  useEffect(() => {
+    const channels = [
+      { name: "admin-marketplace-products-live", table: "products", key: queryKeys().adminMarketplaceProducts() },
+      { name: "admin-marketplace-shops-live", table: "shops", key: queryKeys().adminMarketplaceShops() },
+    ].map((entry) =>
+      api
+        .channel(entry.name)
+        .on("postgres_changes", { event: "*", schema: "public", table: entry.table }, () => {
+          queryClient.invalidateQueries({ queryKey: entry.key });
+        })
+        .subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => api.removeChannel(channel));
+    };
+  }, [queryClient]);
 
   return (
     <div className="space-y-6">
