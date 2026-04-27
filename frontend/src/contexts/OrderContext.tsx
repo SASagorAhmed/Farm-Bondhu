@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useCallback, useEffect } from "react";
 import { CartItem } from "@/contexts/CartContext";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type OrderStatus = "pending" | "confirmed" | "packed" | "shipped" | "out_for_delivery" | "delivered" | "cancelled" | "return_requested" | "returned" | "refunded";
 
@@ -90,17 +91,48 @@ function dbToOrder(row: any): MarketplaceOrder {
 }
 
 export function OrderProvider({ children }: { children: React.ReactNode }) {
-  const [orders, setOrders] = useState<MarketplaceOrder[]>([]);
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { data: orders = [] } = useQuery({
+    queryKey: ["orders", user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: 30 * 1000,
+    queryFn: async () => {
+      const { data } = await api.from("orders").select("*").order("created_at", { ascending: false });
+      return (data || []).map(dbToOrder);
+    },
+  });
 
   useEffect(() => {
-    if (!user) return;
-    const load = async () => {
-      const { data } = await api.from("orders").select("*").order("created_at", { ascending: false });
-      if (data) setOrders(data.map(dbToOrder));
+    if (!user?.id) return;
+    const channel = api
+      .channel(`orders-live-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload: any) => {
+        const eventType = String(payload?.eventType || "").toUpperCase();
+        if ((eventType === "INSERT" || eventType === "UPDATE") && payload?.new) {
+          const row = dbToOrder(payload.new);
+          queryClient.setQueryData<MarketplaceOrder[]>(["orders", user.id], (prev = []) => {
+            const next = prev.slice();
+            const idx = next.findIndex((o) => o.id === row.id);
+            if (idx >= 0) next[idx] = row;
+            else next.unshift(row);
+            return next;
+          });
+          return;
+        }
+        if (eventType === "DELETE" && payload?.old?.id) {
+          queryClient.setQueryData<MarketplaceOrder[]>(["orders", user.id], (prev = []) =>
+            prev.filter((o) => o.id !== payload.old.id)
+          );
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ["orders", user.id] });
+      })
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
     };
-    load();
-  }, [user]);
+  }, [queryClient, user?.id]);
 
   const placeOrder = useCallback(async (params: {
     items: CartItem[];
@@ -153,9 +185,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       if (data) newOrders.push(dbToOrder(data));
     }
 
-    setOrders(prev => [...newOrders, ...prev]);
+    queryClient.setQueryData<MarketplaceOrder[]>(["orders", user?.id], (prev = []) => [...newOrders, ...prev]);
     return newOrders[0];
-  }, []);
+  }, [queryClient, user?.id]);
 
   const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus, note?: string) => {
     const order = orders.find(o => o.id === orderId);
@@ -168,8 +200,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       status, timeline: newTimeline as any, tracking_id: trackingId, payment_status: paymentStatus,
     }).eq("id", orderId);
 
-    setOrders(prev => prev.map(o => o.id !== orderId ? o : { ...o, status, timeline: newTimeline, trackingId, paymentStatus }));
-  }, [orders]);
+    queryClient.setQueryData<MarketplaceOrder[]>(
+      ["orders", user?.id],
+      (prev = []) => prev.map((o) => (o.id !== orderId ? o : { ...o, status, timeline: newTimeline, trackingId, paymentStatus }))
+    );
+  }, [orders, queryClient, user?.id]);
 
   const requestReturn = useCallback(async (orderId: string, reason: string, note?: string) => {
     const order = orders.find(o => o.id === orderId);
@@ -178,16 +213,22 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     await api.from("orders").update({
       status: "return_requested", return_reason: reason, return_note: note, timeline: newTimeline as any,
     }).eq("id", orderId);
-    setOrders(prev => prev.map(o => o.id !== orderId ? o : { ...o, status: "return_requested" as OrderStatus, returnReason: reason, returnNote: note, timeline: newTimeline }));
-  }, [orders]);
+    queryClient.setQueryData<MarketplaceOrder[]>(
+      ["orders", user?.id],
+      (prev = []) => prev.map((o) => (o.id !== orderId ? o : { ...o, status: "return_requested" as OrderStatus, returnReason: reason, returnNote: note, timeline: newTimeline }))
+    );
+  }, [orders, queryClient, user?.id]);
 
   const cancelOrder = useCallback(async (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
     if (!order || !["pending", "confirmed"].includes(order.status)) return;
     const newTimeline = [...order.timeline, { status: "cancelled" as OrderStatus, timestamp: new Date().toISOString(), note: "Order cancelled by buyer" }];
     await api.from("orders").update({ status: "cancelled", timeline: newTimeline as any }).eq("id", orderId);
-    setOrders(prev => prev.map(o => o.id !== orderId ? o : { ...o, status: "cancelled" as OrderStatus, timeline: newTimeline }));
-  }, [orders]);
+    queryClient.setQueryData<MarketplaceOrder[]>(
+      ["orders", user?.id],
+      (prev = []) => prev.map((o) => (o.id !== orderId ? o : { ...o, status: "cancelled" as OrderStatus, timeline: newTimeline }))
+    );
+  }, [orders, queryClient, user?.id]);
 
   const getOrdersByBuyer = useCallback((buyerId: string) => orders.filter(o => o.buyerId === buyerId), [orders]);
   const getOrdersBySeller = useCallback((sellerId: string) => orders.filter(o => o.sellerId === sellerId), [orders]);
