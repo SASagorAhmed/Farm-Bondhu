@@ -21,6 +21,15 @@ const router = Router();
 const OTP_TTL_MIN = 15;
 const RESEND_COOLDOWN_SEC = 60;
 const MAX_OTP_ATTEMPTS = 5;
+const isProduction = process.env.NODE_ENV === "production";
+
+function recoverMaskingDelayMs(hasUser) {
+  const configured = Number(process.env.AUTH_RESPONSE_DELAY_MS);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  // Keep mild anti-enumeration delay in non-production; prioritize responsiveness in production.
+  if (isProduction) return 0;
+  return hasUser ? 60 : 220 + Math.floor(Math.random() * 180);
+}
 
 function normalizeEmail(email) {
   return String(email || "")
@@ -475,7 +484,7 @@ router.post(
       }
     }
 
-    const delayMs = userId ? 60 : 220 + Math.floor(Math.random() * 180);
+    const delayMs = recoverMaskingDelayMs(Boolean(userId));
     await new Promise((r) => setTimeout(r, delayMs));
     res.status(202).json({ ok: true });
   })
@@ -503,7 +512,8 @@ router.post(
       select last_sent_at, user_id from password_reset_pending where email = ${em} limit 1
     `;
     if (!row?.user_id) {
-      await new Promise((r) => setTimeout(r, 200));
+      const delayMs = recoverMaskingDelayMs(false);
+      await new Promise((r) => setTimeout(r, delayMs));
       res.status(202).json({ ok: true });
       return;
     }

@@ -20,7 +20,10 @@ const server = app.listen(config.port, async () => {
   } else if (sql && !config.autoCreateSchema) {
     console.log("[farmbondhu-api] AUTO_CREATE_SCHEMA=false — skipping DDL bootstrap");
   }
-  void logStartupConnectivity();
+  // Full connectivity diagnostics are useful in local dev, but add startup overhead in production.
+  if (config.nodeEnv !== "production") {
+    void logStartupConnectivity();
+  }
 });
 
 server.on("error", (err) => {
