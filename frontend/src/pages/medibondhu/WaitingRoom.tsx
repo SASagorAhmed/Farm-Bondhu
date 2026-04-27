@@ -6,6 +6,8 @@ import { api } from "@/api/client";
 import { Clock, Stethoscope, Lightbulb, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const MB = "#12C2D6";
 
@@ -23,10 +25,9 @@ export default function WaitingRoom() {
   const navigate = useNavigate();
   const [elapsed, setElapsed] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
-  const [booking, setBooking] = useState<any>(null);
-  const [loadingBooking, setLoadingBooking] = useState(true);
   const [waitingError, setWaitingError] = useState<string | null>(null);
   const hasNavigatedRef = useRef(false);
+  const queryClient = useQueryClient();
 
   const handleInProgress = useCallback(
     (showToast = false) => {
@@ -45,13 +46,11 @@ export default function WaitingRoom() {
 
   const fetchBooking = useCallback(async () => {
     if (!bookingId) return;
-    setLoadingBooking(true);
     const { data, error } = await api
       .from("consultation_bookings")
       .select("*")
       .eq("id", bookingId)
       .single();
-    setLoadingBooking(false);
 
     if (error) {
       setWaitingError(error.message || "Failed to load consultation.");
@@ -63,7 +62,6 @@ export default function WaitingRoom() {
     }
 
     setWaitingError(null);
-    setBooking(data);
     if (data.status === "in_progress") {
       handleInProgress(false);
       return;
@@ -76,12 +74,16 @@ export default function WaitingRoom() {
       });
       navigate("/medibondhu/consultations");
     }
+    return data;
   }, [bookingId, handleInProgress, navigate]);
 
-  // Fetch booking
-  useEffect(() => {
-    fetchBooking();
-  }, [fetchBooking]);
+  const { data: booking, isLoading: loadingBooking } = useQuery({
+    queryKey: queryKeys().waitingRoomBooking(bookingId),
+    enabled: Boolean(bookingId),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: fetchBooking,
+  });
 
   // Realtime: auto-redirect when vet accepts (status → in_progress)
   useEffect(() => {
@@ -101,6 +103,8 @@ export default function WaitingRoom() {
           const newStatus = payload.new?.status;
           if (newStatus === "in_progress") {
             handleInProgress(true);
+          } else {
+            queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
           }
         }
       )
@@ -110,43 +114,6 @@ export default function WaitingRoom() {
       api.removeChannel(channel);
     };
   }, [bookingId, handleInProgress, navigate]);
-
-  // Polling fallback: check booking status every 3 seconds
-  useEffect(() => {
-    if (!bookingId || hasNavigatedRef.current) return;
-
-    const checkStatus = async () => {
-      if (hasNavigatedRef.current) return;
-
-      const { data, error } = await api
-        .from("consultation_bookings")
-        .select("status")
-        .eq("id", bookingId)
-        .single();
-      if (error) {
-        setWaitingError("Connection issue while checking consultation status. Retrying...");
-        return;
-      }
-      setWaitingError(null);
-
-      if (data?.status === "in_progress") {
-        handleInProgress(true);
-      } else if (data?.status === "cancelled" || data?.status === "completed") {
-        hasNavigatedRef.current = true;
-        toast({
-          title: data.status === "cancelled" ? "Consultation cancelled" : "Consultation completed",
-          description: "Returning to consultations.",
-        });
-        navigate("/medibondhu/consultations");
-      }
-    };
-
-    const intervalId = setInterval(checkStatus, 3000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [bookingId, handleInProgress]);
 
   // Timer
   useEffect(() => {

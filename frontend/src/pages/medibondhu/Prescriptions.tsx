@@ -73,39 +73,28 @@ export default function Prescriptions() {
 
     const channel = api
       .channel(`medibondhu-e-prescriptions-${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "e_prescriptions" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "e_prescriptions" }, (payload: any) => {
+        const eventType = String(payload?.eventType || "").toUpperCase();
+        if (eventType === "INSERT" && payload?.new) {
+          setPrescriptions((prev) => {
+            const row = payload.new as EPrescriptionRow;
+            if (prev.some((p) => p.id === row.id)) return prev;
+            return [row, ...prev];
+          });
+          return;
+        }
+        if (eventType === "UPDATE" && payload?.new) {
+          setPrescriptions((prev) => {
+            const row = payload.new as EPrescriptionRow;
+            return prev.map((p) => (p.id === row.id ? row : p));
+          });
+          return;
+        }
         void fetchPrescriptions();
       })
       .subscribe();
 
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const poll = () => {
-      if (document.visibilityState !== "visible") return;
-      void fetchPrescriptions();
-    };
-    const startPolling = () => {
-      if (intervalId) return;
-      intervalId = setInterval(poll, 10000);
-    };
-    const stopPolling = () => {
-      if (!intervalId) return;
-      clearInterval(intervalId);
-      intervalId = null;
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        poll();
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-    startPolling();
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
     return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
       api.removeChannel(channel);
     };
   }, [fetchPrescriptions, user]);

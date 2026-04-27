@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, Clock, CheckCircle, AlertCircle, Video, FileText } from "lucide-react";
 import { format } from "date-fns";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 interface Booking {
   id: string;
@@ -38,45 +40,32 @@ function formatDateTimeSafe(value: string | null | undefined, fallback = "Unknow
 export default function VetConsultations() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchBookings = useCallback(async () => {
-    if (!user) return;
-
-    const { data } = await api
-      .from("consultation_bookings")
-      .select("*")
-      .eq("vet_user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    setBookings((data as Booking[]) || []);
-    setLoading(false);
-  }, [user]);
+  const queryClient = useQueryClient();
+  const { data: bookings = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys().vetConsultations(user?.id),
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: async () => {
+      const { data } = await api
+        .from("consultation_bookings")
+        .select("*")
+        .eq("vet_user_id", user!.id)
+        .order("created_at", { ascending: false });
+      return ((data as Booking[]) || []);
+    },
+  });
 
   useEffect(() => {
     if (!user) return;
-    fetchBookings();
-
     const channel = api
       .channel("vet-consultations")
-      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () => fetchBookings())
+      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () =>
+        queryClient.invalidateQueries({ queryKey: queryKeys().vetConsultations(user.id) })
+      )
       .subscribe();
     return () => { api.removeChannel(channel); };
-  }, [user, fetchBookings]);
-
-  // Polling fallback in case realtime updates are delayed/disconnected.
-  useEffect(() => {
-    if (!user) return;
-
-    const intervalId = window.setInterval(() => {
-      fetchBookings();
-    }, 10000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [user, fetchBookings]);
+  }, [queryClient, user]);
 
   const stats = {
     total: bookings.length,

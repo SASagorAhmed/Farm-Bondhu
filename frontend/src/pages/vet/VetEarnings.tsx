@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion } from "framer-motion";
-import { API_BASE, readSession } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { DollarSign, TrendingUp, CalendarCheck, Landmark, Wallet, BadgePercent } from "lucide-react";
 import { format } from "date-fns";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 type EarningRow = {
   id: string;
@@ -49,23 +51,15 @@ function formatMoney(value: number) {
 
 export default function VetEarnings() {
   const { user } = useAuth();
-  const [summary, setSummary] = useState<EarningsSummary | null>(null);
-  const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [requestAmount, setRequestAmount] = useState("");
   const [requestNote, setRequestNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const isFetchingRef = useRef(false);
+  const queryClient = useQueryClient();
 
-  const fetchAll = useCallback(async (options?: { silent?: boolean }) => {
+  const fetchAll = useCallback(async () => {
     if (!user) return;
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
     const token = readSession()?.access_token;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    if (!options?.silent) {
-      setLoading(true);
-    }
     try {
       const [summaryRes, withdrawRes] = await Promise.all([
         fetch(`${API_BASE}/v1/medibondhu/vet-earnings/summary`, { headers }),
@@ -75,55 +69,42 @@ export default function VetEarnings() {
       const withdrawBody = (await withdrawRes.json().catch(() => ({}))) as { data?: WithdrawalRow[]; error?: string };
       if (!summaryRes.ok) throw new Error(summaryBody.error || "Failed to load earnings summary");
       if (!withdrawRes.ok) throw new Error(withdrawBody.error || "Failed to load withdrawals");
-      setSummary(summaryBody.data || null);
-      setWithdrawals(Array.isArray(withdrawBody.data) ? withdrawBody.data : []);
+      return {
+        summary: summaryBody.data || null,
+        withdrawals: Array.isArray(withdrawBody.data) ? withdrawBody.data : [],
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load earnings";
       toast.error(message);
-      setSummary(null);
-      setWithdrawals([]);
-    } finally {
-      if (!options?.silent) {
-        setLoading(false);
-      }
-      isFetchingRef.current = false;
+      return { summary: null, withdrawals: [] as WithdrawalRow[] };
     }
   }, [user]);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  const { data, isLoading: loading } = useQuery({
+    queryKey: queryKeys().vetEarnings(user?.id),
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    queryFn: fetchAll,
+  });
+  const summary = data?.summary || null;
+  const withdrawals = data?.withdrawals || [];
 
   useEffect(() => {
-    if (!user) return;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const startPolling = () => {
-      if (intervalId) return;
-      intervalId = setInterval(() => {
-        if (document.visibilityState !== "visible") return;
-        void fetchAll({ silent: true });
-      }, 10000);
-    };
-    const stopPolling = () => {
-      if (!intervalId) return;
-      clearInterval(intervalId);
-      intervalId = null;
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void fetchAll({ silent: true });
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-    startPolling();
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (!user?.id) return;
+    const channel = api
+      .channel(`vet-earnings-live-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys().vetEarnings(user.id) });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vet_withdrawal_requests" }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys().vetEarnings(user.id) });
+      })
+      .subscribe();
     return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      api.removeChannel(channel);
     };
-  }, [fetchAll, user]);
+  }, [queryClient, user?.id]);
 
   const submitWithdrawal = async () => {
     if (!summary) return;
@@ -155,7 +136,7 @@ export default function VetEarnings() {
       toast.success("Withdrawal request submitted");
       setRequestAmount("");
       setRequestNote("");
-      await fetchAll();
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetEarnings(user?.id) });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Withdrawal request failed";
       toast.error(message);
