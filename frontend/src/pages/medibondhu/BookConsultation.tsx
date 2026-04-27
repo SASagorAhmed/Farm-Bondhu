@@ -167,7 +167,7 @@ export default function BookConsultation() {
         scheduled_date: bookingType === "scheduled" ? selectedDate : new Date().toISOString().split("T")[0],
         scheduled_time: bookingType === "scheduled" ? selectedTime : "Now",
         animal_type: animalType, animal_age: animalAge, animal_gender: animalGender, symptoms, additional_notes: notes,
-        status: "confirmed", payment_status: "paid", payment_amount: vet.fee, fee: vet.fee,
+        status: "pending", payment_status: "paid", payment_amount: vet.fee, fee: vet.fee,
       }).select().single();
       if (error) throw error;
       setBookingId(data.id);

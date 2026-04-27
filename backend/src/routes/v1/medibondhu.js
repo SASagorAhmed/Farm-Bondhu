@@ -1083,7 +1083,8 @@ router.get(
     const isAdmin = await userHasAnyRole(uid, ["admin"]);
     const id = typeof req.query.id === "string" ? req.query.id : "";
     const patientId = typeof req.query.patient_mock_id === "string" ? req.query.patient_mock_id : "";
-    const vetFilter = typeof req.query.vet_mock_id === "string" ? req.query.vet_mock_id : "";
+    const vetMockFilter = typeof req.query.vet_mock_id === "string" ? req.query.vet_mock_id : "";
+    const vetUserFilter = typeof req.query.vet_user_id === "string" ? req.query.vet_user_id : "";
     const status = typeof req.query.status === "string" ? req.query.status : "";
     const statusIn =
       typeof req.query.status_in === "string"
@@ -1117,7 +1118,8 @@ router.get(
       from consultation_bookings b
       left join vets v on v.id = b.vet_mock_id
       where (${patientId ? sql`b.patient_mock_id = ${patientId}` : sql`true`})
-        and (${vetFilter ? sql`(coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${vetFilter} or b.vet_mock_id = ${vetFilter})` : sql`true`})
+        and (${vetMockFilter ? sql`(coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${vetMockFilter} or b.vet_mock_id = ${vetMockFilter})` : sql`true`})
+        and (${vetUserFilter ? sql`coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${vetUserFilter}` : sql`true`})
         and (${status ? sql`b.status = ${status}` : sql`true`})
         and (${statusIn.length ? sql`b.status in ${sql(statusIn)}` : sql`true`})
         and (${createdGte ? sql`b.created_at >= ${createdGte}` : sql`true`})
@@ -1284,10 +1286,14 @@ router.patch(
     const isVetParticipant = current.computed_vet_user_id === uid || current.vet_mock_id === uid;
     const isPatientParticipant = current.patient_mock_id === uid;
     if (!isAdmin && isVetParticipant) {
-      await assertApprovedVetAccess(uid);
+      // Active consultation lifecycle updates must work for assigned vet accounts,
+      // even if profile approval metadata is temporarily out of sync.
+      await assertVetAccess(uid);
     }
     const allowedForAdmin = new Set([
       "status",
+      "leave_deadline_at",
+      "left_user_id",
       "additional_notes",
       "notes",
       "meeting_link",
@@ -1298,6 +1304,8 @@ router.patch(
     ]);
     const allowedForVet = new Set([
       "status",
+      "leave_deadline_at",
+      "left_user_id",
       "additional_notes",
       "notes",
       "meeting_link",
@@ -1305,7 +1313,7 @@ router.patch(
       "diagnosis",
       "treatment_plan",
     ]);
-    const allowedForPatient = new Set(["status", "additional_notes", "notes"]);
+    const allowedForPatient = new Set(["status", "leave_deadline_at", "left_user_id", "additional_notes", "notes"]);
     const patch = {};
     const allowed = isAdmin ? allowedForAdmin : isVetParticipant ? allowedForVet : allowedForPatient;
     for (const [key, value] of Object.entries(body)) {
@@ -1329,7 +1337,10 @@ router.patch(
             ((prevStatus === "pending" || prevStatus === "confirmed") && (nextStatus === "in_progress" || nextStatus === "cancelled")) ||
             (prevStatus === "in_progress" && (nextStatus === "completed" || nextStatus === "cancelled"));
         } else if (isPatientParticipant) {
-          ok = (prevStatus === "pending" || prevStatus === "confirmed" || prevStatus === "in_progress") && nextStatus === "cancelled";
+          ok =
+            ((prevStatus === "pending" || prevStatus === "confirmed" || prevStatus === "in_progress") &&
+              nextStatus === "cancelled") ||
+            (prevStatus === "in_progress" && nextStatus === "completed");
         }
         if (!ok) {
           res.status(403).json({ error: "Invalid status transition" });

@@ -11,6 +11,14 @@ import { api } from "@/api/client";
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+type ActivityIconKey = "health" | "sales" | "mortality";
+
+const activityIconMap: Record<ActivityIconKey, React.ReactNode> = {
+  health: <HeartPulse className="h-4 w-4" />,
+  sales: <ShoppingBag className="h-4 w-4" />,
+  mortality: <Skull className="h-4 w-4" />,
+};
+
 export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -35,15 +43,15 @@ export default function Overview() {
       const totalRevenue = records.filter((r) => r.type === "income").reduce((s, r) => s + Number(r.amount), 0);
       const totalExpenses = records.filter((r) => r.type === "expense").reduce((s, r) => s + Number(r.amount), 0);
 
-      const recentActivity: { id: string; icon: React.ReactNode; color: string; text: string; date: string; link: string }[] = [];
+      const recentActivity: { id: string; iconKey: ActivityIconKey; color: string; text: string; date: string; link: string }[] = [];
       (healthRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `h-${r.id}`, icon: <HeartPulse className="h-4 w-4" />, color: ICON_COLORS.health, text: `${r.description} — ${r.animal_label || "Animal"}`, date: r.date, link: "/dashboard/health" });
+        recentActivity.push({ id: `h-${r.id}`, iconKey: "health", color: ICON_COLORS.health, text: `${r.description} — ${r.animal_label || "Animal"}`, date: r.date, link: "/dashboard/health" });
       });
       (salesRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `s-${r.id}`, icon: <ShoppingBag className="h-4 w-4" />, color: ICON_COLORS.finance, text: `${r.product} sold to ${r.buyer} — ৳${Number(r.total).toLocaleString()}`, date: r.date, link: "/dashboard/sales" });
+        recentActivity.push({ id: `s-${r.id}`, iconKey: "sales", color: ICON_COLORS.finance, text: `${r.product} sold to ${r.buyer} — ৳${Number(r.total).toLocaleString()}`, date: r.date, link: "/dashboard/sales" });
       });
       (mortRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `m-${r.id}`, icon: <Skull className="h-4 w-4" />, color: ICON_COLORS.mortality, text: `${r.count} ${r.animal_type} deaths — ${r.cause}`, date: r.date, link: "/dashboard/mortality" });
+        recentActivity.push({ id: `m-${r.id}`, iconKey: "mortality", color: ICON_COLORS.mortality, text: `${r.count} ${r.animal_type} deaths — ${r.cause}`, date: r.date, link: "/dashboard/mortality" });
       });
 
       return {
@@ -205,7 +213,9 @@ export default function Overview() {
                 <div className="space-y-3">
                   {recentActivity.map((item) => (
                     <div key={item.id} className="flex items-start gap-3 p-3 rounded-lg bg-accent/50 cursor-pointer hover:bg-accent/70 transition-colors" onClick={() => navigate(item.link)}>
-                      <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${item.color}1A`, color: item.color }}>{item.icon}</div>
+                      <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${item.color}1A`, color: item.color }}>
+                        {activityIconMap[item.iconKey]}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground truncate">{item.text}</p>
                         <p className="text-xs text-muted-foreground">{item.date}</p>

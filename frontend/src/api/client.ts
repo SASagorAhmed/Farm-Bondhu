@@ -56,7 +56,8 @@ async function apiJson(path: string, init: RequestInit = {}) {
   } catch (e) {
     const reason = e instanceof Error ? e.message : "Network error";
     return {
-      res: new Response(null, { status: 0, statusText: "Network Error" }),
+      // `Response` status must be 200-599 in browsers; use 503 for network-unreachable synthetic failures.
+      res: new Response(null, { status: 503, statusText: "Network Error" }),
       body: {
         error: `Cannot reach the API (${reason}). Check that the backend is running and VITE_API_URL matches it (e.g. http://127.0.0.1:3001).`,
       },
@@ -539,7 +540,8 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             const status = this.getEq("status");
             const createdGte = this.getGte("created_at");
             if (patientId) q.set("patient_mock_id", String(patientId));
-            if (vetId || vetUserId) q.set("vet_mock_id", String(vetId || vetUserId));
+            if (vetId) q.set("vet_mock_id", String(vetId));
+            if (vetUserId) q.set("vet_user_id", String(vetUserId));
             if (status) q.set("status", String(status));
             if (statusIn && Array.isArray(statusIn) && statusIn.length) q.set("status_in", statusIn.map(String).join(","));
             if (createdGte) q.set("created_gte", String(createdGte));

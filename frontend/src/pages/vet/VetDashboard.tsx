@@ -30,7 +30,7 @@ export default function VetDashboard() {
           .from("consultation_bookings")
           .select("*")
           .eq("vet_user_id", uid)
-          .eq("status", "pending")
+          .in("status", ["pending", "confirmed"])
           .order("created_at", { ascending: false }),
         api
           .from("consultation_bookings")

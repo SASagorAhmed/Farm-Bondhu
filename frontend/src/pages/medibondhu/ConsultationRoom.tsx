@@ -52,10 +52,13 @@ export default function ConsultationRoom() {
   const consultationsPath = location.pathname.startsWith("/vet/")
     ? "/vet/consultations"
     : "/medibondhu/consultations";
+  const isRejoinIntent =
+    (location.state as { from?: string; bookingId?: string } | null)?.from === "rejoin";
   const queryClient = useQueryClient();
   const [booking, setBooking] = useState<any>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [leaveGraceSeconds, setLeaveGraceSeconds] = useState<number | null>(null);
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([]);
@@ -75,18 +78,35 @@ export default function ConsultationRoom() {
   /** Prevent duplicate finalize writes from leave + click races. */
   const finalizeInFlightRef = useRef(false);
   const hasFinalizedRef = useRef(false);
+  /** True only when user explicitly clicked End/Cancel in this screen. */
+  const explicitEndRequestedRef = useRef(false);
+  const lastLeftParticipantIdRef = useRef<string | null>(null);
+  const localLeaveDeadlineRef = useRef<Date | null>(null);
+  const zegoInitInFlightRef = useRef(false);
+  const zegoRoomKeyRef = useRef<string | null>(null);
   const bookingRef = useRef<any>(null);
+  const isUnmountingRef = useRef(false);
+  const markLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
+  const clearLeaveGraceTimerRef = useRef<(() => void) | null>(null);
+  const clearLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
+  const finalizeConsultationRef = useRef<((source: "button" | "sdk_leave") => Promise<void>) | null>(null);
 
   useEffect(() => {
     bookingRef.current = booking;
   }, [booking]);
+
+  useEffect(() => {
+    return () => {
+      isUnmountingRef.current = true;
+    };
+  }, []);
 
   const normalizedConsultMethod = useMemo(
     () => String(booking?.consultation_method ?? "").toLowerCase(),
     [booking?.consultation_method]
   );
 
-  const { data: bookingData } = useQuery({
+  const { data: bookingData, isLoading: bookingLoading } = useQuery({
     queryKey: queryKeys().consultationRoom(bookingId),
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
@@ -117,6 +137,24 @@ export default function ConsultationRoom() {
       return bookingData;
     });
   }, [bookingData]);
+
+  useEffect(() => {
+    if (!booking || hasHandledTerminalStatusRef.current) return;
+    if (booking.status === "cancelled" || booking.status === "completed") {
+      hasHandledTerminalStatusRef.current = true;
+      toast.info(
+        booking.status === "cancelled"
+          ? "Consultation is cancelled. Returning to consultations."
+          : "Consultation already completed. Returning to consultations."
+      );
+      navigate(consultationsPath);
+      return;
+    }
+    if (isRejoinIntent && booking.status !== "in_progress") {
+      toast.info("This consultation is not active right now.");
+      navigate(consultationsPath);
+    }
+  }, [booking, consultationsPath, isRejoinIntent, navigate]);
 
   const { data: initialMessages } = useQuery({
     queryKey: ["consultation-room-messages", bookingId || "unknown"],
@@ -232,11 +270,16 @@ export default function ConsultationRoom() {
       }
     };
 
-    // Run a single immediate fallback sync; realtime remains the primary updater.
+    // Run immediate + periodic fallback sync for room and shared leave timer consistency.
     pollFallback();
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void pollFallback();
+    }, 2000);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [bookingId, consultationsPath, navigate]);
 
@@ -251,65 +294,174 @@ export default function ConsultationRoom() {
     return () => clearInterval(timer);
   }, []);
 
-  const finalizeConsultation = useCallback(async (source: "button" | "sdk_leave") => {
-    if (!bookingId || !user) return;
-    if (finalizeInFlightRef.current || hasFinalizedRef.current) return;
+  const clearLeaveGraceTimer = useCallback(() => {
+    setLeaveGraceSeconds(null);
+    lastLeftParticipantIdRef.current = null;
+    localLeaveDeadlineRef.current = null;
+  }, []);
+  useEffect(() => {
+    clearLeaveGraceTimerRef.current = clearLeaveGraceTimer;
+  }, [clearLeaveGraceTimer]);
+
+  const markLeaveGraceInDb = useCallback(async () => {
+    if (!bookingId || !user?.id) return;
     const b = bookingRef.current;
-    if (!b) return;
+    if (!b || isTerminalBookingStatus(b.status)) return;
+    const deadlineDate = new Date(Date.now() + 20_000);
+    const deadline = deadlineDate.toISOString();
+    // Keep timer visible immediately even if DB/realtime response arrives late.
+    lastLeftParticipantIdRef.current = user.id;
+    localLeaveDeadlineRef.current = deadlineDate;
+    setLeaveGraceSeconds(20);
+    const { error } = await api
+      .from("consultation_bookings")
+      .update({
+        leave_deadline_at: deadline,
+        left_user_id: user.id,
+      })
+      .eq("id", bookingId);
+    if (error) {
+      console.error("Failed to set leave grace timer:", error.message);
+      return;
+    }
+    setBooking((prev: any) =>
+      prev ? { ...prev, leave_deadline_at: deadline, left_user_id: user.id } : prev
+    );
+  }, [bookingId, user?.id]);
+  useEffect(() => {
+    markLeaveGraceInDbRef.current = markLeaveGraceInDb;
+  }, [markLeaveGraceInDb]);
+
+  const clearLeaveGraceInDb = useCallback(async () => {
+    if (!bookingId) return;
+    await api
+      .from("consultation_bookings")
+      .update({
+        leave_deadline_at: null,
+        left_user_id: null,
+      })
+      .eq("id", bookingId);
+    setBooking((prev: any) =>
+      prev ? { ...prev, leave_deadline_at: null, left_user_id: null } : prev
+    );
+    clearLeaveGraceTimer();
+  }, [bookingId, clearLeaveGraceTimer]);
+  useEffect(() => {
+    clearLeaveGraceInDbRef.current = clearLeaveGraceInDb;
+  }, [clearLeaveGraceInDb]);
+
+  const finalizeConsultation = useCallback(async (source: "button" | "sdk_leave") => {
+    const isManualAction = source === "button";
+    if (!bookingId) {
+      if (isManualAction) toast.error("Missing consultation id. Please refresh and retry.");
+      return;
+    }
+    if (!user) {
+      if (isManualAction) toast.error("Session expired. Please sign in again.");
+      return;
+    }
+    if (finalizeInFlightRef.current) {
+      if (isManualAction) toast.info("Finishing consultation...");
+      return;
+    }
+    if (hasFinalizedRef.current) {
+      if (isManualAction) toast.info("Consultation is already completed.");
+      navigate(consultationsPath);
+      return;
+    }
+    const b = bookingRef.current;
+    if (!b) {
+      if (isManualAction) toast.error("Consultation is still loading. Please try again.");
+      return;
+    }
     if (isTerminalBookingStatus(b.status)) {
       hasFinalizedRef.current = true;
+      if (isManualAction) toast.info("Consultation already ended.");
       navigate(consultationsPath);
       return;
     }
 
     finalizeInFlightRef.current = true;
-    const nextStatus = "completed";
-    if (zegoInstanceRef.current) {
-      skipZegoLeaveHookRef.current = true;
-      try {
-        zegoInstanceRef.current.destroy();
-      } catch {
-        /* ignore */
+    const isVetOrAdminActor =
+      user?.primaryRole === "vet" ||
+      user?.primaryRole === "admin" ||
+      b?.vet_user_id === user?.id ||
+      b?.vet_mock_id === user?.id;
+    const nextStatus =
+      source === "button" && !isVetOrAdminActor
+        ? "cancelled"
+        : "completed";
+    try {
+      const { error } = await api
+        .from("consultation_bookings")
+        .update({ status: nextStatus })
+        .eq("id", bookingId);
+      if (error) {
+        toast.error(error.message || "Unable to update consultation status");
+        return;
       }
-      zegoInstanceRef.current = null;
-      queueMicrotask(() => {
-        skipZegoLeaveHookRef.current = false;
-      });
-    }
 
-    const { error } = await api
-      .from("consultation_bookings")
-      .update({ status: nextStatus })
-      .eq("id", bookingId);
-    if (error) {
+      hasFinalizedRef.current = true;
+      await clearLeaveGraceInDb();
+      clearLeaveGraceTimer();
+      if (isManualAction) {
+        toast.success(nextStatus === "cancelled" ? "Consultation cancelled" : "Consultation ended");
+      } else {
+        toast.info("Call closed. Consultation completed.");
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
+      navigate(consultationsPath);
+    } catch (error) {
+      console.error("Finalize consultation failed:", error);
+      toast.error("Unable to end consultation. Please try again.");
+    } finally {
       finalizeInFlightRef.current = false;
-      toast.error(error.message || "Unable to update consultation status");
-      return;
     }
-    hasFinalizedRef.current = true;
-    finalizeInFlightRef.current = false;
-    if (source === "button") {
-      toast.success("Consultation ended");
-    } else {
-      toast.info("Call closed. Consultation completed.");
-    }
-    queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
-    navigate(consultationsPath);
-  }, [bookingId, consultationsPath, navigate, queryClient, user]);
+  }, [bookingId, clearLeaveGraceInDb, clearLeaveGraceTimer, consultationsPath, navigate, queryClient, user]);
+  useEffect(() => {
+    finalizeConsultationRef.current = finalizeConsultation;
+  }, [finalizeConsultation]);
 
   const endConsultation = useCallback(async () => {
+    explicitEndRequestedRef.current = true;
     await finalizeConsultation("button");
   }, [finalizeConsultation]);
+
+  const leaveRoomAndGoBack = useCallback(async () => {
+    if (!explicitEndRequestedRef.current && !hasFinalizedRef.current) {
+      await markLeaveGraceInDb();
+    }
+    navigate(consultationsPath);
+  }, [consultationsPath, markLeaveGraceInDb, navigate]);
+
+  const canJoinRoom = Boolean(
+    booking &&
+      booking.status === "in_progress" &&
+      !isTerminalBookingStatus(booking.status)
+  );
 
   // Initialize ZegoCloud for audio/video (deps are primitives so polling does not destroy the room)
   useEffect(() => {
     if (!bookingId || !user?.id) return;
     if (!normalizedConsultMethod || normalizedConsultMethod === "chat") return;
+    if (!canJoinRoom) return;
+    const roomKey = `${bookingId}:${user.id}:${normalizedConsultMethod}`;
+    if (zegoInitInFlightRef.current || zegoRoomKeyRef.current === roomKey) return;
+    zegoInitInFlightRef.current = true;
+    zegoRoomKeyRef.current = roomKey;
 
     let cancelled = false;
 
     const initZego = async () => {
       try {
+        if (zegoInstanceRef.current) {
+          try {
+            zegoInstanceRef.current.destroy();
+          } catch {
+            /* ignore stale sdk cleanup */
+          }
+          zegoInstanceRef.current = null;
+        }
         const accessToken = readSession()?.access_token;
         if (!accessToken) {
           toast.error("Not authenticated");
@@ -354,17 +506,35 @@ export default function ConsultationRoom() {
           scenario: {
             mode: ZegoUIKitPrebuilt.OneONoneCall,
           },
-          turnOnCameraWhenJoining: normalizedConsultMethod === "video",
-          turnOnMicrophoneWhenJoining: true,
+          // Start muted to avoid permission-denied auto-leave loops on some browsers.
+          turnOnCameraWhenJoining: false,
+          turnOnMicrophoneWhenJoining: false,
           showPreJoinView: false,
           onJoinRoom: () => {
             hasJoinedZegoRoomRef.current = true;
+            const current = bookingRef.current;
+            const sameUserLeftRecently = lastLeftParticipantIdRef.current === user.id;
+            if (
+              sameUserLeftRecently ||
+              (current?.left_user_id === user.id && current?.leave_deadline_at)
+            ) {
+              void clearLeaveGraceInDb();
+              toast.success("Rejoined in time. Consultation is still active.");
+            }
           },
           onLeaveRoom: () => {
             if (skipZegoLeaveHookRef.current) return;
             if (!hasJoinedZegoRoomRef.current) return;
             hasJoinedZegoRoomRef.current = false;
-            void finalizeConsultation("sdk_leave");
+            // SDK already left room; avoid duplicate destroy on unmount race.
+            zegoInstanceRef.current = null;
+            // Explicit End closes immediately; other leaves get a 20-second rejoin grace window.
+            if (explicitEndRequestedRef.current) {
+              void finalizeConsultationRef.current?.("sdk_leave");
+              return;
+            }
+            void markLeaveGraceInDbRef.current?.();
+            toast.info("You left the room. Rejoin within 20 seconds or consultation will auto-complete.");
           },
         });
       } catch (err: any) {
@@ -372,6 +542,8 @@ export default function ConsultationRoom() {
         const friendlyMessage = getZegoJoinErrorMessage(err);
         setRoomError(friendlyMessage);
         toast.error(friendlyMessage);
+      } finally {
+        zegoInitInFlightRef.current = false;
       }
     };
 
@@ -379,7 +551,14 @@ export default function ConsultationRoom() {
 
     return () => {
       cancelled = true;
+      const hadActiveRoom = hasJoinedZegoRoomRef.current;
+      if (isUnmountingRef.current && hadActiveRoom && !explicitEndRequestedRef.current && !hasFinalizedRef.current) {
+        void markLeaveGraceInDbRef.current?.();
+      }
+      clearLeaveGraceTimerRef.current?.();
       hasJoinedZegoRoomRef.current = false;
+      zegoRoomKeyRef.current = null;
+      zegoInitInFlightRef.current = false;
       if (zegoInstanceRef.current) {
         skipZegoLeaveHookRef.current = true;
         try {
@@ -393,7 +572,52 @@ export default function ConsultationRoom() {
         });
       }
     };
-  }, [bookingId, user?.id, user?.name, normalizedConsultMethod, finalizeConsultation]);
+  }, [bookingId, canJoinRoom, normalizedConsultMethod, user?.id, user?.name]);
+
+  useEffect(() => {
+    if (!bookingId) return;
+    const channel = api
+      .channel(`room-booking-${bookingId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "consultation_bookings",
+          filter: `id=eq.${bookingId}`,
+        },
+        (payload) => {
+          setBooking((prev: any) => ({ ...(prev || {}), ...(payload.new || {}) }));
+        }
+      )
+      .subscribe();
+    return () => {
+      api.removeChannel(channel);
+    };
+  }, [bookingId]);
+
+  useEffect(() => {
+    const deadlineFromDb = booking?.leave_deadline_at
+      ? new Date(booking.leave_deadline_at)
+      : null;
+    const effectiveDeadline = deadlineFromDb ?? localLeaveDeadlineRef.current;
+    const leftUserId = booking?.left_user_id ?? lastLeftParticipantIdRef.current;
+    if (!effectiveDeadline || !leftUserId) {
+      clearLeaveGraceTimer();
+      return;
+    }
+    const updateRemaining = () => {
+      const ms = effectiveDeadline.getTime() - Date.now();
+      const sec = Math.max(0, Math.ceil(ms / 1000));
+      setLeaveGraceSeconds(sec);
+      if (sec === 0 && !hasFinalizedRef.current && !finalizeInFlightRef.current) {
+        void finalizeConsultation("sdk_leave");
+      }
+    };
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [booking?.leave_deadline_at, booking?.left_user_id, clearLeaveGraceTimer, finalizeConsultation]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -471,13 +695,17 @@ export default function ConsultationRoom() {
     booking?.vet_user_id === user?.id ||
     booking?.vet_mock_id === user?.id;
   const roomEnded = isTerminalBookingStatus(booking?.status);
+  const showConnecting =
+    !roomEnded &&
+    !canJoinRoom &&
+    (bookingLoading || isRejoinIntent || normalizedConsultMethod !== "chat");
 
   return (
     <div className="space-y-4 h-full">
       {/* Top Bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(consultationsPath)}>
+          <Button variant="ghost" size="icon" onClick={leaveRoomAndGoBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="h-10 w-10 rounded-full flex items-center justify-center text-white shrink-0" style={{ backgroundColor: MB }}>
@@ -507,6 +735,18 @@ export default function ConsultationRoom() {
           </Button>
         </div>
       </div>
+
+      {leaveGraceSeconds !== null && (
+        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${MB}55`, backgroundColor: `${MB}12`, color: MB }}>
+          Rejoin within <span className="font-bold">{leaveGraceSeconds}</span>s or this consultation will end automatically.
+        </div>
+      )}
+
+      {showConnecting && (
+        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${MB}55`, backgroundColor: `${MB}12`, color: MB }}>
+          Reconnecting to active consultation...
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ minHeight: "calc(100vh - 280px)" }}>

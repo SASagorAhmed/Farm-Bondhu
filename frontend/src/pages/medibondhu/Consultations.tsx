@@ -5,9 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus } from "lucide-react";
+import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 const MB = "#12C2D6";
 
@@ -18,6 +19,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function Consultations() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [consultations, setConsultations] = useState<any[]>([]);
   const [totalSpent, setTotalSpent] = useState(0);
 
@@ -91,6 +93,24 @@ export default function Consultations() {
                     </div>
                     <p className="text-sm text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p>
                     <p className="text-sm text-foreground"><span className="text-muted-foreground">Symptoms:</span> {c.symptoms}</p>
+                    {c.status === "in_progress" && (
+                      <div className="pt-1">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (c.status !== "in_progress") return;
+                            navigate(`/medibondhu/room/${c.id}`, {
+                              state: { from: "rejoin", bookingId: c.id },
+                            });
+                          }}
+                          className="text-white"
+                          style={{ backgroundColor: MB }}
+                        >
+                          <Video className="h-4 w-4 mr-1" />
+                          Join Again
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

@@ -26,6 +26,7 @@ interface Booking {
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "Pending", variant: "secondary" },
+  confirmed: { label: "Pending", variant: "secondary" },
   in_progress: { label: "In Progress", variant: "default" },
   completed: { label: "Completed", variant: "outline" },
   cancelled: { label: "Cancelled", variant: "destructive" },
@@ -69,7 +70,7 @@ export default function VetConsultations() {
 
   const stats = {
     total: bookings.length,
-    pending: bookings.filter(b => b.status === "pending").length,
+    pending: bookings.filter(b => b.status === "pending" || b.status === "confirmed").length,
     inProgress: bookings.filter(b => b.status === "in_progress").length,
     completed: bookings.filter(b => b.status === "completed").length,
   };
@@ -127,7 +128,15 @@ export default function VetConsultations() {
                       </p>
                     </div>
                     {b.status === "in_progress" && (
-                      <Button size="sm" onClick={() => navigate(`/vet/room/${b.id}`)}>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (b.status !== "in_progress") return;
+                          navigate(`/vet/room/${b.id}`, {
+                            state: { from: "rejoin", bookingId: b.id },
+                          });
+                        }}
+                      >
                         <Video className="h-4 w-4 mr-1" /> Rejoin
                       </Button>
                     )}
