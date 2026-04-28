@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video } 
 import StatCard from "@/components/dashboard/StatCard";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 const MB = "#12C2D6";
 
@@ -20,39 +22,46 @@ function StatusBadge({ status }: { status: string }) {
 export default function Consultations() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [consultations, setConsultations] = useState<any[]>([]);
-  const [totalSpent, setTotalSpent] = useState(0);
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ["medibondhu-consultations", user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      if (!user) return { consultations: [], totalSpent: 0 };
+      const token = readSession()?.access_token;
+      const [consultationsRes, spentRes] = await Promise.all([
+        api.from("consultation_bookings").select("*").eq("patient_mock_id", user.id).order("created_at", { ascending: false }),
+        fetch(`${API_BASE}/v1/medibondhu/spent-summary`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }),
+      ]);
+      const spentBody = (await spentRes.json().catch(() => ({}))) as { data?: { total_spent?: number } };
+      return {
+        consultations: (consultationsRes.data || []) as any[],
+        totalSpent: spentRes.ok ? Number(spentBody.data?.total_spent || 0) : 0,
+      };
+    },
+  });
+
+  const consultations = data?.consultations || [];
+  const totalSpent = data?.totalSpent || 0;
 
   useEffect(() => {
     if (!user) return;
-    const token = readSession()?.access_token;
-    const loadConsultations = () =>
-      api.from("consultation_bookings").select("*").eq("patient_mock_id", user.id).order("created_at", { ascending: false }).then(({ data }) => {
-        if (data) setConsultations(data);
-      });
-    loadConsultations();
     const channel = api
       .channel(`consultations-live-${user.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () => {
-        void loadConsultations();
+        queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations", user.id] });
       })
       .subscribe();
-
-    fetch(`${API_BASE}/v1/medibondhu/spent-summary`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(async (res) => {
-        const body = (await res.json().catch(() => ({}))) as { data?: { total_spent?: number } };
-        if (!res.ok) return;
-        setTotalSpent(Number(body.data?.total_spent || 0));
-      })
-      .catch(() => {
-        setTotalSpent(0);
-      });
     return () => {
       api.removeChannel(channel);
     };
-  }, [user]);
+  }, [queryClient, user]);
 
   const scheduled = consultations.filter(c => c.status === "confirmed" || c.status === "pending").length;
   const completed = consultations.filter(c => c.status === "completed").length;

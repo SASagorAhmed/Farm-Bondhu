@@ -71,15 +71,20 @@ export default function Overview() {
   useEffect(() => {
     if (!user?.id) return;
     const tables = ["animals", "production_records", "financial_records", "health_records", "sale_records", "mortality_records"];
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const channels = tables.map((table) =>
       api
         .channel(`overview-live-${table}-${user.id}`)
         .on("postgres_changes", { event: "*", schema: "public", table }, () => {
-          queryClient.invalidateQueries({ queryKey: ["dashboard-overview", user.id] });
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ["dashboard-overview", user.id] });
+          }, 250);
         })
         .subscribe()
     );
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
       channels.forEach((channel) => {
         api.removeChannel(channel);
       });

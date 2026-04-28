@@ -4,11 +4,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { MessageCircle, Search, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 interface ConvoItem {
   id: string;
@@ -27,91 +29,49 @@ interface ConvoItem {
 export default function BuyerInbox() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [conversations, setConversations] = useState<ConvoItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const loadConversations = async () => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setLoadError(null);
-
-    const { data: convos, error } = await api
-      .from("conversations")
-      .select("*")
-      .or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`)
-      .order("last_message_at", { ascending: false });
-
-    if (error) {
-      setConversations([]);
-      setLoadError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (!convos || convos.length === 0) {
-      setConversations([]);
-      setLoading(false);
-      return;
-    }
-
-    const otherIds = [...new Set(convos.map(c => c.buyer_id === user.id ? c.seller_id : c.buyer_id))];
-    const productIds = [...new Set(convos.filter(c => c.product_id).map(c => c.product_id!))];
-    const sellerIds = [...new Set(convos.map(c => c.seller_id))];
-
-    const [{ data: profiles }, { data: products }, { data: shops }] = await Promise.all([
-      api.from("profiles").select("id, name").in("id", otherIds),
-      productIds.length > 0
-        ? api.from("products").select("id, name, image, price").in("id", productIds)
-        : Promise.resolve({ data: [] }),
-      api.from("shops").select("user_id, shop_name").in("user_id", sellerIds),
-    ]);
-
-    const profileMap = new Map((profiles || []).map(p => [p.id, p.name]));
-    const productMap = new Map((products || []).map(p => [p.id, p]));
-    const shopMap = new Map((shops || []).map(s => [s.user_id, s.shop_name]));
-
-    const items: ConvoItem[] = convos.map(c => {
-      const otherId = c.buyer_id === user.id ? c.seller_id : c.buyer_id;
-      const product = c.product_id ? productMap.get(c.product_id) : null;
-      return {
-        id: c.id,
-        buyer_id: c.buyer_id,
-        seller_id: c.seller_id,
-        product_id: c.product_id,
-        last_message: c.last_message || "Started a conversation",
-        last_message_at: c.last_message_at,
-        other_name: profileMap.get(otherId) || "User",
-        shop_name: shopMap.get(c.seller_id),
-        product_name: product?.name,
-        product_image: product?.image,
-        product_price: product?.price,
-      };
+  const loadConversations = async (): Promise<ConvoItem[]> => {
+    if (!user) return [];
+    const token = readSession()?.access_token;
+    const res = await fetch(`${API_BASE}/v1/marketplace/chat/inbox`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-
-    setConversations(items);
-    setLoading(false);
+    const body = (await res.json().catch(() => ({}))) as { data?: ConvoItem[]; error?: string };
+    if (!res.ok) throw new Error(body.error || `Failed to load inbox (${res.status})`);
+    return body.data || [];
   };
 
+  const { data: conversations = [], isLoading, error } = useQuery({
+    queryKey: ["buyer-inbox", user?.id],
+    enabled: Boolean(user?.id),
+    queryFn: loadConversations,
+    staleTime: moduleCachePolicy.marketplace.staleTime,
+    gcTime: moduleCachePolicy.marketplace.gcTime,
+    placeholderData: (prev) => prev,
+  });
+
+  const loadError = error instanceof Error ? error.message : null;
+
   useEffect(() => {
-    if (!user) {
-      setConversations([]);
-      setLoading(false);
-      setLoadError(null);
-      return;
-    }
-    loadConversations();
+    if (!user) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const channel = api
       .channel(`inbox-${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => loadConversations())
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["buyer-inbox", user.id] });
+        }, 250);
+      })
       .subscribe();
-    return () => { api.removeChannel(channel); };
-  }, [user]);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      api.removeChannel(channel);
+    };
+  }, [queryClient, user]);
 
   const filtered = conversations.filter(c =>
     !search || c.other_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -159,15 +119,15 @@ export default function BuyerInbox() {
       <Card className="shadow-card overflow-hidden">
         <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
         <CardContent className="p-0">
-          {loading && <p className="text-center text-muted-foreground py-12">Loading...</p>}
-          {!loading && loadError && (
+          {isLoading && !conversations.length && <p className="text-center text-muted-foreground py-12">Loading...</p>}
+          {!isLoading && loadError && (
             <div className="text-center py-12 px-4 space-y-2">
               <MessageCircle className="h-10 w-10 mx-auto text-destructive/50" />
               <p className="text-sm text-destructive font-medium">Something went wrong</p>
               <p className="text-xs text-muted-foreground">{loadError}</p>
             </div>
           )}
-          {!loading && !loadError && filtered.length === 0 && (
+          {!isLoading && !loadError && filtered.length === 0 && (
             <div className="text-center py-12 space-y-2">
               <MessageCircle className="h-10 w-10 mx-auto text-muted-foreground/40" />
               <p className="text-muted-foreground">No messages yet</p>

@@ -7,6 +7,8 @@ import { config } from "../src/config.js";
 let schemaReady;
 
 async function ensureSchemaOnce() {
+  // Never run DDL/bootstrap on Vercel production request path.
+  if (process.env.VERCEL === "1" && process.env.NODE_ENV === "production") return;
   if (!sql || !config.autoCreateSchema) return;
   if (!schemaReady) {
     schemaReady = ensureSchema(sql).catch((error) => {
