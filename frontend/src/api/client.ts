@@ -1,4 +1,5 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 /**
  * FarmBondhu browser client: all data and auth go through the Express API (`/api/v1/...`).
@@ -48,10 +49,12 @@ async function apiJson(path: string, init: RequestInit = {}) {
   let res: Response;
   let text: string;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: { ...authHeaders(), ...(init.headers || {}) },
-    });
+    res = await withApiTiming(path, () =>
+      fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: { ...authHeaders(), ...(init.headers || {}) },
+      })
+    );
     text = await res.text();
   } catch (e) {
     const reason = e instanceof Error ? e.message : "Network error";

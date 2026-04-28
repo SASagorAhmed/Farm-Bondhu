@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -8,6 +8,8 @@ import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { Clock, Plus, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -21,25 +23,30 @@ interface Slot {
 }
 
 export default function VetAvailability() {
-  const { user, session } = useAuth();
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!session) return;
-    const fetch = async () => {
+  const { isLoading } = useQuery({
+    queryKey: ["vet-availability", session?.user?.id || "anon"],
+    enabled: Boolean(session?.user?.id),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      if (!session) return [];
       const { data } = await api
         .from("vet_availability")
         .select("*")
         .eq("user_id", session.user.id)
         .order("day_of_week")
         .order("start_time");
-      setSlots((data as Slot[]) || []);
-      setLoading(false);
-    };
-    fetch();
-  }, [session]);
+      const rows = (data as Slot[]) || [];
+      setSlots(rows);
+      return rows;
+    },
+  });
 
   const addSlot = (day: number) => {
     setSlots(prev => [...prev, { day_of_week: day, start_time: "09:00", end_time: "17:00", is_active: true, isNew: true }]);
@@ -77,15 +84,7 @@ export default function VetAvailability() {
         if (error) throw error;
       }
       toast({ title: "Availability saved!" });
-      
-      // Refetch
-      const { data } = await api
-        .from("vet_availability")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("day_of_week")
-        .order("start_time");
-      setSlots((data as Slot[]) || []);
+      await queryClient.invalidateQueries({ queryKey: ["vet-availability", session.user.id] });
     } catch (e: any) {
       toast({ title: "Error saving", description: e.message, variant: "destructive" });
     }

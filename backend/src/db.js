@@ -5,9 +5,15 @@ import postgres from "postgres";
  * can still boot for health checks; routes that need Postgres return 503 until it is configured.
  */
 const connectionString = process.env.DATABASE_URL?.trim();
-const poolMax = Math.max(1, Number(process.env.DB_POOL_MAX || 1));
-const idleTimeoutSec = Math.max(1, Number(process.env.DB_IDLE_TIMEOUT_SEC || 20));
-const connectTimeoutSec = Math.max(1, Number(process.env.DB_CONNECT_TIMEOUT_SEC || 10));
+const isVercel = process.env.VERCEL === "1";
+const poolMaxDefault = isVercel ? 2 : 5;
+const idleTimeoutDefault = isVercel ? 10 : 20;
+const connectTimeoutDefault = isVercel ? 5 : 10;
+const maxLifetimeDefault = isVercel ? 60 : 0;
+const poolMax = Math.max(1, Number(process.env.DB_POOL_MAX || poolMaxDefault));
+const idleTimeoutSec = Math.max(1, Number(process.env.DB_IDLE_TIMEOUT_SEC || idleTimeoutDefault));
+const connectTimeoutSec = Math.max(1, Number(process.env.DB_CONNECT_TIMEOUT_SEC || connectTimeoutDefault));
+const maxLifetimeSec = Math.max(0, Number(process.env.DB_MAX_LIFETIME_SEC || maxLifetimeDefault));
 
 const sql = connectionString
   ? postgres(connectionString, {
@@ -15,6 +21,7 @@ const sql = connectionString
       max: poolMax,
       idle_timeout: idleTimeoutSec,
       connect_timeout: connectTimeoutSec,
+      max_lifetime: maxLifetimeSec,
     })
   : null;
 

@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Loader2, PenSquare, Search, Sparkles, Flame, HelpCircle, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import PostCard, { CATEGORY_LABELS, ANIMAL_LABELS } from "@/components/community/PostCard";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 type PostRow = {
   id: string; user_id: string; post_type: string; title: string; body: string;
@@ -25,9 +27,7 @@ const TABS = [
 export default function CommunityFeed() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [posts, setPosts] = useState<PostRow[]>([]);
-  const [profiles, setProfiles] = useState<Record<string, { name: string; primary_role: string }>>({});
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState("latest");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [animalFilter, setAnimalFilter] = useState("all");
@@ -37,33 +37,60 @@ export default function CommunityFeed() {
 
   const fetchPosts = async () => {
     const { data, error } = await api.from("community_posts").select("*").eq("status", "active").order("created_at", { ascending: false });
-    if (!error && data) {
-      setPosts(data as PostRow[]);
-      const userIds = [...new Set(data.map((p: any) => p.user_id))];
-      if (userIds.length > 0) {
-        const { data: profs } = await api.from("profiles").select("id, name, primary_role").in("id", userIds);
-        if (profs) {
-          const map: Record<string, { name: string; primary_role: string }> = {};
-          profs.forEach((p: any) => { map[p.id] = { name: p.name, primary_role: p.primary_role }; });
-          setProfiles(map);
-        }
-      }
+    if (error) throw error;
+    const rows = (data || []) as PostRow[];
+    let profileMap: Record<string, { name: string; primary_role: string }> = {};
+    const userIds = [...new Set(rows.map((p) => p.user_id))];
+    if (userIds.length > 0) {
+      const { data: profs, error: profilesError } = await api.from("profiles").select("id, name, primary_role").in("id", userIds);
+      if (profilesError) throw profilesError;
+      profileMap = (profs || []).reduce((acc: Record<string, { name: string; primary_role: string }>, p: any) => {
+        acc[p.id] = { name: p.name, primary_role: p.primary_role };
+        return acc;
+      }, {});
     }
-    setLoading(false);
+    return { posts: rows, profiles: profileMap };
   };
 
-  useEffect(() => { fetchPosts(); }, []);
+  const { data, isLoading } = useQuery({
+    queryKey: ["community-feed", "active"],
+    queryFn: fetchPosts,
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+    placeholderData: (prev) => prev,
+  });
+
+  const posts = data?.posts || [];
+  const profiles = data?.profiles || {};
 
   useEffect(() => {
     const channel = api
       .channel("community-posts-realtime")
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "community_posts" }, (payload) => {
         const updated = payload.new as PostRow;
-        setPosts(prev => prev.map(p => p.id === updated.id ? { ...p, reaction_count: updated.reaction_count, comment_count: updated.comment_count, answer_count: updated.answer_count } : p));
+        queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
+          ["community-feed", "active"],
+          (prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              posts: prev.posts.map((p) =>
+                p.id === updated.id
+                  ? {
+                      ...p,
+                      reaction_count: updated.reaction_count,
+                      comment_count: updated.comment_count,
+                      answer_count: updated.answer_count,
+                    }
+                  : p
+              ),
+            };
+          }
+        );
       })
       .subscribe();
     return () => { api.removeChannel(channel); };
-  }, []);
+  }, [queryClient]);
 
   const handleReactionChange = (postId: string, newCount: number) => {
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, reaction_count: newCount } : p));
@@ -186,7 +213,7 @@ export default function CommunityFeed() {
       </div>
 
       {/* Posts */}
-      {loading ? (
+      {isLoading && !posts.length ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16">

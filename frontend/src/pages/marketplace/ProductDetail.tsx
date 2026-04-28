@@ -2,17 +2,19 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { api } from "@/api/client";
+import { API_BASE, api } from "@/api/client";
 import { Product } from "@/data/mockData";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { ShoppingCart, Star, MapPin, ArrowLeft, Package, Store, Truck, Zap, ShieldCheck, CheckCircle, CalendarDays, ShoppingBag, BarChart3, MessageCircle, Tag } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { useQuery } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 interface ExtendedProduct extends Product {
   is_verified_seller?: boolean;
@@ -30,29 +32,41 @@ export default function ProductDetail() {
   const { addItem } = useCart();
   const { user, isAuthenticated, hasCapability } = useAuth();
   const [qty, setQty] = useState(1);
-  const [product, setProduct] = useState<ExtendedProduct | null>(null);
-  const [shop, setShop] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
   const isWholesaler = hasCapability("is_wholesaler");
 
-  useEffect(() => {
-    if (!id) return;
-    api.from("products").select("*").eq("id", id).single().then(({ data }) => {
-      if (data) {
-        const p = dbToProduct(data);
-        setProduct(p);
-        api.from("shops").select("*").eq("user_id", p.sellerId).single().then(({ data: shopData }) => {
-          if (shopData) setShop(shopData);
-        });
+  const { data, isLoading } = useQuery({
+    queryKey: ["product-detail", id],
+    enabled: Boolean(id),
+    staleTime: moduleCachePolicy.marketplace.staleTime,
+    gcTime: moduleCachePolicy.marketplace.gcTime,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const detailRes = await fetch(`${API_BASE}/v1/marketplace/products/${id}/details`);
+      if (detailRes.ok) {
+        const body = (await detailRes.json()) as { data?: { product?: any; shop?: any } };
+        const productRow = body.data?.product;
+        if (!productRow) return { product: null as ExtendedProduct | null, shop: null as any };
+        return {
+          product: dbToProduct(productRow),
+          shop: body.data?.shop || null,
+        };
       }
-      setLoading(false);
-    });
-  }, [id]);
+
+      const { data: productRow } = await api.from("products").select("*").eq("id", id).single();
+      if (!productRow) return { product: null as ExtendedProduct | null, shop: null as any };
+      const product = dbToProduct(productRow);
+      const { data: shop } = await api.from("shops").select("*").eq("user_id", product.sellerId).single();
+      return { product, shop: shop || null };
+    },
+  });
+
+  const product = data?.product || null;
+  const shop = data?.shop || null;
 
   const isSeller = user?.id === product?.sellerId;
 
-  if (loading) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
+  if (isLoading && !product) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
   if (!product) return <div className="text-center py-12 text-muted-foreground">Product not found</div>;
 
   const discount = product.originalPrice ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100) : 0;

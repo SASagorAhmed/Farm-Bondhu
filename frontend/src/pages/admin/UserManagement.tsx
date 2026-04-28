@@ -53,7 +53,6 @@ const statusColors: Record<string, string> = {
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<UserRow | null>(null);
@@ -141,18 +140,18 @@ export default function UserManagement() {
     }
   };
 
-  const { data: userData } = useQuery({
+  const { data: userData, isLoading } = useQuery({
     queryKey: queryKeys().adminUserManagement(),
     staleTime: moduleCachePolicy.admin.staleTime,
     gcTime: moduleCachePolicy.admin.gcTime,
     queryFn: fetchUsers,
+    placeholderData: (prev) => prev,
   });
 
   useEffect(() => {
     if (!userData) return;
     setUsers(userData.users);
     setAllPermissions(userData.permissions);
-    setLoading(false);
   }, [userData]);
 
   useEffect(() => {

@@ -19,7 +19,9 @@ export const config = {
    * On startup, ensure core `public.*` tables exist (CREATE IF NOT EXISTS + column patches).
    * Set AUTO_CREATE_SCHEMA=false when a migration tool owns DDL (e.g. strict production).
    */
-  autoCreateSchema: process.env.AUTO_CREATE_SCHEMA !== "false",
+  autoCreateSchema:
+    process.env.AUTO_CREATE_SCHEMA === "true" ||
+    (process.env.AUTO_CREATE_SCHEMA !== "false" && (process.env.NODE_ENV || "development") !== "production"),
   /** Optional: public URL of this API (e.g. for links / webhooks) */
   apiPublicUrl: process.env.API_PUBLIC_URL?.trim() || "",
 };

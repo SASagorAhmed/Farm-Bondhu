@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageSquare, Heart, Bookmark, HelpCircle, PenSquare, Clock, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 interface ActivityItem {
   id: string;
@@ -31,51 +33,29 @@ const TABS = ["all", "post", "comment", "answer", "reaction", "save"] as const;
 export default function CommunityHistory() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    if (!user) return;
-    const fetchActivity = async () => {
-      setLoading(true);
-      // Fetch activity log
+  const { data: activities = [], isLoading } = useQuery({
+    queryKey: ["community-history", user?.id || "anon", filter],
+    enabled: Boolean(user?.id),
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
       let query = api
         .from("community_activity_log")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(200);
-
-      if (filter !== "all") {
-        query = query.eq("action_type", filter);
-      }
-
+      if (filter !== "all") query = query.eq("action_type", filter);
       const { data: logs } = await query;
-      if (!logs || logs.length === 0) {
-        setActivities([]);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch post titles for all unique post_ids
+      if (!logs?.length) return [];
       const postIds = [...new Set(logs.map((l) => l.post_id))];
-      const { data: posts } = await api
-        .from("community_posts")
-        .select("id, title")
-        .in("id", postIds);
-
+      const { data: posts } = await api.from("community_posts").select("id, title").in("id", postIds);
       const titleMap = new Map(posts?.map((p) => [p.id, p.title]) ?? []);
-
-      setActivities(
-        logs.map((l) => ({
-          ...l,
-          post_title: titleMap.get(l.post_id) ?? "Deleted post",
-        }))
-      );
-      setLoading(false);
-    };
-    fetchActivity();
-  }, [user, filter]);
+      return logs.map((l) => ({ ...l, post_title: titleMap.get(l.post_id) ?? "Deleted post" })) as ActivityItem[];
+    },
+  });
 
   if (!user) return null;
 
@@ -96,7 +76,7 @@ export default function CommunityHistory() {
         </TabsList>
       </Tabs>
 
-      {loading ? (
+      {isLoading && !activities.length ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

@@ -3,11 +3,11 @@ import { persistQueryClient } from "@tanstack/query-persist-client-core";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 
 export const moduleCachePolicy = {
-  auth: { staleTime: 120 * 1000, gcTime: 20 * 60 * 1000 },
-  dashboard: { staleTime: 120 * 1000, gcTime: 20 * 60 * 1000 },
-  marketplace: { staleTime: 60 * 1000, gcTime: 15 * 60 * 1000 },
-  vet: { staleTime: 60 * 1000, gcTime: 15 * 60 * 1000 },
-  admin: { staleTime: 30 * 1000, gcTime: 10 * 60 * 1000 },
+  auth: { staleTime: 5 * 60 * 1000, gcTime: 45 * 60 * 1000 },
+  dashboard: { staleTime: 3 * 60 * 1000, gcTime: 30 * 60 * 1000 },
+  marketplace: { staleTime: 3 * 60 * 1000, gcTime: 30 * 60 * 1000 },
+  vet: { staleTime: 3 * 60 * 1000, gcTime: 30 * 60 * 1000 },
+  admin: { staleTime: 90 * 1000, gcTime: 20 * 60 * 1000 },
 } as const;
 
 export function queryKeys() {
@@ -45,8 +45,8 @@ export function queryKeys() {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60 * 1000,
-      gcTime: 10 * 60 * 1000,
+      staleTime: 2 * 60 * 1000,
+      gcTime: 20 * 60 * 1000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       retry: 1,
@@ -63,7 +63,7 @@ if (isBrowser) {
   persistQueryClient({
     queryClient,
     persister,
-    maxAge: 5 * 60 * 1000,
+    maxAge: 20 * 60 * 1000,
     buster: "v1",
   });
 }

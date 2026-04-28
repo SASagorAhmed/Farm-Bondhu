@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Suspense, lazy, useEffect, type ReactNode } from "react";
+import { BrowserRouter, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -44,7 +45,6 @@ import Notifications from "./pages/dashboard/Notifications";
 
 // Marketplace pages
 import Marketplace from "./pages/marketplace/Marketplace";
-import ProductDetail from "./pages/marketplace/ProductDetail";
 import Cart from "./pages/marketplace/Cart";
 import Orders from "./pages/marketplace/Orders";
 import OrderTracking from "./pages/marketplace/OrderTracking";
@@ -61,8 +61,6 @@ import MyShop from "./pages/marketplace/MyShop";
 import BuyerHome from "./pages/marketplace/BuyerHome";
 import Categories from "./pages/marketplace/Categories";
 import Wishlist from "./pages/marketplace/Wishlist";
-import BuyerInbox from "./pages/marketplace/BuyerInbox";
-import ChatDetail from "./pages/marketplace/ChatDetail";
 
 // MediBondhu pages
 import Specialities from "./pages/medibondhu/Specialities";
@@ -71,7 +69,6 @@ import VetProfile from "./pages/medibondhu/VetProfile";
 import BookConsultation from "./pages/medibondhu/BookConsultation";
 import WaitingRoom from "./pages/medibondhu/WaitingRoom";
 import ConsultationRoom from "./pages/medibondhu/ConsultationRoom";
-import Consultations from "./pages/medibondhu/Consultations";
 import Prescriptions from "./pages/medibondhu/Prescriptions";
 
 // Learning
@@ -79,8 +76,6 @@ import LearningCenter from "./pages/learning/LearningCenter";
 
 // Vet pages
 import VetDashboard from "./pages/vet/VetDashboard";
-import VetPatients from "./pages/vet/VetPatients";
-import VetAvailability from "./pages/vet/VetAvailability";
 import VetEarnings from "./pages/vet/VetEarnings";
 import VetProfilePage from "./pages/vet/VetProfilePage";
 import VetConsultations from "./pages/vet/VetConsultations";
@@ -94,8 +89,6 @@ import AccessCenter from "./pages/profile/AccessCenter";
 import Settings from "./pages/profile/Settings";
 
 // Admin pages
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import UserManagement from "./pages/admin/UserManagement";
 import AdminMarketplace from "./pages/admin/AdminMarketplace";
 import FarmBondhuShop from "./pages/admin/FarmBondhuShop";
 import Reports from "./pages/admin/Reports";
@@ -114,17 +107,51 @@ import CommunityLayout from "@/components/layout/CommunityLayout";
 import CommunityFeed from "./pages/community/CommunityFeed";
 import CreatePost from "./pages/community/CreatePost";
 import PostDetail from "./pages/community/PostDetail";
-import CategoryFeed from "./pages/community/CategoryFeed";
 import UnansweredPosts from "./pages/community/UnansweredPosts";
 import UrgentPosts from "./pages/community/UrgentPosts";
 import MyPosts from "./pages/community/MyPosts";
 import SavedPosts from "./pages/community/SavedPosts";
-import CommunityHistory from "./pages/community/CommunityHistory";
 
 import { queryClient } from "@/lib/queryClient";
 
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { markRouteTransition, measureRouteTransition } from "@/lib/perfMetrics";
+
+const ProductDetail = lazy(() => import("./pages/marketplace/ProductDetail"));
+const BuyerInbox = lazy(() => import("./pages/marketplace/BuyerInbox"));
+const ChatDetail = lazy(() => import("./pages/marketplace/ChatDetail"));
+const Consultations = lazy(() => import("./pages/medibondhu/Consultations"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const UserManagement = lazy(() => import("./pages/admin/UserManagement"));
+const VetPatients = lazy(() => import("./pages/vet/VetPatients"));
+const VetAvailability = lazy(() => import("./pages/vet/VetAvailability"));
+const CategoryFeed = lazy(() => import("./pages/community/CategoryFeed"));
+const CommunityHistory = lazy(() => import("./pages/community/CommunityHistory"));
+
+function RoutePerfTracker() {
+  const location = useLocation();
+  const navType = useNavigationType();
+
+  useEffect(() => {
+    const path = location.pathname;
+    markRouteTransition(path);
+    const handle = window.requestAnimationFrame(() => {
+      measureRouteTransition(path);
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [location.pathname, navType]);
+
+  return null;
+}
+
+function LazyPage({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading page...</div>}>
+      {children}
+    </Suspense>
+  );
+}
 
 const App = () => (
   <ThemeProvider>
@@ -134,6 +161,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <RoutePerfTracker />
         <AuthProvider>
           <CartProvider>
             <OrderProvider>
@@ -201,9 +229,9 @@ const App = () => (
                   <Route path="notifications" element={<Notifications contextFilter={["marketplace", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
-                  <Route path="inbox" element={<BuyerInbox />} />
-                  <Route path="chat/:conversationId" element={<ChatDetail />} />
-                  <Route path=":id" element={<ProductDetail />} />
+                  <Route path="inbox" element={<LazyPage><BuyerInbox /></LazyPage>} />
+                  <Route path="chat/:conversationId" element={<LazyPage><ChatDetail /></LazyPage>} />
+                  <Route path=":id" element={<LazyPage><ProductDetail /></LazyPage>} />
                 </Route>
                 <Route path="/cart" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<Cart />} />
@@ -239,11 +267,11 @@ const App = () => (
                   <Route path="dashboard" element={<VetDashboard />} />
                   <Route path="consultations" element={<VetConsultations />} />
                   <Route path="room/:bookingId" element={<ConsultationRoom />} />
-                  <Route path="patients" element={<VetPatients />} />
+                  <Route path="patients" element={<LazyPage><VetPatients /></LazyPage>} />
                   <Route path="prescriptions" element={<VetPrescriptions />} />
                   <Route path="prescriptions/create" element={<CreatePrescription />} />
                   <Route path="prescriptions/:prescriptionId" element={<PrescriptionDetail />} />
-                  <Route path="availability" element={<VetAvailability />} />
+                  <Route path="availability" element={<LazyPage><VetAvailability /></LazyPage>} />
                   <Route path="earnings" element={<VetEarnings />} />
                   <Route path="profile" element={<VetProfilePage />} />
                   <Route path="profile-account" element={<VetProfilePage />} />
@@ -267,7 +295,7 @@ const App = () => (
                   <Route path="book/:vetId" element={<BookConsultation />} />
                   <Route path="waiting/:bookingId" element={<WaitingRoom />} />
                   <Route path="room/:bookingId" element={<ConsultationRoom />} />
-                  <Route path="consultations" element={<Consultations />} />
+                  <Route path="consultations" element={<LazyPage><Consultations /></LazyPage>} />
                   <Route path="prescriptions" element={<Prescriptions />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["medibondhu", "general"]} />} />
@@ -280,12 +308,12 @@ const App = () => (
                   <Route index element={<CommunityFeed />} />
                   <Route path="create" element={<CreatePost />} />
                   <Route path="post/:id" element={<PostDetail />} />
-                  <Route path="category/:category" element={<CategoryFeed />} />
+                  <Route path="category/:category" element={<LazyPage><CategoryFeed /></LazyPage>} />
                   <Route path="unanswered" element={<UnansweredPosts />} />
                   <Route path="urgent" element={<UrgentPosts />} />
                   <Route path="my-posts" element={<MyPosts />} />
                   <Route path="saved" element={<SavedPosts />} />
-                  <Route path="history" element={<CommunityHistory />} />
+                  <Route path="history" element={<LazyPage><CommunityHistory /></LazyPage>} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["general"]} />} />
                   <Route path="settings" element={<Settings />} />
@@ -293,8 +321,8 @@ const App = () => (
 
                 {/* ============ ADMIN (requires can_manage_platform) ============ */}
                 <Route path="/admin" element={<ProtectedRoute requiredCapability="can_manage_platform"><DashboardLayout /></ProtectedRoute>}>
-                  <Route index element={<AdminDashboard />} />
-                  <Route path="users" element={<UserManagement />} />
+                  <Route index element={<LazyPage><AdminDashboard /></LazyPage>} />
+                  <Route path="users" element={<LazyPage><UserManagement /></LazyPage>} />
                   <Route path="approvals" element={<ApprovalQueue />} />
                   <Route path="vet-approvals" element={<VetApprovals />} />
                   <Route path="broadcast" element={<AdminBroadcast />} />

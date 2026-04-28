@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowLeft, Send, Share2, MapPin, Star, Package, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 interface ChatMessage {
   id: string;
@@ -58,6 +60,7 @@ export default function ChatDetail() {
   const { user } = useAuth();
   const [convo, setConvo] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [resolvedConversationId, setResolvedConversationId] = useState<string | null>(null);
   const [newMsg, setNewMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -65,15 +68,16 @@ export default function ChatDetail() {
   const [shareSearch, setShareSearch] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Load or create conversation
+  // Resolve conversation id (create only when route is `/new`)
   useEffect(() => {
     if (!user) return;
 
-    const loadConversation = async () => {
-      let convoId = conversationId;
+    const resolveConversation = async () => {
+      if (conversationId !== "new") {
+        setResolvedConversationId(conversationId || null);
+        return;
+      }
 
-      // If coming from product page with query params, find or create conversation
-      if (conversationId === "new") {
         const sellerId = searchParams.get("seller");
         const productId = searchParams.get("product");
         if (!sellerId || !productId) { navigate("/marketplace/inbox"); return; }
@@ -88,7 +92,7 @@ export default function ChatDetail() {
           .maybeSingle();
 
         if (existing) {
-          convoId = existing.id;
+          setResolvedConversationId(existing.id);
           navigate(`/marketplace/chat/${existing.id}`, { replace: true });
         } else {
           const { data: created, error } = await api
@@ -97,7 +101,7 @@ export default function ChatDetail() {
             .select("id")
             .single();
           if (error || !created) { toast.error("Could not start conversation"); navigate("/marketplace/inbox"); return; }
-          convoId = created.id;
+          setResolvedConversationId(created.id);
           navigate(`/marketplace/chat/${created.id}`, { replace: true });
 
           // Insert system message with product reference
@@ -108,51 +112,39 @@ export default function ChatDetail() {
             shared_product_id: productId,
           });
         }
-      }
-
-      if (!convoId || convoId === "new") return;
-
-      // Load conversation details
-      const { data: convoData } = await api
-        .from("conversations")
-        .select("*")
-        .eq("id", convoId)
-        .single();
-      if (!convoData) { navigate("/marketplace/inbox"); return; }
-
-      const otherId = convoData.buyer_id === user.id ? convoData.seller_id : convoData.buyer_id;
-      const [{ data: profile }, { data: product }, { data: shop }] = await Promise.all([
-        api.from("profiles").select("name").eq("id", otherId).single(),
-        convoData.product_id
-          ? api.from("products").select("id, name, price, image, seller_name, location, rating, stock, category").eq("id", convoData.product_id).single()
-          : Promise.resolve({ data: null }),
-        api.from("shops").select("shop_name").eq("user_id", convoData.seller_id).maybeSingle(),
-      ]);
-
-      setConvo({
-        id: convoData.id,
-        buyer_id: convoData.buyer_id,
-        seller_id: convoData.seller_id,
-        product_id: convoData.product_id,
-        product: product as any,
-        other_name: profile?.name || "User",
-        shop_name: shop?.shop_name,
-      });
-
-      // Load messages
-      const { data: msgs } = await api
-        .from("chat_messages")
-        .select("*")
-        .eq("conversation_id", convoId)
-        .order("created_at", { ascending: true });
-
-      // Enrich shared products
-      const enriched = await enrichMessages(msgs || []);
-      setMessages(enriched);
     };
 
-    loadConversation();
-  }, [conversationId, user]);
+    resolveConversation();
+  }, [conversationId, navigate, searchParams, user]);
+
+  const { data: bootstrapData, isLoading: isBootstrapLoading } = useQuery({
+    queryKey: ["chat-bootstrap", resolvedConversationId, user?.id],
+    enabled: Boolean(resolvedConversationId && user?.id),
+    staleTime: moduleCachePolicy.marketplace.staleTime,
+    gcTime: moduleCachePolicy.marketplace.gcTime,
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const token = readSession()?.access_token;
+      const bootstrapRes = await fetch(
+        `${API_BASE}/v1/marketplace/chat/conversations/${resolvedConversationId}/bootstrap`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      );
+      if (!bootstrapRes.ok) throw new Error(`Conversation bootstrap failed (${bootstrapRes.status})`);
+      const body = (await bootstrapRes.json()) as {
+        data?: { conversation?: ConversationInfo; messages?: ChatMessage[] };
+      };
+      return body.data || { conversation: null, messages: [] };
+    },
+  });
+
+  useEffect(() => {
+    if (!resolvedConversationId) return;
+    if (!bootstrapData?.conversation) return;
+    setConvo(bootstrapData.conversation);
+    setMessages(bootstrapData.messages || []);
+  }, [bootstrapData, resolvedConversationId]);
 
   // Realtime subscription
   useEffect(() => {
@@ -228,16 +220,23 @@ export default function ChatDetail() {
   };
 
   const loadShareProducts = async () => {
-    const { data } = await api.from("products").select("id, name, price, image, category, stock")
-      .ilike("name", `%${shareSearch}%`).limit(20);
-    setShareProducts(data || []);
+    const token = readSession()?.access_token;
+    const q = encodeURIComponent(shareSearch || "");
+    const res = await fetch(`${API_BASE}/v1/marketplace/chat/share-products?q=${q}&limit=20`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const body = (await res.json().catch(() => ({}))) as { data?: any[] };
+    setShareProducts(res.ok ? body.data || [] : []);
   };
 
   useEffect(() => {
     if (shareOpen) loadShareProducts();
   }, [shareOpen, shareSearch]);
 
-  if (!convo) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
+  if (isBootstrapLoading && !convo) {
+    return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
+  }
+  if (!convo) return <div className="flex items-center justify-center h-64 text-muted-foreground">Conversation unavailable.</div>;
 
   const isBuyer = user?.id === convo.buyer_id;
 
