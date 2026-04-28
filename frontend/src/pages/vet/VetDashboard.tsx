@@ -18,12 +18,15 @@ export default function VetDashboard() {
   const navigate = useNavigate();
   const [accepting, setAccepting] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const dashboardQueryKey = queryKeys().vetBookingsDashboard(user?.id);
 
   const { data: bookingData } = useQuery({
-    queryKey: queryKeys().vetBookingsDashboard(user?.id),
+    queryKey: dashboardQueryKey,
     enabled: Boolean(user?.id),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
+    refetchInterval: 1500,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const uid = user!.id;
       const [pendingRes, todayRes] = await Promise.all([
@@ -62,26 +65,26 @@ export default function VetDashboard() {
     const unsubscribe = subscribeConsultationBookings({
       channelKey: `vet-dashboard-bookings-${user.id}`,
       userId: user.id,
-      queryClient,
       onEvent: (eventType, row) => {
         queryClient.setQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(
-          queryKeys().vetBookingsDashboard(user.id),
+          dashboardQueryKey,
           (prev) => {
-            if (!prev) return prev;
-            const nextPending = patchBookingList(prev.pendingBookings || [], eventType, row).filter(
+            const current = prev || { pendingBookings: [], todayBookings: [] };
+            const nextPending = patchBookingList(current.pendingBookings || [], eventType, row).filter(
               (b) => b.status === "pending" || b.status === "confirmed"
             );
-            const nextToday = patchBookingList(prev.todayBookings || [], eventType, row).filter(
+            const nextToday = patchBookingList(current.todayBookings || [], eventType, row).filter(
               (b) => b.status === "in_progress" || b.status === "completed"
             );
             return { pendingBookings: nextPending, todayBookings: nextToday };
           }
         );
+        queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
       },
     });
 
     return unsubscribe;
-  }, [queryClient, user?.id]);
+  }, [dashboardQueryKey, queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {
     setAccepting(bookingId);
@@ -101,7 +104,7 @@ export default function VetDashboard() {
     }
 
     toast({ title: "Consultation accepted!", description: "Joining the room now..." });
-    queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user?.id) });
+    queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
     navigate(`/vet/room/${bookingId}`);
   };
 

@@ -17,16 +17,20 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { login, isAuthenticated, user } = useAuth();
+  const { login, isAuthenticated, user, authzHydrating } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { t } = useLanguage();
 
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (isAuthenticated && authzHydrating) {
+      navigate("/home", { replace: true });
+      return;
+    }
+    if (isAuthenticated && user && !authzHydrating) {
       navigate(getDefaultRoute(user.primaryRole), { replace: true });
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [authzHydrating, isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

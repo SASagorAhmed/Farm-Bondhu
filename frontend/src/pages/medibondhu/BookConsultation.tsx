@@ -178,8 +178,14 @@ export default function BookConsultation() {
     if (!user) return;
     setSubmitting(true);
     try {
+      const { data: vetIdentity } = await api
+        .from("vets")
+        .select("id,user_id")
+        .eq("id", vet.id)
+        .maybeSingle();
       const { data, error } = await api.from("consultation_bookings").insert({
         vet_mock_id: vet.id, vet_name: vet.name, patient_mock_id: user.id, patient_name: user.name,
+        vet_user_id: vetIdentity?.user_id || null,
         booking_type: bookingType, consultation_method: method,
         scheduled_date: bookingType === "scheduled" ? selectedDate : new Date().toISOString().split("T")[0],
         scheduled_time: bookingType === "scheduled" ? selectedTime : "Now",

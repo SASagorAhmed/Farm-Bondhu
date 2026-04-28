@@ -14,10 +14,30 @@ import { moduleCachePolicy } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 const MB = "#12C2D6";
+const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "cancelled") return <Badge className="bg-destructive/15 text-destructive flex items-center gap-1"><XCircle className="h-3.5 w-3.5" />{status}</Badge>;
   return <Badge className="flex items-center gap-1" style={{ backgroundColor: `${MB}20`, color: MB }}><Clock className="h-3.5 w-3.5" />{status}</Badge>;
+}
+
+function bookingDisplayStatus(booking: any): string {
+  if (booking?.status === "in_progress" && booking?.leave_deadline_at) return "ending";
+  return String(booking?.status || "pending");
+}
+
+function canRejoinNow(booking: any, currentUserId?: string) {
+  if (booking?.status !== "in_progress") return false;
+  const leftUserId = String(booking?.left_user_id || "");
+  const hasLeaveDeadline = Boolean(booking?.leave_deadline_at);
+  if (!hasLeaveDeadline) return true;
+  return !!currentUserId && leftUserId === String(currentUserId);
+}
+
+function canShowJoinButton(booking: any, currentUserId?: string) {
+  const status = String(booking?.status || "");
+  if (TERMINAL_STATUSES.has(status)) return false;
+  return canRejoinNow(booking, currentUserId);
 }
 
 export default function Consultations() {
@@ -68,6 +88,9 @@ export default function Consultations() {
             };
           }
         );
+        if (row?.id) {
+          queryClient.invalidateQueries({ queryKey: ["consultation-room", row.id] });
+        }
       },
     });
     return unsubscribe;
@@ -108,11 +131,11 @@ export default function Consultations() {
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="font-display font-bold text-foreground">{c.vet_name}</h3>
-                      <StatusBadge status={c.status} />
+                      <StatusBadge status={bookingDisplayStatus(c)} />
                     </div>
                     <p className="text-sm text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p>
                     <p className="text-sm text-foreground"><span className="text-muted-foreground">Symptoms:</span> {c.symptoms}</p>
-                    {c.status === "in_progress" && (
+                    {canShowJoinButton(c, user?.id) && (
                       <div className="pt-1">
                         <Button
                           size="sm"
@@ -129,6 +152,9 @@ export default function Consultations() {
                           Join Again
                         </Button>
                       </div>
+                    )}
+                    {c.status === "in_progress" && !canShowJoinButton(c, user?.id) && (
+                      <div className="pt-1 text-xs text-muted-foreground">Ending...</div>
                     )}
                   </div>
                 </div>

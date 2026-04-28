@@ -8,17 +8,28 @@ import { notFound } from "./middleware/notFound.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
+const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(
   cors({
-    origin:
-      config.corsOrigins.length > 0
-        ? config.corsOrigins
-        : config.nodeEnv === "development"
-          ? true
-          : false,
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (config.corsOrigins.length > 0) {
+        callback(config.corsOrigins.includes(origin) ? null : new Error("Not allowed by CORS"), config.corsOrigins.includes(origin));
+        return;
+      }
+      // Local development should work even if NODE_ENV was set to production by mistake.
+      if (LOCAL_ORIGIN_RE.test(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(config.nodeEnv === "development" ? null : new Error("Not allowed by CORS"), config.nodeEnv === "development");
+    },
     credentials: true,
   })
 );
