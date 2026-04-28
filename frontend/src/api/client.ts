@@ -227,6 +227,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
 
   private async execute() {
     const uid = readSession()?.user?.id;
+    const inAdminArea = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
     try {
       if (this.op === "insert" && this.table === "orders" && this.insertRow && this.wantReturning) {
         const { res, body } = await apiJson("/v1/orders", {
@@ -700,6 +701,9 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             return { data: (body as { data: unknown }).data ?? null, error: null };
           }
 
+          if (!inAdminArea) {
+            return { data: [], error: null };
+          }
           let { res, body } = await apiJson("/v1/compat/from/admin", {
             method: "POST",
             body: JSON.stringify({ action: "select", table: "profiles", mode: "all_admin" }),
@@ -742,6 +746,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
 
       if (this.table === "user_roles") {
         if (this.op === "select") {
+          if (!inAdminArea) return { data: [], error: null };
           const { res, body } = await apiJson("/v1/compat/from/admin", {
             method: "POST",
             body: JSON.stringify({ action: "select", table: "user_roles", mode: "list" }),
@@ -787,6 +792,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
 
       if (this.table === "user_capabilities") {
         if (this.op === "select") {
+          if (!inAdminArea) return { data: [], error: null };
           const { res, body } = await apiJson("/v1/compat/from/admin", {
             method: "POST",
             body: JSON.stringify({ action: "select", table: "user_capabilities", mode: "list" }),
@@ -823,6 +829,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
       }
 
       if (this.table === "permissions" && this.op === "select") {
+        if (!inAdminArea) return { data: [], error: null };
         const { res, body } = await apiJson("/v1/compat/from/admin", {
           method: "POST",
           body: JSON.stringify({ action: "select", table: "role_permissions", mode: "permissions_list" }),

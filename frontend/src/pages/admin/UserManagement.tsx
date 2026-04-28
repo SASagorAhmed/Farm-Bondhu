@@ -140,7 +140,7 @@ export default function UserManagement() {
     }
   };
 
-  const { data: userData, isLoading } = useQuery({
+  const { data: userData, isLoading, isFetching } = useQuery({
     queryKey: queryKeys().adminUserManagement(),
     staleTime: moduleCachePolicy.admin.staleTime,
     gcTime: moduleCachePolicy.admin.gcTime,
@@ -158,7 +158,26 @@ export default function UserManagement() {
     const channels = ["profiles", "user_roles", "user_capabilities"].map((table) =>
       api
         .channel(`admin-user-management-live-${table}`)
-        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+        .on("postgres_changes", { event: "*", schema: "public", table }, (payload) => {
+          if (table === "profiles") {
+            const row = (payload.eventType === "DELETE" ? payload.old : payload.new) as Partial<UserRow> & { id?: string };
+            if (row?.id) {
+              queryClient.setQueryData<{ users: UserRow[]; permissions: { code: string; description: string | null }[] }>(
+                queryKeys().adminUserManagement(),
+                (prev) => {
+                  if (!prev) return prev;
+                  if (payload.eventType === "DELETE") {
+                    return { ...prev, users: prev.users.filter((u) => u.id !== row.id) };
+                  }
+                  const idx = prev.users.findIndex((u) => u.id === row.id);
+                  if (idx < 0) return prev;
+                  const users = [...prev.users];
+                  users[idx] = { ...users[idx], ...row };
+                  return { ...prev, users };
+                }
+              );
+            }
+          }
           queryClient.invalidateQueries({ queryKey: queryKeys().adminUserManagement() });
         })
         .subscribe()
@@ -235,6 +254,7 @@ export default function UserManagement() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">User Management</h1>
         <p className="text-muted-foreground mt-1">Manage all platform users, roles & capabilities</p>
+        {isFetching && users.length > 0 && <p className="text-xs text-muted-foreground mt-1">Refreshing users...</p>}
       </motion.div>
 
       <div className="flex flex-wrap gap-3">
@@ -254,7 +274,7 @@ export default function UserManagement() {
       <Card className="shadow-card overflow-hidden">
         <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.admin}, ${ICON_COLORS.users})` }} />
         <CardContent className="p-0">
-          {loading ? (
+          {isLoading && !users.length ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : (
             <Table>

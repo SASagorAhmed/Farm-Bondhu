@@ -11,6 +11,7 @@ import { ICON_COLORS } from "@/lib/iconColors";
 import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 export default function VetDashboard() {
   const { user } = useAuth();
@@ -57,24 +58,29 @@ export default function VetDashboard() {
 
   // Realtime subscription for new/updated bookings
   useEffect(() => {
-    const channel = api
-      .channel("vet-dashboard-bookings")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "consultation_bookings",
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user?.id) });
-        }
-      )
-      .subscribe();
+    if (!user?.id) return;
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `vet-dashboard-bookings-${user.id}`,
+      userId: user.id,
+      queryClient,
+      onEvent: (eventType, row) => {
+        queryClient.setQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(
+          queryKeys().vetBookingsDashboard(user.id),
+          (prev) => {
+            if (!prev) return prev;
+            const nextPending = patchBookingList(prev.pendingBookings || [], eventType, row).filter(
+              (b) => b.status === "pending" || b.status === "confirmed"
+            );
+            const nextToday = patchBookingList(prev.todayBookings || [], eventType, row).filter(
+              (b) => b.status === "in_progress" || b.status === "completed"
+            );
+            return { pendingBookings: nextPending, todayBookings: nextToday };
+          }
+        );
+      },
+    });
 
-    return () => {
-      api.removeChannel(channel);
-    };
+    return unsubscribe;
   }, [queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {

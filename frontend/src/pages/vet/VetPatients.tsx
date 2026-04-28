@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
@@ -7,8 +7,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Users } from "lucide-react";
 import { format } from "date-fns";
 import { getAnimalTypeLabel } from "@/lib/animalTypes";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
+import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 interface Patient {
   patientId: string;
@@ -26,7 +27,8 @@ function formatDateSafe(value: string | null | undefined, fallback = "Unknown da
 
 export default function VetPatients() {
   const { user } = useAuth();
-  const { data: rawRows = [], isLoading } = useQuery({
+  const queryClient = useQueryClient();
+  const { data: rawRows = [], isLoading, isFetching } = useQuery({
     queryKey: ["vet-patients", user?.id || "anon"],
     enabled: Boolean(user?.id),
     staleTime: moduleCachePolicy.vet.staleTime,
@@ -65,11 +67,28 @@ export default function VetPatients() {
     return Array.from(map.values()).sort((a, b) => b.lastVisit.localeCompare(a.lastVisit));
   }, [rawRows]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `vet-patients-live-${user.id}`,
+      userId: user.id,
+      queryClient,
+      onEvent: (eventType, row) => {
+        queryClient.setQueryData<any[]>(
+          ["vet-patients", user.id || "anon"],
+          (prev) => patchBookingList(prev, eventType, row)
+        );
+      },
+    });
+    return unsubscribe;
+  }, [queryClient, user?.id]);
+
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl font-display font-bold text-foreground">Patients</h1>
         <p className="text-muted-foreground mt-1">Your patient history from completed consultations.</p>
+        {isFetching && patients.length > 0 && <p className="text-xs text-muted-foreground mt-1">Refreshing patients...</p>}
       </motion.div>
 
       <Card>

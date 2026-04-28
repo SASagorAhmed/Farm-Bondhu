@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
+import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 const MB = "#12C2D6";
 
@@ -52,15 +53,24 @@ export default function Consultations() {
 
   useEffect(() => {
     if (!user) return;
-    const channel = api
-      .channel(`consultations-live-${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () => {
-        queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations", user.id] });
-      })
-      .subscribe();
-    return () => {
-      api.removeChannel(channel);
-    };
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `consultations-live-${user.id}`,
+      userId: user.id,
+      queryClient,
+      onEvent: (eventType, row) => {
+        queryClient.setQueryData<{ consultations: any[]; totalSpent: number }>(
+          ["medibondhu-consultations", user.id],
+          (prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              consultations: patchBookingList(prev.consultations || [], eventType, row),
+            };
+          }
+        );
+      },
+    });
+    return unsubscribe;
   }, [queryClient, user]);
 
   const scheduled = consultations.filter(c => c.status === "confirmed" || c.status === "pending").length;

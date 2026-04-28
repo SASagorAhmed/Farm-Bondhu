@@ -23,10 +23,12 @@ export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: overviewData } = useQuery({
+  const { data: overviewData, isFetching } = useQuery({
     queryKey: ["dashboard-overview", user?.id],
     enabled: Boolean(user?.id),
     staleTime: 60 * 1000,
+    gcTime: 8 * 60 * 60 * 1000,
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       const uid = user!.id;
       const [animalsRes, productionRes, financialRes, healthRes, salesRes, mortRes] = await Promise.all([
@@ -99,6 +101,7 @@ export default function Overview() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Welcome, {user?.name} 👋</h1>
         <p className="text-muted-foreground mt-1">Your farm overview at a glance</p>
+        {isFetching && <p className="text-xs text-muted-foreground mt-1">Refreshing dashboard...</p>}
       </motion.div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

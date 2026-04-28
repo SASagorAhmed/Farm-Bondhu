@@ -16,9 +16,9 @@ export default function ProtectedRoute({
   requiredCapability,
   requireAnyCapability,
 }: Props) {
-  const { isAuthenticated, isLoading, user, hasRole, hasCapability } = useAuth();
+  const { isAuthenticated, isLoading, hasResolvedSession, authzHydrating, user, hasRole, hasCapability } = useAuth();
 
-  if (isLoading) {
+  if (isLoading && !hasResolvedSession) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -26,7 +26,19 @@ export default function ProtectedRoute({
     );
   }
 
+  // After initial session bootstrap, keep current content visible while background profile refresh runs.
+  if (isLoading && isAuthenticated) return <>{children}</>;
+
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  const requiresAuthz = Boolean(allowedRoles?.length || requiredCapability || requireAnyCapability?.length);
+  if (requiresAuthz && authzHydrating) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (allowedRoles && user && !allowedRoles.some((r) => hasRole(r))) {
     return <Navigate to="/access-denied" replace />;
