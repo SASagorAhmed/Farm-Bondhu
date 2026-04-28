@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 const MB = "#12C2D6";
 
@@ -88,40 +89,30 @@ export default function WaitingRoom() {
   // Realtime: auto-redirect when vet accepts (status → in_progress)
   useEffect(() => {
     if (!bookingId) return;
-
-    const channel = api
-      .channel(`waiting-${bookingId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "consultation_bookings",
-          filter: `id=eq.${bookingId}`,
-        },
-        (payload) => {
-          const newStatus = payload.new?.status;
-          if (newStatus === "in_progress") {
-            handleInProgress(true);
-          } else if (newStatus === "completed" || newStatus === "cancelled") {
-            if (hasNavigatedRef.current) return;
-            hasNavigatedRef.current = true;
-            toast({
-              title: newStatus === "cancelled" ? "Consultation cancelled" : "Consultation completed",
-              description: "Returning to consultations.",
-            });
-            navigate("/medibondhu/consultations");
-          } else {
-            queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
-          }
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `waiting-${bookingId}`,
+      userId: booking?.patient_mock_id || booking?.vet_user_id || undefined,
+      queryClient,
+      onEvent: (_eventType, row) => {
+        if (row.id !== bookingId) return;
+        const newStatus = row.status;
+        if (newStatus === "in_progress") {
+          handleInProgress(true);
+        } else if (newStatus === "completed" || newStatus === "cancelled") {
+          if (hasNavigatedRef.current) return;
+          hasNavigatedRef.current = true;
+          toast({
+            title: newStatus === "cancelled" ? "Consultation cancelled" : "Consultation completed",
+            description: "Returning to consultations.",
+          });
+          navigate("/medibondhu/consultations");
+        } else {
+          queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
         }
-      )
-      .subscribe();
-
-    return () => {
-      api.removeChannel(channel);
-    };
-  }, [bookingId, handleInProgress, navigate, queryClient]);
+      },
+    });
+    return unsubscribe;
+  }, [booking?.patient_mock_id, booking?.vet_user_id, bookingId, handleInProgress, navigate, queryClient]);
 
   // Fallback polling: guarantees patient auto-joins even if realtime update is missed.
   useEffect(() => {

@@ -10,6 +10,7 @@ import { CalendarCheck, Clock, CheckCircle, AlertCircle, Video, FileText } from 
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 interface Booking {
   id: string;
@@ -59,13 +60,18 @@ export default function VetConsultations() {
 
   useEffect(() => {
     if (!user) return;
-    const channel = api
-      .channel("vet-consultations")
-      .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, () =>
-        queryClient.invalidateQueries({ queryKey: queryKeys().vetConsultations(user.id) })
-      )
-      .subscribe();
-    return () => { api.removeChannel(channel); };
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `vet-consultations-${user.id}`,
+      userId: user.id,
+      queryClient,
+      onEvent: (eventType, row) => {
+        queryClient.setQueryData<Booking[]>(
+          queryKeys().vetConsultations(user.id),
+          (prev) => patchBookingList(prev, eventType, row) as Booking[]
+        );
+      },
+    });
+    return unsubscribe;
   }, [queryClient, user]);
 
   const stats = {

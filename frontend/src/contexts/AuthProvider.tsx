@@ -11,6 +11,19 @@ function meQueryKey(token?: string) {
 
 const AUTH_PROFILE_STALE_MS = 120 * 1000;
 
+function shellUserFromSession(session: AppSession): User {
+  const email = session.user?.email || "";
+  const fallbackName = email ? email.split("@")[0] : "User";
+  return {
+    id: session.user?.id || "",
+    name: fallbackName,
+    email,
+    primaryRole: "farmer",
+    roles: ["farmer"],
+    capabilities: [],
+  };
+}
+
 /** Loads app user from Express `GET /api/v1/me` (Bearer = access_token in localStorage). */
 async function fetchMe(): Promise<MeResult> {
   const s = readSession();
@@ -42,11 +55,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasResolvedSession, setHasResolvedSession] = useState(false);
+  const [authzHydrating, setAuthzHydrating] = useState(false);
 
-  const loadProfile = useCallback(async (opts?: { force?: boolean }) => {
+  function cachedUserForToken(token: string): User | null {
+    const cached = queryClient.getQueryData<MeResult>(meQueryKey(token));
+    return cached?.ok ? cached.user : null;
+  }
+
+  const loadProfile = useCallback(async (opts?: { force?: boolean; keepUserOnError?: boolean }) => {
     const token = readSession()?.access_token;
     if (!token) {
       setUser(null);
+      setAuthzHydrating(false);
       return;
     }
     const key = meQueryKey(token);
@@ -55,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(cached.user);
       if (!opts?.force) {
         // Warm cache gives instant paint; background refresh keeps it fresh.
+        setAuthzHydrating(false);
         return;
       }
     }
@@ -63,8 +85,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       staleTime: AUTH_PROFILE_STALE_MS,
       queryFn: fetchMe,
     });
-    if (r.ok) setUser(r.user);
-    else setUser(null);
+    if (r.ok) {
+      setUser(r.user);
+    } else if (!opts?.keepUserOnError) {
+      setUser(null);
+    }
+    setAuthzHydrating(false);
   }, []);
 
   useEffect(() => {
@@ -76,18 +102,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === "INITIAL_SESSION") {
         if (initialSessionHandled) return;
         initialSessionHandled = true;
+        setHasResolvedSession(true);
       }
       setSession(newSession as AppSession | null);
       if (newSession?.user) {
+        setAuthzHydrating(true);
         if (event === "INITIAL_SESSION") {
-          void loadProfile();
+          void loadProfile({ keepUserOnError: true });
           setIsLoading(false);
           return;
         }
-        await loadProfile({ force: true });
+        await loadProfile({ force: true, keepUserOnError: true });
         setIsLoading(false);
       } else {
         setUser(null);
+        setAuthzHydrating(false);
         setIsLoading(false);
       }
     });
@@ -95,11 +124,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (initialSessionHandled) return;
       initialSessionHandled = true;
+      setHasResolvedSession(true);
       setSession(initialSession as AppSession | null);
       if (initialSession?.user) {
-        void loadProfile();
+        setAuthzHydrating(true);
+        void loadProfile({ keepUserOnError: true });
         setIsLoading(false);
       } else {
+        setAuthzHydrating(false);
         setIsLoading(false);
       }
     });
@@ -116,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       if (now - lastRefreshAt < AUTH_PROFILE_STALE_MS) return;
       lastRefreshAt = now;
-      await loadProfile({ force: true });
+      await loadProfile({ force: true, keepUserOnError: true });
     };
     const onFocus = () => {
       void refreshIfActive();
@@ -142,21 +174,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!s?.access_token) {
       return { success: false, error: "No session returned. Check backend /api/v1/auth/sign-in and VITE_API_URL." };
     }
+
+    // Instant entry: promote session + cached/safe user shell immediately.
     setSession(s);
-    const me = await queryClient.fetchQuery({
-      queryKey: meQueryKey(s.access_token),
-      staleTime: AUTH_PROFILE_STALE_MS,
-      queryFn: fetchMe,
+    setAuthzHydrating(true);
+    const cachedUser = cachedUserForToken(s.access_token);
+    setUser((prev) => {
+      if (cachedUser) return cachedUser;
+      if (prev && prev.id === s.user.id) return prev;
+      return shellUserFromSession(s);
     });
-    if (!me.ok) {
-      await api.auth.signOut();
-      setSession(null);
-      setUser(null);
-      return { success: false, error: me.error };
-    }
-    setUser(me.user);
+    setIsLoading(false);
+    void loadProfile({ force: true, keepUserOnError: true });
     return { success: true };
-  }, []);
+  }, [loadProfile]);
 
   const sendSignupOtp = useCallback(async (data: SignupData) => {
     const { error } = await api.auth.sendRegistrationOtp({
@@ -191,21 +222,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!s?.access_token) {
       return { success: false, error: "No session after verification. Try signing in." };
     }
+    // Instant entry after verification: reconcile profile/capabilities in background.
     setSession(s);
-    const me = await queryClient.fetchQuery({
-      queryKey: meQueryKey(s.access_token),
-      staleTime: AUTH_PROFILE_STALE_MS,
-      queryFn: fetchMe,
+    setAuthzHydrating(true);
+    const cachedUser = cachedUserForToken(s.access_token);
+    setUser((prev) => {
+      if (cachedUser) return cachedUser;
+      if (prev && prev.id === s.user.id) return prev;
+      return shellUserFromSession(s);
     });
-    if (!me.ok) {
-      await api.auth.signOut();
-      setSession(null);
-      setUser(null);
-      return { success: false, error: me.error };
-    }
-    setUser(me.user);
+    setIsLoading(false);
+    void loadProfile({ force: true, keepUserOnError: true });
     return { success: true };
-  }, []);
+  }, [loadProfile]);
 
   const resendSignupOtp = useCallback(async (email: string) => {
     const { error } = await api.auth.resendRegistrationOtp(email);
@@ -217,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.auth.signOut();
     setUser(null);
     setSession(null);
+    setAuthzHydrating(false);
     queryClient.removeQueries({ queryKey: ["me-profile"] });
   }, []);
 
@@ -239,6 +269,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         isAuthenticated: !!user && !!session,
         isLoading,
+        hasResolvedSession,
+        authzHydrating,
         login,
         sendSignupOtp,
         completeSignupWithOtp,

@@ -43,7 +43,7 @@ export default function BuyerInbox() {
     return body.data || [];
   };
 
-  const { data: conversations = [], isLoading, error } = useQuery({
+  const { data: conversations = [], isLoading, isFetching, error } = useQuery({
     queryKey: ["buyer-inbox", user?.id],
     enabled: Boolean(user?.id),
     queryFn: loadConversations,
@@ -60,7 +60,42 @@ export default function BuyerInbox() {
 
     const channel = api
       .channel(`inbox-${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (payload) => {
+        const eventType = payload.eventType;
+        const row = (eventType === "DELETE" ? payload.old : payload.new) as Partial<ConvoItem> & {
+          buyer_id?: string;
+          seller_id?: string;
+        };
+        const isMine = row.buyer_id === user.id || row.seller_id === user.id;
+        if (isMine && row.id) {
+          queryClient.setQueryData<ConvoItem[]>(["buyer-inbox", user.id], (prev) => {
+            if (!prev) return prev;
+            const list = [...prev];
+            const idx = list.findIndex((c) => c.id === row.id);
+            if (eventType === "DELETE") {
+              if (idx >= 0) list.splice(idx, 1);
+              return list;
+            }
+            if (idx >= 0) {
+              list[idx] = {
+                ...list[idx],
+                last_message: row.last_message || list[idx].last_message,
+                last_message_at: row.last_message_at || list[idx].last_message_at,
+              };
+            } else {
+              list.unshift({
+                id: String(row.id),
+                buyer_id: String(row.buyer_id || ""),
+                seller_id: String(row.seller_id || ""),
+                product_id: row.product_id || null,
+                last_message: row.last_message || "Started a conversation",
+                last_message_at: row.last_message_at || new Date().toISOString(),
+                other_name: "User",
+              });
+            }
+            return list.sort((a, b) => String(b.last_message_at || "").localeCompare(String(a.last_message_at || "")));
+          });
+        }
         if (refreshTimer) clearTimeout(refreshTimer);
         refreshTimer = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["buyer-inbox", user.id] });
@@ -103,6 +138,9 @@ export default function BuyerInbox() {
                 ? "No messages yet"
                 : `${conversations.length} conversation${conversations.length !== 1 ? "s" : ""}`}
           </p>
+          {isFetching && conversations.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">Refreshing...</p>
+          )}
         </div>
       </motion.div>
 

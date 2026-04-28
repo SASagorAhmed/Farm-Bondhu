@@ -54,6 +54,8 @@ export interface AuthContextType {
   session: AppSession | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  hasResolvedSession: boolean;
+  authzHydrating: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   sendSignupOtp: (data: SignupData) => Promise<{ success: boolean; error?: string }>;
   completeSignupWithOtp: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;

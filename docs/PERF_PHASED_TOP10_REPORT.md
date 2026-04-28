@@ -65,6 +65,35 @@ After deploying Phase 1:
 4. Compare deltas: `farmbondhuPerfCompare("route_fix_before_deploy", "route_fix_after_deploy")`
 5. Capture ranked table: `farmbondhuPerfTop10(15)` and queue next optimization batch from top p95/p99 entries.
 
+## Instant-navigation verification batch
+
+Use this after the stale-while-revalidate + prefetch rollout:
+
+1. Save baseline before rollout: `farmbondhuPerfSave("instant_nav_before")`
+2. Navigate these routes repeatedly (with normal user behavior):
+   - `/marketplace/inbox`
+   - `/marketplace/chat/:conversationId`
+   - `/dashboard`
+   - `/community`
+   - `/admin/users`
+   - `/vet/patients`
+3. Save post-rollout snapshot: `farmbondhuPerfSave("instant_nav_after")`
+4. Compare p95/p99 deltas: `farmbondhuPerfCompare("instant_nav_before", "instant_nav_after")`
+5. Print ranked table for the final report: `farmbondhuPerfTop10(10)`
+
+## Instant sign-in + realtime verification batch
+
+1. Save baseline: `farmbondhuPerfSave("instant_signin_rt_before")`
+2. Validate sign-in path:
+   - sign in and confirm route entry is immediate (no full-screen auth wait)
+   - confirm role/capability-sensitive UI reconciles shortly after background refresh
+3. Validate cross-user realtime path:
+   - patient books consultation
+   - vet dashboard/consultations updates without refresh
+   - waiting room status changes propagate to both sides instantly
+4. Save after snapshot: `farmbondhuPerfSave("instant_signin_rt_after")`
+5. Compare: `farmbondhuPerfCompare("instant_signin_rt_before", "instant_signin_rt_after")`
+
 ## Validation gates
 
 - Repeat visits render from cache without full-screen loader

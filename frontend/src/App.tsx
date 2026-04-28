@@ -117,17 +117,30 @@ import { queryClient } from "@/lib/queryClient";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { markRouteTransition, measureRouteTransition } from "@/lib/perfMetrics";
+import { API_BASE, readSession } from "@/api/client";
+import { useAuth } from "@/contexts/AuthContext";
 
-const ProductDetail = lazy(() => import("./pages/marketplace/ProductDetail"));
-const BuyerInbox = lazy(() => import("./pages/marketplace/BuyerInbox"));
-const ChatDetail = lazy(() => import("./pages/marketplace/ChatDetail"));
-const Consultations = lazy(() => import("./pages/medibondhu/Consultations"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const UserManagement = lazy(() => import("./pages/admin/UserManagement"));
-const VetPatients = lazy(() => import("./pages/vet/VetPatients"));
-const VetAvailability = lazy(() => import("./pages/vet/VetAvailability"));
-const CategoryFeed = lazy(() => import("./pages/community/CategoryFeed"));
-const CommunityHistory = lazy(() => import("./pages/community/CommunityHistory"));
+const importProductDetail = () => import("./pages/marketplace/ProductDetail");
+const importBuyerInbox = () => import("./pages/marketplace/BuyerInbox");
+const importChatDetail = () => import("./pages/marketplace/ChatDetail");
+const importConsultations = () => import("./pages/medibondhu/Consultations");
+const importAdminDashboard = () => import("./pages/admin/AdminDashboard");
+const importUserManagement = () => import("./pages/admin/UserManagement");
+const importVetPatients = () => import("./pages/vet/VetPatients");
+const importVetAvailability = () => import("./pages/vet/VetAvailability");
+const importCategoryFeed = () => import("./pages/community/CategoryFeed");
+const importCommunityHistory = () => import("./pages/community/CommunityHistory");
+
+const ProductDetail = lazy(importProductDetail);
+const BuyerInbox = lazy(importBuyerInbox);
+const ChatDetail = lazy(importChatDetail);
+const Consultations = lazy(importConsultations);
+const AdminDashboard = lazy(importAdminDashboard);
+const UserManagement = lazy(importUserManagement);
+const VetPatients = lazy(importVetPatients);
+const VetAvailability = lazy(importVetAvailability);
+const CategoryFeed = lazy(importCategoryFeed);
+const CommunityHistory = lazy(importCommunityHistory);
 
 function RoutePerfTracker() {
   const location = useLocation();
@@ -141,6 +154,92 @@ function RoutePerfTracker() {
     });
     return () => window.cancelAnimationFrame(handle);
   }, [location.pathname, navType]);
+
+  return null;
+}
+
+function RouteIntentPrefetch() {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    const prefetchByRoute = (path: string) => {
+      const route = String(path || "");
+      if (!route) return;
+
+      if (route.startsWith("/marketplace/inbox")) {
+        void importBuyerInbox();
+      } else if (route.startsWith("/marketplace/chat")) {
+        void importChatDetail();
+      } else if (route.startsWith("/marketplace/")) {
+        void importProductDetail();
+      } else if (route.startsWith("/community/category")) {
+        void importCategoryFeed();
+      } else if (route.startsWith("/community/history")) {
+        void importCommunityHistory();
+      } else if (route.startsWith("/vet/patients")) {
+        void importVetPatients();
+      } else if (route.startsWith("/vet/availability")) {
+        void importVetAvailability();
+      } else if (route.startsWith("/admin/users")) {
+        void importUserManagement();
+      } else if (route.startsWith("/admin")) {
+        void importAdminDashboard();
+      } else if (route.startsWith("/medibondhu/consultations")) {
+        void importConsultations();
+      }
+    };
+
+    const prefetchData = async (path: string) => {
+      const token = readSession()?.access_token;
+      if (!token || !user?.id) return;
+      const headers = { Authorization: `Bearer ${token}` };
+      if (path.startsWith("/marketplace/inbox")) {
+        await queryClient.prefetchQuery({
+          queryKey: ["buyer-inbox", user.id],
+          queryFn: async () => {
+            const res = await fetch(`${API_BASE}/v1/marketplace/chat/inbox`, { headers });
+            const body = (await res.json().catch(() => ({}))) as { data?: unknown[] };
+            return body.data || [];
+          },
+          staleTime: 3 * 60 * 1000,
+        });
+      }
+      if (path.startsWith("/community")) {
+        await queryClient.prefetchQuery({
+          queryKey: ["community-feed", "active"],
+          queryFn: async () => {
+            const [postsRes, profilesRes] = await Promise.all([
+              fetch(`${API_BASE}/v1/compat/from`, {
+                method: "POST",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "select", table: "community_posts", mode: "active_latest", user_id: user.id }),
+              }),
+              fetch(`${API_BASE}/v1/profiles/${user.id}`, { headers }),
+            ]);
+            const postsBody = (await postsRes.json().catch(() => ({}))) as { data?: unknown[] };
+            const profileBody = (await profilesRes.json().catch(() => ({}))) as { data?: { id?: string; name?: string; primary_role?: string } };
+            const profile = profileBody.data;
+            const profiles = profile?.id ? { [profile.id]: { name: profile.name || "User", primary_role: profile.primary_role || "farmer" } } : {};
+            return { posts: postsBody.data || [], profiles };
+          },
+          staleTime: 3 * 60 * 1000,
+        });
+      }
+    };
+
+    const onIntentPrefetch = (evt: Event) => {
+      const path = String((evt as CustomEvent<string>).detail || "");
+      prefetchByRoute(path);
+      void prefetchData(path);
+    };
+
+    window.addEventListener("farmbondhu:prefetch-route", onIntentPrefetch as EventListener);
+    prefetchByRoute(location.pathname);
+    return () => {
+      window.removeEventListener("farmbondhu:prefetch-route", onIntentPrefetch as EventListener);
+    };
+  }, [location.pathname, user?.id]);
 
   return null;
 }
@@ -163,6 +262,7 @@ const App = () => (
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RoutePerfTracker />
         <AuthProvider>
+          <RouteIntentPrefetch />
           <CartProvider>
             <OrderProvider>
               <Routes>

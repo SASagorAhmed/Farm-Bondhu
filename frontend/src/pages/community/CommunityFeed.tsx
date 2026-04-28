@@ -52,7 +52,7 @@ export default function CommunityFeed() {
     return { posts: rows, profiles: profileMap };
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["community-feed", "active"],
     queryFn: fetchPosts,
     staleTime: moduleCachePolicy.dashboard.staleTime,
@@ -66,12 +66,18 @@ export default function CommunityFeed() {
   useEffect(() => {
     const channel = api
       .channel("community-posts-realtime")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "community_posts" }, (payload) => {
-        const updated = payload.new as PostRow;
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, (payload) => {
+        const updated = (payload.eventType === "DELETE" ? payload.old : payload.new) as PostRow;
         queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
           ["community-feed", "active"],
           (prev) => {
             if (!prev) return prev;
+            if (payload.eventType === "DELETE") {
+              return { ...prev, posts: prev.posts.filter((p) => p.id !== updated.id) };
+            }
+            if (payload.eventType === "INSERT") {
+              return { ...prev, posts: [updated, ...prev.posts] };
+            }
             return {
               ...prev,
               posts: prev.posts.map((p) =>
@@ -93,7 +99,16 @@ export default function CommunityFeed() {
   }, [queryClient]);
 
   const handleReactionChange = (postId: string, newCount: number) => {
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, reaction_count: newCount } : p));
+    queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
+      ["community-feed", "active"],
+      (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          posts: prev.posts.map((p) => (p.id === postId ? { ...p, reaction_count: newCount } : p)),
+        };
+      }
+    );
   };
 
   let filtered = posts;
@@ -161,6 +176,10 @@ export default function CommunityFeed() {
           );
         })}
       </div>
+
+      {isFetching && posts.length > 0 && (
+        <p className="text-xs text-muted-foreground">Refreshing posts...</p>
+      )}
 
       {/* Filter chips */}
       <div className="space-y-2">

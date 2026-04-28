@@ -23,6 +23,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { subscribeConsultationBookings } from "@/lib/consultationRealtime";
 
 const MB = "#12C2D6";
 
@@ -139,6 +140,22 @@ export default function BookConsultation() {
       setSelectedTime("");
     }
   }, [availableSlots, selectedTime]);
+
+  useEffect(() => {
+    if (!bookingId || !user?.id) return;
+    const unsubscribe = subscribeConsultationBookings({
+      channelKey: `book-consultation-live-${bookingId}`,
+      userId: user.id,
+      onEvent: (_eventType, row) => {
+        if (row.id !== bookingId) return;
+        if (row.status === "in_progress") {
+          toast.success("Vet joined. Moving you to consultation room...");
+          navigate(`/medibondhu/room/${bookingId}`);
+        }
+      },
+    });
+    return unsubscribe;
+  }, [bookingId, navigate, user?.id]);
 
   const animalOptions = vet?.animalTypes?.length ? vet.animalTypes : [...DEFAULT_BOOKABLE_ANIMAL_TYPES];
 

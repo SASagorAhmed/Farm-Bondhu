@@ -117,7 +117,7 @@ export default function ChatDetail() {
     resolveConversation();
   }, [conversationId, navigate, searchParams, user]);
 
-  const { data: bootstrapData, isLoading: isBootstrapLoading } = useQuery({
+  const { data: bootstrapData, isLoading: isBootstrapLoading, isFetching: isBootstrapRefreshing } = useQuery({
     queryKey: ["chat-bootstrap", resolvedConversationId, user?.id],
     enabled: Boolean(resolvedConversationId && user?.id),
     staleTime: moduleCachePolicy.marketplace.staleTime,
@@ -256,6 +256,7 @@ export default function ChatDetail() {
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm text-foreground truncate">{convo.shop_name || convo.other_name}</p>
               <p className="text-xs text-muted-foreground truncate">{isBuyer ? "Seller" : "Buyer"} • {convo.other_name}</p>
+              {isBootstrapRefreshing && <p className="text-[10px] text-muted-foreground">Refreshing...</p>}
             </div>
           </div>
 
