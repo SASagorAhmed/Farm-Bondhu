@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,36 @@ interface Booking {
   scheduled_date: string | null;
   scheduled_time: string | null;
 }
+const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "Pending", variant: "secondary" },
   confirmed: { label: "Pending", variant: "secondary" },
   in_progress: { label: "In Progress", variant: "default" },
+  ending: { label: "Ending", variant: "secondary" },
   completed: { label: "Completed", variant: "outline" },
   cancelled: { label: "Cancelled", variant: "destructive" },
 };
+
+function bookingDisplayStatus(booking: Booking & { leave_deadline_at?: string | null }) {
+  if (booking.status === "in_progress" && booking.leave_deadline_at) return "ending";
+  return booking.status;
+}
+
+function canRejoinNow(booking: Booking & { leave_deadline_at?: string | null; left_user_id?: string | null }, currentUserId?: string) {
+  if (booking.status !== "in_progress") return false;
+  const hasLeaveDeadline = Boolean(booking.leave_deadline_at);
+  if (!hasLeaveDeadline) return true;
+  return !!currentUserId && String(booking.left_user_id || "") === String(currentUserId);
+}
+
+function canShowJoinButton(
+  booking: Booking & { leave_deadline_at?: string | null; left_user_id?: string | null },
+  currentUserId?: string
+) {
+  if (TERMINAL_STATUSES.has(String(booking.status || ""))) return false;
+  return canRejoinNow(booking, currentUserId);
+}
 
 function formatDateTimeSafe(value: string | null | undefined, fallback = "Unknown time") {
   if (!value) return fallback;
@@ -43,11 +65,15 @@ export default function VetConsultations() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const consultationsQueryKey = queryKeys().vetConsultations(user?.id);
   const { data: bookings = [], isLoading: loading } = useQuery({
-    queryKey: queryKeys().vetConsultations(user?.id),
+    queryKey: consultationsQueryKey,
     enabled: Boolean(user?.id),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
+    refetchInterval: 1500,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data } = await api
         .from("consultation_bookings")
@@ -63,16 +89,30 @@ export default function VetConsultations() {
     const unsubscribe = subscribeConsultationBookings({
       channelKey: `vet-consultations-${user.id}`,
       userId: user.id,
-      queryClient,
       onEvent: (eventType, row) => {
         queryClient.setQueryData<Booking[]>(
-          queryKeys().vetConsultations(user.id),
-          (prev) => patchBookingList(prev, eventType, row) as Booking[]
+          consultationsQueryKey,
+          (prev) => patchBookingList(prev || [], eventType, row) as Booking[]
         );
+        if (row?.id) {
+          queryClient.invalidateQueries({ queryKey: ["consultation-room", row.id] });
+        }
       },
     });
     return unsubscribe;
-  }, [queryClient, user]);
+  }, [consultationsQueryKey, queryClient, user]);
+
+  const handleAccept = async (bookingId: string) => {
+    setAcceptingId(bookingId);
+    const { error } = await api
+      .from("consultation_bookings")
+      .update({ status: "in_progress" })
+      .eq("id", bookingId);
+    setAcceptingId(null);
+    if (error) return;
+    queryClient.invalidateQueries({ queryKey: consultationsQueryKey });
+    navigate(`/vet/room/${bookingId}`);
+  };
 
   const stats = {
     total: bookings.length,
@@ -117,7 +157,8 @@ export default function VetConsultations() {
           ) : (
             <div className="space-y-3">
               {bookings.map(b => {
-                const cfg = statusConfig[b.status] || statusConfig.pending;
+                const displayStatus = bookingDisplayStatus(b as Booking & { leave_deadline_at?: string | null });
+                const cfg = statusConfig[displayStatus] || statusConfig.pending;
                 return (
                   <div key={b.id} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
                     <div className="space-y-1">
@@ -133,7 +174,19 @@ export default function VetConsultations() {
                         {formatDateTimeSafe(b.created_at)} • ৳{b.fee}
                       </p>
                     </div>
-                    {b.status === "in_progress" && (
+                    {(b.status === "pending" || b.status === "confirmed") && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleAccept(b.id)}
+                        disabled={acceptingId === b.id}
+                      >
+                        {acceptingId === b.id ? "Joining..." : "Accept"}
+                      </Button>
+                    )}
+                    {canShowJoinButton(
+                      b as Booking & { leave_deadline_at?: string | null; left_user_id?: string | null },
+                      user?.id
+                    ) && (
                       <Button
                         size="sm"
                         onClick={() => {
@@ -146,6 +199,11 @@ export default function VetConsultations() {
                         <Video className="h-4 w-4 mr-1" /> Rejoin
                       </Button>
                     )}
+                    {b.status === "in_progress" &&
+                      !canShowJoinButton(
+                        b as Booking & { leave_deadline_at?: string | null; left_user_id?: string | null },
+                        user?.id
+                      ) && <span className="text-xs text-muted-foreground">Ending...</span>}
                     {b.status === "completed" && (
                       <Button size="sm" variant="outline" onClick={() => navigate(`/vet/prescriptions/create?consultationId=${b.id}`)}>
                         <FileText className="h-4 w-4 mr-1" /> Prescribe

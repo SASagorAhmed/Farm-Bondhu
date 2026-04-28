@@ -30,6 +30,11 @@ export default function WaitingRoom() {
   const hasNavigatedRef = useRef(false);
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    hasNavigatedRef.current = false;
+    setWaitingError(null);
+  }, [bookingId]);
+
   const handleInProgress = useCallback(
     (showToast = false) => {
       if (!bookingId || hasNavigatedRef.current) return;
@@ -64,11 +69,22 @@ export default function WaitingRoom() {
 
     setWaitingError(null);
     if (data.status === "in_progress") {
+      if (data.leave_deadline_at && data.left_user_id && data.left_user_id !== data.patient_mock_id) {
+        hasNavigatedRef.current = true;
+        toast({
+          title: "Consultation is ending",
+          description: "Room is no longer available. Returning to consultations.",
+        });
+        navigate("/medibondhu/consultations");
+        return;
+      }
       handleInProgress(false);
       return;
     }
     if (data.status === "cancelled" || data.status === "completed") {
       hasNavigatedRef.current = true;
+      queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
       toast({
         title: data.status === "cancelled" ? "Consultation cancelled" : "Consultation already completed",
         description: "Returning to consultations.",
@@ -97,10 +113,22 @@ export default function WaitingRoom() {
         if (row.id !== bookingId) return;
         const newStatus = row.status;
         if (newStatus === "in_progress") {
+          if (row.leave_deadline_at && row.left_user_id && row.left_user_id !== row.patient_mock_id) {
+            if (hasNavigatedRef.current) return;
+            hasNavigatedRef.current = true;
+            toast({
+              title: "Consultation is ending",
+              description: "Room is no longer available. Returning to consultations.",
+            });
+            navigate("/medibondhu/consultations");
+            return;
+          }
           handleInProgress(true);
         } else if (newStatus === "completed" || newStatus === "cancelled") {
           if (hasNavigatedRef.current) return;
           hasNavigatedRef.current = true;
+          queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+          queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
           toast({
             title: newStatus === "cancelled" ? "Consultation cancelled" : "Consultation completed",
             description: "Returning to consultations.",
