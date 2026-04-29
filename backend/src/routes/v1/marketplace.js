@@ -7,6 +7,7 @@ import { requireAdmin } from "../../middleware/requireAdmin.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 /** Public product lists */
 router.get(
@@ -14,6 +15,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
+    const startedAt = nowMs();
     const uid = req.userId;
     const rows = await sql`
       select
@@ -36,6 +38,79 @@ router.get(
       order by coalesce(c.last_message_at, c.created_at) desc nulls last
       limit 500
     `;
+    res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/chat/seller/:sellerId/bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const sellerId = String(req.params.sellerId || "");
+    if (!UUID_RE.test(sellerId)) {
+      res.status(400).json({ error: "Invalid seller id" });
+      return;
+    }
+    if (req.userId !== sellerId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const rows = await sql`
+      select
+        c.id,
+        c.buyer_id,
+        c.seller_id,
+        c.product_id,
+        coalesce(c.last_message, 'New conversation') as last_message,
+        coalesce(c.last_message_at, c.created_at) as last_message_at,
+        bp.name as buyer_name,
+        p.name as product_name,
+        p.image as product_image,
+        p.price as product_price
+      from conversations c
+      left join profiles bp on bp.id = c.buyer_id
+      left join products p on p.id = c.product_id
+      where c.seller_id = ${sellerId}
+      order by coalesce(c.last_message_at, c.created_at) desc nulls last
+      limit 300
+    `;
+    res.setHeader("Cache-Control", "private, max-age=10");
+    res.setHeader("x-fb-seller-inbox-ms", String(Math.max(0, nowMs() - startedAt)));
+    res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/chat/admin/bootstrap",
+  requireDatabase,
+  requireUser,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const startedAt = nowMs();
+    const rows = await sql`
+      select
+        c.id,
+        c.buyer_id,
+        c.seller_id,
+        c.product_id,
+        coalesce(c.last_message, 'New conversation') as last_message,
+        coalesce(c.last_message_at, c.created_at) as last_message_at,
+        bp.name as buyer_name,
+        sp.name as seller_name,
+        p.name as product_name,
+        p.image as product_image,
+        p.price as product_price,
+        p.category as product_category
+      from conversations c
+      left join profiles bp on bp.id = c.buyer_id
+      left join profiles sp on sp.id = c.seller_id
+      left join products p on p.id = c.product_id
+      order by coalesce(c.last_message_at, c.created_at) desc nulls last
+      limit 400
+    `;
+    res.setHeader("Cache-Control", "private, max-age=10");
+    res.setHeader("x-fb-admin-inbox-ms", String(Math.max(0, nowMs() - startedAt)));
     res.json({ data: rows });
   })
 );
@@ -157,6 +232,7 @@ router.get(
         select * from products order by created_at desc limit ${limit}
       `;
     }
+    res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
     res.json({ data: rows });
   })
 );
@@ -168,6 +244,7 @@ router.get(
     const rows = await sql`
       select * from products order by rating desc nulls last limit 4
     `;
+    res.setHeader("Cache-Control", "public, s-maxage=60, max-age=30");
     res.json({ data: rows });
   })
 );
@@ -186,6 +263,7 @@ router.get(
       select * from shops where user_id = ${product.seller_id} limit 1
     `;
 
+    res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
     res.json({ data: { product, shop: shop || null } });
   })
 );
@@ -199,6 +277,7 @@ router.get(
       res.status(404).json({ error: "Not found" });
       return;
     }
+    res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
     res.json({ data: row });
   })
 );

@@ -72,8 +72,7 @@ export default function VetConsultations() {
     enabled: Boolean(user?.id),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
-    refetchInterval: 1500,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data } = await api
         .from("consultation_bookings")
