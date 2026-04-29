@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/api/client";
+import { api, API_BASE, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShieldCheck, MessageCircle, Send, ArrowLeft, ExternalLink, Share2, Search, Users } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { motion } from "framer-motion";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 interface AdminConvoItem {
   id: string;
@@ -56,43 +57,22 @@ export default function AdminChatInbox() {
 
   const loadConversations = async () => {
     setLoading(true);
-    const { data: convos } = await api
-      .from("conversations")
-      .select("*")
-      .order("last_message_at", { ascending: false });
+    const token = readSession()?.access_token;
+    const res = await withApiTiming("/v1/marketplace/chat/admin/bootstrap", () =>
+      fetch(`${API_BASE}/v1/marketplace/chat/admin/bootstrap`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    );
+    const body = await res.json().catch(() => ({}));
+    const convos = (body as { data?: AdminConvoItem[] }).data;
 
-    if (!convos || convos.length === 0) { setConversations([]); setFiltered([]); setLoading(false); return; }
-
-    const userIds = [...new Set([...convos.map(c => c.buyer_id), ...convos.map(c => c.seller_id)])];
-    const productIds = [...new Set(convos.filter(c => c.product_id).map(c => c.product_id!))];
-
-    const [{ data: profiles }, { data: products }] = await Promise.all([
-      api.from("profiles").select("id, name").in("id", userIds),
-      productIds.length > 0
-        ? api.from("products").select("id, name, image, price, category").in("id", productIds)
-        : Promise.resolve({ data: [] }),
-    ]);
-
-    const profileMap = new Map((profiles || []).map(p => [p.id, p.name]));
-    const productMap = new Map((products || []).map(p => [p.id, p]));
-
-    const mapped = convos.map(c => {
-      const product = c.product_id ? productMap.get(c.product_id) : null;
-      return {
-        id: c.id,
-        buyer_id: c.buyer_id,
-        seller_id: c.seller_id,
-        product_id: c.product_id,
-        last_message: c.last_message || "New conversation",
-        last_message_at: c.last_message_at,
-        buyer_name: profileMap.get(c.buyer_id) || "Buyer",
-        seller_name: profileMap.get(c.seller_id) || "Seller",
-        product_name: product?.name,
-        product_image: product?.image,
-        product_price: product?.price,
-        product_category: product?.category,
-      };
-    });
+    if (!res.ok || !convos || convos.length === 0) {
+      setConversations([]);
+      setFiltered([]);
+      setLoading(false);
+      return;
+    }
+    const mapped = convos;
     setConversations(mapped);
     setFiltered(mapped);
     setLoading(false);

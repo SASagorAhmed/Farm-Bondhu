@@ -1,16 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { api } from "@/api/client";
+import { api, API_BASE, readSession } from "@/api/client";
 import { MessageCircle, Send, ArrowLeft, ExternalLink, Share2, Package } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { motion } from "framer-motion";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 interface ConvoItem {
   id: string;
@@ -48,18 +49,20 @@ export default function SellerChatInbox({ sellerId }: { sellerId: string }) {
   const [shareSearch, setShareSearch] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const { data: convos, error } = await api
-      .from("conversations")
-      .select("*")
-      .eq("seller_id", sellerId)
-      .order("last_message_at", { ascending: false });
-
-    if (error) {
+    const token = readSession()?.access_token;
+    const res = await withApiTiming("/v1/marketplace/chat/seller/:sellerId/bootstrap", () =>
+      fetch(`${API_BASE}/v1/marketplace/chat/seller/${sellerId}/bootstrap`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    );
+    const body = await res.json().catch(() => ({}));
+    const convos = (body as { data?: ConvoItem[] }).data;
+    if (!res.ok) {
       setConversations([]);
-      setLoadError(error.message);
+      setLoadError((body as { error?: string }).error || "Failed to load conversations");
       setLoading(false);
       return;
     }
@@ -70,46 +73,44 @@ export default function SellerChatInbox({ sellerId }: { sellerId: string }) {
       return;
     }
 
-    const buyerIds = [...new Set(convos.map(c => c.buyer_id))];
-    const productIds = [...new Set(convos.filter(c => c.product_id).map(c => c.product_id!))];
-
-    const [{ data: profiles }, { data: products }] = await Promise.all([
-      api.from("profiles").select("id, name").in("id", buyerIds),
-      productIds.length > 0
-        ? api.from("products").select("id, name, image, price").in("id", productIds)
-        : Promise.resolve({ data: [] }),
-    ]);
-
-    const profileMap = new Map((profiles || []).map(p => [p.id, p.name]));
-    const productMap = new Map((products || []).map(p => [p.id, p]));
-
-    setConversations(convos.map(c => {
-      const product = c.product_id ? productMap.get(c.product_id) : null;
-      return {
-        id: c.id,
-        buyer_id: c.buyer_id,
-        seller_id: c.seller_id,
-        product_id: c.product_id,
-        last_message: c.last_message || "New conversation",
-        last_message_at: c.last_message_at,
-        buyer_name: profileMap.get(c.buyer_id) || "Buyer",
-        product_name: product?.name,
-        product_image: product?.image,
-        product_price: product?.price,
-      };
-    }));
+    setConversations(convos);
     setLoading(false);
-  };
+  }, [sellerId]);
 
   useEffect(() => {
     if (!sellerId) return;
     loadConversations();
     const channel = api
       .channel(`seller-inbox-${sellerId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `seller_id=eq.${sellerId}` }, () => loadConversations())
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `seller_id=eq.${sellerId}` },
+        (payload) => {
+          const row = payload.new as (Partial<ConvoItem> & { last_message?: string; last_message_at?: string }) | null;
+          if (!row?.id) {
+            void loadConversations();
+            return;
+          }
+          setConversations((prev) => {
+            const idx = prev.findIndex((c) => c.id === row.id);
+            if (idx < 0) {
+              void loadConversations();
+              return prev;
+            }
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              last_message: row.last_message || next[idx].last_message,
+              last_message_at: row.last_message_at || next[idx].last_message_at,
+            };
+            next.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+            return next;
+          });
+        }
+      )
       .subscribe();
     return () => { api.removeChannel(channel); };
-  }, [sellerId]);
+  }, [loadConversations, sellerId]);
 
   // Load thread
   useEffect(() => {
