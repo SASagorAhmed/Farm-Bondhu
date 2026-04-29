@@ -240,7 +240,7 @@ export default function BookConsultation() {
                 </div>
                 {bookingType === "scheduled" && (
                   <div className="space-y-3">
-                    <div><label className="text-sm font-medium text-foreground mb-1 block">Date</label><Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} min={new Date().toISOString().split("T")[0]} /></div>
+                    <div><label htmlFor="consultDate" className="text-sm font-medium text-foreground mb-1 block">Date</label><Input id="consultDate" name="consultDate" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} min={new Date().toISOString().split("T")[0]} /></div>
                     <div><label className="text-sm font-medium text-foreground mb-1 block">Time Slot</label>
                       {loadingSlots ? (
                         <p className="text-xs text-muted-foreground">Loading available slots...</p>
@@ -265,12 +265,12 @@ export default function BookConsultation() {
               <CardContent className="p-5 space-y-4">
                 <h2 className="font-display font-bold text-lg text-foreground">Animal & Symptoms</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-sm font-medium text-foreground mb-1 block">Animal Type *</label><Select value={animalType} onValueChange={(value) => setAnimalType(normalizeAnimalType(value) || value)}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{animalOptions.map((a) => <SelectItem key={a} value={a} className="capitalize">{getAnimalTypeLabel(a)}</SelectItem>)}</SelectContent></Select></div>
-                  <div><label className="text-sm font-medium text-foreground mb-1 block">Age</label><Input placeholder="e.g. 2 years" value={animalAge} onChange={(e) => setAnimalAge(e.target.value)} /></div>
+                  <div><label className="text-sm font-medium text-foreground mb-1 block">Animal Type *</label><Select value={animalType} onValueChange={(value) => setAnimalType(normalizeAnimalType(value) || value)}><SelectTrigger aria-label="Animal Type"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{animalOptions.map((a) => <SelectItem key={a} value={a} className="capitalize">{getAnimalTypeLabel(a)}</SelectItem>)}</SelectContent></Select></div>
+                  <div><label htmlFor="animalAge" className="text-sm font-medium text-foreground mb-1 block">Age</label><Input id="animalAge" name="animalAge" placeholder="e.g. 2 years" value={animalAge} onChange={(e) => setAnimalAge(e.target.value)} /></div>
                 </div>
-                <div><label className="text-sm font-medium text-foreground mb-1 block">Gender</label><Select value={animalGender} onValueChange={setAnimalGender}><SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="unknown">Unknown</SelectItem></SelectContent></Select></div>
-                <div><label className="text-sm font-medium text-foreground mb-1 block">Symptoms / Problem *</label><Textarea placeholder="Describe the symptoms..." value={symptoms} onChange={(e) => setSymptoms(e.target.value)} rows={4} /></div>
-                <div><label className="text-sm font-medium text-foreground mb-1 block">Additional Notes</label><Textarea placeholder="Medical history..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} /></div>
+                <div><label className="text-sm font-medium text-foreground mb-1 block">Gender</label><Select value={animalGender} onValueChange={setAnimalGender}><SelectTrigger aria-label="Animal Gender"><SelectValue placeholder="Select gender" /></SelectTrigger><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="unknown">Unknown</SelectItem></SelectContent></Select></div>
+                <div><label htmlFor="animalSymptoms" className="text-sm font-medium text-foreground mb-1 block">Symptoms / Problem *</label><Textarea id="animalSymptoms" name="animalSymptoms" placeholder="Describe the symptoms..." value={symptoms} onChange={(e) => setSymptoms(e.target.value)} rows={4} /></div>
+                <div><label htmlFor="animalNotes" className="text-sm font-medium text-foreground mb-1 block">Additional Notes</label><Textarea id="animalNotes" name="animalNotes" placeholder="Medical history..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} /></div>
               </CardContent>
             </Card>
           )}

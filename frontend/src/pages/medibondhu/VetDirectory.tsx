@@ -74,7 +74,7 @@ export default function VetDirectory() {
       </motion.div>
 
       <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Search by name or specialization..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
+        <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="vetDirectorySearch" name="vetDirectorySearch" placeholder="Search by name or specialization..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         <Select value={animalFilter} onValueChange={setAnimalFilter}><SelectTrigger className="w-[150px]"><SelectValue placeholder="Animal Type" /></SelectTrigger><SelectContent><SelectItem value="all">All Animals</SelectItem>{ALL_ANIMAL_TYPES.filter((a) => a !== "other").map((animal) => <SelectItem key={animal} value={animal}>{getAnimalTypeLabel(animal)}</SelectItem>)}</SelectContent></Select>
         <Button variant={availOnly ? "default" : "outline"} onClick={() => setAvailOnly(!availOnly)} style={availOnly ? { backgroundColor: MB, color: "white", borderColor: MB } : { borderColor: MB, color: MB }}>Available Now</Button>
       </div>

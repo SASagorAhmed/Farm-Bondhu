@@ -1,14 +1,10 @@
-import sql from "../db.js";
+import { requestHasAnyRole } from "../services/medibondhuAccess.js";
 
 /** Use after `requireUser` + `requireDatabase`. */
 export async function requireAdmin(req, res, next) {
   try {
-    const rows = await sql`
-      select 1 as ok from user_roles
-      where user_id = ${req.userId} and role = 'admin'
-      limit 1
-    `;
-    if (!rows.length) {
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
     }

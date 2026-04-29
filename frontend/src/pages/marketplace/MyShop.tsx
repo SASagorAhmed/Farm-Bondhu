@@ -94,16 +94,16 @@ export default function MyShop() {
                 <DialogDescription>Submit your shop details and NID for review.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 pt-2">
-                <div><Label>Shop Name</Label><Input value={form.shopName} onChange={e => setForm({ ...form, shopName: e.target.value })} placeholder="e.g. Rahim's Farm Store" /></div>
-                <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What will you sell?" rows={3} /></div>
-                <div><Label>Phone Number</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="01XXXXXXXXX" /></div>
-                <div><Label>Location</Label><Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. Mymensingh" /></div>
+                <div><Label htmlFor="shopName">Shop Name</Label><Input id="shopName" name="shopName" value={form.shopName} onChange={e => setForm({ ...form, shopName: e.target.value })} placeholder="e.g. Rahim's Farm Store" /></div>
+                <div><Label htmlFor="shopDescription">Description</Label><Textarea id="shopDescription" name="shopDescription" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What will you sell?" rows={3} /></div>
+                <div><Label htmlFor="shopPhone">Phone Number</Label><Input id="shopPhone" name="shopPhone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="01XXXXXXXXX" /></div>
+                <div><Label htmlFor="shopLocation">Location</Label><Input id="shopLocation" name="shopLocation" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. Mymensingh" /></div>
                 <div>
-                  <Label>NID Card (Upload Image)</Label>
+                  <Label htmlFor="nidCardUpload">NID Card (Upload Image)</Label>
                   <div className="mt-1">
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer bg-accent/30 hover:bg-accent/50 transition-colors">
                       {nidFile ? (<div className="flex flex-col items-center text-foreground"><FileText className="h-8 w-8 mb-1" style={{ color: ICON_COLORS.marketplace }} /><span className="text-sm font-medium">{nidFile.name}</span></div>) : (<div className="flex flex-col items-center text-muted-foreground"><Upload className="h-8 w-8 mb-1" /><span className="text-sm">Click to upload NID card</span></div>)}
-                      <input type="file" className="hidden" accept="image/*" onChange={e => setNidFile(e.target.files?.[0] || null)} />
+                      <input id="nidCardUpload" name="nidCardUpload" type="file" className="hidden" accept="image/*" onChange={e => setNidFile(e.target.files?.[0] || null)} />
                     </label>
                   </div>
                 </div>

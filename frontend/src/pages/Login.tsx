@@ -92,7 +92,7 @@ export default function Login() {
 
               <div className="flex items-center justify-between text-sm">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="rounded border-input" />
+                  <input id="rememberMe" name="rememberMe" type="checkbox" className="rounded border-input" />
                   <span className="text-muted-foreground">{t("auth.rememberMe")}</span>
                 </label>
                 <Link to="/forgot-password" className="text-primary hover:underline">{t("auth.forgotPassword")}</Link>

@@ -101,31 +101,31 @@ export default function Checkout() {
               <CardContent className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <Label>Recipient Name *</Label>
-                    <Input value={address.recipientName} onChange={e => setAddress(a => ({ ...a, recipientName: e.target.value }))} placeholder="Full name" />
+                    <Label htmlFor="recipientName">Recipient Name *</Label>
+                    <Input id="recipientName" name="recipientName" value={address.recipientName} onChange={e => setAddress(a => ({ ...a, recipientName: e.target.value }))} placeholder="Full name" />
                   </div>
                   <div>
-                    <Label>Phone Number *</Label>
-                    <Input value={address.phone} onChange={e => setAddress(a => ({ ...a, phone: e.target.value }))} placeholder="01XXXXXXXXX" />
+                    <Label htmlFor="recipientPhone">Phone Number *</Label>
+                    <Input id="recipientPhone" name="recipientPhone" value={address.phone} onChange={e => setAddress(a => ({ ...a, phone: e.target.value }))} placeholder="01XXXXXXXXX" />
                   </div>
                 </div>
                 <div>
-                  <Label>Street Address *</Label>
-                  <Input value={address.address} onChange={e => setAddress(a => ({ ...a, address: e.target.value }))} placeholder="House/Road/Block" />
+                  <Label htmlFor="streetAddress">Street Address *</Label>
+                  <Input id="streetAddress" name="streetAddress" value={address.address} onChange={e => setAddress(a => ({ ...a, address: e.target.value }))} placeholder="House/Road/Block" />
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <Label>Area *</Label>
-                    <Input value={address.area} onChange={e => setAddress(a => ({ ...a, area: e.target.value }))} placeholder="e.g. Sadar" />
+                    <Label htmlFor="addressArea">Area *</Label>
+                    <Input id="addressArea" name="addressArea" value={address.area} onChange={e => setAddress(a => ({ ...a, area: e.target.value }))} placeholder="e.g. Sadar" />
                   </div>
                   <div>
-                    <Label>City *</Label>
-                    <Input value={address.city} onChange={e => setAddress(a => ({ ...a, city: e.target.value }))} placeholder="e.g. Mymensingh" />
+                    <Label htmlFor="addressCity">City *</Label>
+                    <Input id="addressCity" name="addressCity" value={address.city} onChange={e => setAddress(a => ({ ...a, city: e.target.value }))} placeholder="e.g. Mymensingh" />
                   </div>
                 </div>
                 <div>
-                  <Label>Delivery Note (optional)</Label>
-                  <Textarea value={address.note} onChange={e => setAddress(a => ({ ...a, note: e.target.value }))} placeholder="Any special instructions for delivery..." rows={2} />
+                  <Label htmlFor="deliveryNote">Delivery Note (optional)</Label>
+                  <Textarea id="deliveryNote" name="deliveryNote" value={address.note} onChange={e => setAddress(a => ({ ...a, note: e.target.value }))} placeholder="Any special instructions for delivery..." rows={2} />
                 </div>
               </CardContent>
             </Card>

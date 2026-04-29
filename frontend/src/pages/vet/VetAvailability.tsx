@@ -103,7 +103,7 @@ export default function VetAvailability() {
         </Button>
       </motion.div>
 
-      {loading ? (
+      {isLoading ? (
         <p className="text-center text-muted-foreground py-8">Loading...</p>
       ) : (
         <div className="space-y-4">

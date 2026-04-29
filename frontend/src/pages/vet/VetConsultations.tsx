@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, Clock, CheckCircle, AlertCircle, Video, FileText } from "lucide-react";
@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 interface Booking {
   id: string;
@@ -66,22 +67,60 @@ export default function VetConsultations() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [rows, setRows] = useState<Booking[]>([]);
+  const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
   const consultationsQueryKey = queryKeys().vetConsultations(user?.id);
-  const { data: bookings = [], isLoading: loading } = useQuery({
-    queryKey: consultationsQueryKey,
-    enabled: Boolean(user?.id),
+  const { data, isLoading: loading, isFetching } = useQuery({
+    queryKey: [...consultationsQueryKey, offset],
+    enabled: Boolean(user?.id) && offset >= 0,
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const { data } = await api
-        .from("consultation_bookings")
-        .select("*")
-        .eq("vet_user_id", user!.id)
-        .order("created_at", { ascending: false });
-      return ((data as Booking[]) || []);
+      const token = readSession()?.access_token;
+      const res = await withApiTiming("/v1/medibondhu/vet/consultations/bootstrap", () =>
+        fetch(`${API_BASE}/v1/medibondhu/vet/consultations/bootstrap?limit=80&offset=${offset}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
+      if (!res.ok || res.status === 304) {
+        return {
+          consultations: offset === 0 ? rows : [],
+          page: { hasMore: false, nextOffset: null },
+        };
+      }
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: { consultations?: Booking[]; page?: { hasMore?: boolean; nextOffset?: number | null } };
+      };
+      return {
+        consultations: body.data?.consultations || [],
+        page: {
+          hasMore: Boolean(body.data?.page?.hasMore),
+          nextOffset: body.data?.page?.nextOffset ?? null,
+        },
+      };
     },
   });
+  const bookings = rows;
+
+  useEffect(() => {
+    if (!data) return;
+    setRows((prev) => {
+      if (offset === 0) return data.consultations;
+      const seen = new Set(prev.map((r) => r.id));
+      const incoming = data.consultations.filter((r) => !seen.has(r.id));
+      return [...prev, ...incoming];
+    });
+    setPage(data.page);
+  }, [data, offset]);
+
+  useEffect(() => {
+    setOffset(0);
+    setRows([]);
+    setPage({ hasMore: false, nextOffset: null });
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -211,6 +250,20 @@ export default function VetConsultations() {
                   </div>
                 );
               })}
+              {page.hasMore && (
+                <div className="pt-2 flex justify-center">
+                  <Button
+                    variant="outline"
+                    disabled={isFetching || page.nextOffset == null}
+                    onClick={() => {
+                      if (page.nextOffset == null) return;
+                      setOffset(page.nextOffset);
+                    }}
+                  >
+                    {isFetching ? "Loading..." : "Load older consultations"}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

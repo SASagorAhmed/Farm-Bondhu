@@ -350,6 +350,8 @@ export default function ChatDetail() {
             <Share2 className="h-4 w-4" style={{ color: ICON_COLORS.marketplace }} />
           </Button>
           <Input
+            id="chatMessageInput"
+            name="chatMessageInput"
             value={newMsg}
             onChange={(e) => setNewMsg(e.target.value)}
             placeholder="Type a message..."
@@ -373,6 +375,8 @@ export default function ChatDetail() {
             <DialogDescription>Search products and tap one to share with the buyer.</DialogDescription>
           </DialogHeader>
           <Input
+            id="shareProductSearch"
+            name="shareProductSearch"
             placeholder="Search products..."
             value={shareSearch}
             onChange={(e) => setShareSearch(e.target.value)}

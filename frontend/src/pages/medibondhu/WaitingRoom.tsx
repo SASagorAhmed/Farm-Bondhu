@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { Clock, Stethoscope, Lightbulb, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { subscribeConsultationBookings } from "@/lib/consultationRealtime";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 const MB = "#12C2D6";
 
@@ -52,18 +53,16 @@ export default function WaitingRoom() {
 
   const fetchBooking = useCallback(async () => {
     if (!bookingId) return;
-    const { data, error } = await api
-      .from("consultation_bookings")
-      .select("*")
-      .eq("id", bookingId)
-      .single();
-
-    if (error) {
-      setWaitingError(error.message || "Failed to load consultation.");
-      return;
-    }
-    if (!data) {
-      setWaitingError("Consultation not found.");
+    const token = readSession()?.access_token;
+    const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
+      fetch(`${API_BASE}/v1/medibondhu/bookings/${bookingId}/room-bootstrap?message_limit=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    );
+    const body = (await res.json().catch(() => ({}))) as { data?: { booking?: any } };
+    const data = body.data?.booking;
+    if (!res.ok || !data) {
+      setWaitingError("Failed to load consultation.");
       return;
     }
 
@@ -141,28 +140,6 @@ export default function WaitingRoom() {
     });
     return unsubscribe;
   }, [booking?.patient_mock_id, booking?.vet_user_id, bookingId, handleInProgress, navigate, queryClient]);
-
-  // Fallback polling: guarantees patient auto-joins even if realtime update is missed.
-  useEffect(() => {
-    if (!bookingId) return;
-    let cancelled = false;
-
-    const syncStatus = async () => {
-      if (cancelled || hasNavigatedRef.current) return;
-      if (document.visibilityState !== "visible") return;
-      await fetchBooking();
-    };
-
-    void syncStatus();
-    const interval = setInterval(() => {
-      void syncStatus();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [bookingId, fetchBooking]);
 
   // Timer
   useEffect(() => {

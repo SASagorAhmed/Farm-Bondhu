@@ -8,11 +8,36 @@ import {
   assertBookingParticipant,
   assertVetAccess,
   getBookingById,
+  getRequestRoleSet,
+  requestHasAnyRole,
   resolveVetUserId,
-  userHasAnyRole,
 } from "../../services/medibondhuAccess.js";
+import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
 
 const router = Router();
+const nowMs = () => Date.now();
+const MEDIBONDHU_CACHE_PREFIX = "medibondhu";
+
+router.use((req, res, next) => {
+  if (req.method === "GET") return next();
+  res.on("finish", () => {
+    if (res.statusCode >= 400 || !req.userId) return;
+    invalidateByPrefix(`${MEDIBONDHU_CACHE_PREFIX}|u:${req.userId}|`);
+  });
+  next();
+});
+
+function readLimit(value, fallback = 30, max = 100) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), 1), max);
+}
+
+function readOffset(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(Math.trunc(n), 0);
+}
 
 /** @param {unknown} v */
 function isUuid(v) {
@@ -453,13 +478,266 @@ async function uploadToCloudinary(dataUrl, folder, publicIdPrefix = "file") {
 }
 
 router.get(
+  "/vet/dashboard/bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const t0 = nowMs();
+    await assertVetAccess(req.userId);
+    const canonicalVetUserId = await resolveCanonicalVetUserId(req.userId);
+    const limit = readLimit(req.query.limit, 25, 80);
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
+      userId: req.userId,
+      parts: ["vet-dashboard-bootstrap", canonicalVetUserId, limit, today],
+    });
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
+      const [pendingRows, todayRows] = await Promise.all([
+      sql`
+        select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms,
+               b.consultation_method, b.booking_type, b.status, b.scheduled_date, b.scheduled_time, b.created_at, b.updated_at
+        from consultation_bookings b
+        left join vets v on v.id = b.vet_mock_id
+        where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
+          and status in ('pending', 'confirmed')
+        order by b.created_at desc
+        limit ${limit}
+      `,
+      sql`
+        select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms,
+               b.consultation_method, b.booking_type, b.status, b.scheduled_date, b.scheduled_time, b.created_at, b.updated_at
+        from consultation_bookings b
+        left join vets v on v.id = b.vet_mock_id
+        where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
+          and status in ('in_progress', 'completed')
+          and coalesce(b.scheduled_date, to_char(b.created_at, 'YYYY-MM-DD')) = ${today}
+        order by b.created_at desc
+        limit ${limit}
+      `,
+      ]);
+      return { pendingBookings: pendingRows, todayBookings: todayRows };
+    });
+    res.setHeader("x-fb-vet-dashboard-bootstrap-ms", String(nowMs() - t0));
+    res.setHeader("Cache-Control", "private, max-age=8");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
+    res.json({ data: value });
+  })
+);
+
+router.get(
+  "/vet/consultations/bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const t0 = nowMs();
+    await assertVetAccess(req.userId);
+    const canonicalVetUserId = await resolveCanonicalVetUserId(req.userId);
+    const limit = readLimit(req.query.limit, 120, 250);
+    const offset = readOffset(req.query.offset);
+    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
+      userId: req.userId,
+      parts: ["vet-consultations-bootstrap", canonicalVetUserId, limit, offset],
+    });
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
+      const rows = await sql`
+      select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms, b.fee,
+             b.consultation_method, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.scheduled_date, b.scheduled_time
+      from consultation_bookings b
+      left join vets v on v.id = b.vet_mock_id
+      where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
+      order by b.created_at desc
+      offset ${offset}
+      limit ${limit + 1}
+      `;
+      const pageRows = rows.slice(0, limit);
+      const withFlags = pageRows.map((r) => ({
+        ...r,
+        display_status: r.status === "in_progress" && r.leave_deadline_at ? "ending" : r.status,
+        can_rejoin: r.status === "in_progress" && (!r.leave_deadline_at || String(r.left_user_id || "") === String(req.userId)),
+      }));
+      const hasMore = rows.length > limit;
+      return {
+        consultations: withFlags,
+        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
+      };
+    });
+    res.setHeader("x-fb-vet-consultations-bootstrap-ms", String(nowMs() - t0));
+    res.setHeader("Cache-Control", "private, max-age=8");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
+    res.json({ data: value });
+  })
+);
+
+router.get(
+  "/bookings/:id/room-bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const t0 = nowMs();
+    const booking = await assertBookingParticipant(req.params.id, req.userId);
+    const messageLimit = readLimit(req.query.message_limit, 80, 200);
+    const [messages, participantProfiles, roleSet] = await Promise.all([
+      sql`
+        select m.id, m.booking_id, m.sender_id, coalesce(m.sender_name, p.name) as sender_name,
+               coalesce(m.message, m.body) as message, m.created_at
+        from consultation_messages m
+        left join profiles p on p.id = m.sender_id
+        where m.booking_id = ${req.params.id}
+        order by m.created_at asc
+        limit ${messageLimit}
+      `,
+      sql`
+        select id, name, email, phone, primary_role, avatar_url
+        from profiles
+        where id in ${sql([booking.patient_mock_id, booking.computed_vet_user_id].filter(Boolean))}
+      `,
+      getRequestRoleSet(req),
+    ]);
+    const participantIds = new Set([String(booking.patient_mock_id || ""), String(booking.computed_vet_user_id || "")]);
+    const isParticipant = participantIds.has(String(req.userId));
+    res.setHeader("x-fb-room-bootstrap-ms", String(nowMs() - t0));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({
+      data: {
+        booking: normalizeBooking(booking),
+        messages,
+        participants: participantProfiles,
+        permissions: {
+          isParticipant,
+          isAdmin: roleSet.has("admin"),
+          isVet: roleSet.has("vet") || String(booking.computed_vet_user_id || "") === String(req.userId),
+          canRejoin:
+            String(booking.status || "") === "in_progress" &&
+            (!booking.leave_deadline_at || String(booking.left_user_id || "") === String(req.userId)),
+        },
+      },
+    });
+  })
+);
+
+router.get(
+  "/prescriptions/bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const t0 = nowMs();
+    const uid = req.userId;
+    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    const limit = readLimit(req.query.limit, 40, 120);
+    const offset = readOffset(req.query.offset);
+    const mode = String(req.query.mode || "auto");
+    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
+      userId: req.userId,
+      parts: ["prescriptions-bootstrap", mode, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
+    });
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 10_000, async () => {
+      const list =
+        mode === "vet"
+        ? await sql`
+            select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+                   animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
+            from prescriptions
+            where coalesce(vet_user_id, vet_id) = ${canonicalVetUserId}
+            order by created_at desc
+            offset ${offset}
+            limit ${limit + 1}
+          `
+        : mode === "farmer"
+          ? await sql`
+              select ep.id, ep.vet_name, ep.advice, ep.created_at, ep.metadata
+              from e_prescriptions ep
+              where ep.patient_mock_id = ${uid}
+              order by ep.created_at desc
+              offset ${offset}
+              limit ${limit + 1}
+            `
+          : await sql`
+              select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+                     animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
+              from prescriptions
+              where (${isAdmin ? sql`true` : sql`(coalesce(vet_user_id, vet_id) = ${canonicalVetUserId} or farmer_user_id = ${uid})`})
+              order by created_at desc
+              offset ${offset}
+              limit ${limit + 1}
+            `;
+      const hasMore = list.length > limit;
+      const pageRows = list.slice(0, limit);
+      return {
+        rows: pageRows,
+        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
+      };
+    });
+    res.setHeader("x-fb-prescriptions-bootstrap-ms", String(nowMs() - t0));
+    res.setHeader("Cache-Control", "private, max-age=10");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
+    res.json({ data: value });
+  })
+);
+
+router.get(
+  "/bookings/bootstrap",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const t0 = nowMs();
+    const view = String(req.query.view || "patient");
+    const limit = readLimit(req.query.limit, 80, 200);
+    const offset = readOffset(req.query.offset);
+    const uid = req.userId;
+    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
+      userId: req.userId,
+      parts: ["bookings-bootstrap", view, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
+    });
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
+      const consultations = await sql`
+      select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.vet_name, b.patient_name,
+             b.consultation_method, b.booking_type, b.scheduled_date, b.scheduled_time,
+             b.animal_type, b.symptoms, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.updated_at
+      from consultation_bookings b
+      left join vets v on v.id = b.vet_mock_id
+      where (
+        ${isAdmin
+          ? sql`true`
+          : view === "vet"
+            ? sql`coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}`
+            : sql`b.patient_mock_id = ${uid}`}
+      )
+      order by b.created_at desc
+      offset ${offset}
+      limit ${limit + 1}
+      `;
+      const [spent] = await sql`
+        select coalesce(sum(coalesce(payment_amount, 0)), 0) as total_spent
+        from consultation_bookings
+        where patient_mock_id = ${uid}
+          and status in ('completed', 'in_progress', 'confirmed')
+      `;
+      const hasMore = consultations.length > limit;
+      const pageRows = consultations.slice(0, limit);
+      return {
+        consultations: pageRows,
+        totalSpent: Number(spent?.total_spent || 0),
+        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
+      };
+    });
+    res.setHeader("x-fb-bookings-bootstrap-ms", String(nowMs() - t0));
+    res.setHeader("Cache-Control", "private, max-age=8");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
+    res.json({ data: value });
+  })
+);
+
+router.get(
   "/vets",
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
     const availableOnly = String(req.query.available || "").toLowerCase() === "true";
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
-    const limit = Math.min(Number(req.query.limit) || 500, 1000);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    const limit = readLimit(req.query.limit, 80, 200);
     const rows = availableOnly
       ? await sql`
           select * from vets
@@ -483,7 +761,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const [row] = await sql`select * from vets where id = ${req.params.id} limit 1`;
     if (!row) {
       res.status(404).json({ error: "Vet not found" });
@@ -636,7 +914,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -661,7 +939,7 @@ router.post(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -720,7 +998,7 @@ router.post(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -919,7 +1197,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -945,7 +1223,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -1005,7 +1283,7 @@ router.post(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -1042,7 +1320,7 @@ router.post(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       res.status(403).json({ error: "Admin access required" });
       return;
@@ -1080,7 +1358,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const id = typeof req.query.id === "string" ? req.query.id : "";
     const patientId = typeof req.query.patient_mock_id === "string" ? req.query.patient_mock_id : "";
     const vetMockFilter = typeof req.query.vet_mock_id === "string" ? req.query.vet_mock_id : "";
@@ -1114,7 +1392,13 @@ router.get(
     }
     const sort = ascending ? sql`asc` : sql`desc`;
     const rows = await sql`
-      select b.*, coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) as computed_vet_user_id
+      select
+        b.id, b.patient_mock_id, b.vet_id, b.vet_user_id, b.vet_mock_id, b.vet_name, b.patient_name,
+        b.booking_type, b.consultation_method, b.scheduled_date, b.scheduled_time, b.scheduled_at,
+        b.animal_type, b.animal_age, b.animal_gender, b.symptoms, b.additional_notes,
+        b.payment_status, b.payment_amount, b.fee, b.status, b.leave_deadline_at, b.left_user_id,
+        b.completed_at, b.created_at, b.updated_at,
+        coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) as computed_vet_user_id
       from consultation_bookings b
       left join vets v on v.id = b.vet_mock_id
       where (${patientId ? sql`b.patient_mock_id = ${patientId}` : sql`true`})
@@ -1138,7 +1422,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const patientIdQuery = toTextOrNull(req.query.patient_mock_id);
     const patientId = isAdmin && patientIdQuery ? patientIdQuery : uid;
     const status = toTextOrNull(req.query.status);
@@ -1170,7 +1454,7 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const row = isAdmin ? await getBookingById(req.params.id) : await assertBookingParticipant(req.params.id, req.userId);
     if (!row) {
       res.status(404).json({ error: "Consultation not found" });
@@ -1256,7 +1540,7 @@ router.patch(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const current = isAdmin ? await getBookingById(req.params.id) : await assertBookingParticipant(req.params.id, uid);
     if (!current) {
       res.status(404).json({ error: "Consultation not found" });
@@ -1371,6 +1655,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     await assertBookingParticipant(req.params.id, req.userId);
+    const limit = readLimit(req.query.limit, 120, 300);
     const rows = await sql`
       select
         m.id,
@@ -1383,8 +1668,9 @@ router.get(
       left join profiles p on p.id = m.sender_id
       where m.booking_id = ${req.params.id}
       order by m.created_at asc
+      limit ${limit}
     `;
-    res.json({ data: rows });
+    res.json({ data: rows, meta: { limit } });
   })
 );
 
@@ -1490,7 +1776,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const id = typeof req.query.id === "string" ? req.query.id : "";
     if (id) {
       const [one] = await sql`select * from prescriptions where id = ${id} limit 1`;
@@ -1508,16 +1794,20 @@ router.get(
 
     const vetUserId = typeof req.query.vet_user_id === "string" ? req.query.vet_user_id : "";
     const farmerUserId = typeof req.query.farmer_user_id === "string" ? req.query.farmer_user_id : "";
-    const limit = Math.min(Number(req.query.limit) || 500, 1000);
+    const limit = readLimit(req.query.limit, 80, 200);
     const rows = await sql`
-      select * from prescriptions
+      select
+        id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+        animal_type, symptoms, diagnosis, severity, follow_up_required, follow_up_date,
+        status, language, created_at, updated_at
+      from prescriptions
       where (${isAdmin ? sql`true` : sql`(vet_user_id = ${uid} or farmer_user_id = ${uid})`})
         and (${vetUserId ? sql`vet_user_id = ${vetUserId}` : sql`true`})
         and (${farmerUserId ? sql`farmer_user_id = ${farmerUserId}` : sql`true`})
       order by created_at desc
       limit ${limit}
     `;
-    res.json({ data: rows });
+    res.json({ data: rows, meta: { limit } });
   })
 );
 
@@ -1625,7 +1915,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const [row] = await sql`select * from prescriptions where id = ${req.params.id} limit 1`;
     if (!row) {
       res.status(404).json({ error: "Prescription not found" });
@@ -1663,7 +1953,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const [row] = await sql`select * from prescriptions where id = ${req.params.id} limit 1`;
     if (!row) {
       res.status(404).json({ error: "Prescription not found" });
@@ -1683,7 +1973,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const [parent] = await sql`select vet_user_id, farmer_user_id from prescriptions where id = ${req.params.id} limit 1`;
     if (!parent) {
       res.status(404).json({ error: "Prescription not found" });
@@ -1693,12 +1983,16 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
+    const limit = readLimit(req.query.limit, 150, 300);
     const rows = await sql`
-      select * from prescription_items
+      select id, prescription_id, medicine_name, medicine_type, dosage, dosage_unit, frequency, dose_pattern,
+             timing, route, duration_days, purpose, label, notes, created_at
+      from prescription_items
       where prescription_id = ${req.params.id}
       order by created_at asc
+      limit ${limit}
     `;
-    res.json({ data: rows });
+    res.json({ data: rows, meta: { limit } });
   })
 );
 
@@ -1712,7 +2006,7 @@ router.post(
       res.status(404).json({ error: "Prescription not found" });
       return;
     }
-    const isAdmin = await userHasAnyRole(req.userId, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) {
       await assertApprovedVetAccess(req.userId);
     }
@@ -1740,18 +2034,21 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = req.userId;
-    const isAdmin = await userHasAnyRole(uid, ["admin"]);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
     const patientId = typeof req.query.patient_mock_id === "string" ? req.query.patient_mock_id : uid;
     if (!isAdmin && patientId !== uid) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
+    const limit = readLimit(req.query.limit, 100, 300);
     const rows = await sql`
-      select * from e_prescriptions
+      select id, patient_mock_id, vet_id, vet_name, advice, title, body, status, metadata, created_at, updated_at
+      from e_prescriptions
       where patient_mock_id = ${patientId}
       order by created_at desc
+      limit ${limit}
     `;
-    res.json({ data: rows });
+    res.json({ data: rows, meta: { limit } });
   })
 );
 

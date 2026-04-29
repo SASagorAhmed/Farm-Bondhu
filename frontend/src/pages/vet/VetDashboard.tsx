@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { CalendarCheck, MessageSquare, Users, DollarSign, Clock, AlertCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import StatCard from "@/components/dashboard/StatCard";
@@ -12,6 +12,7 @@ import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 export default function VetDashboard() {
   const { user } = useAuth();
@@ -23,35 +24,29 @@ export default function VetDashboard() {
   const { data: bookingData } = useQuery({
     queryKey: dashboardQueryKey,
     enabled: Boolean(user?.id),
-    staleTime: moduleCachePolicy.vet.staleTime,
+    staleTime: 15 * 1000,
     gcTime: moduleCachePolicy.vet.gcTime,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     queryFn: async () => {
-      const uid = user!.id;
-      const [pendingRes, todayRes] = await Promise.all([
-        api
-          .from("consultation_bookings")
-          .select("*")
-          .eq("vet_user_id", uid)
-          .in("status", ["pending", "confirmed"])
-          .order("created_at", { ascending: false }),
-        api
-          .from("consultation_bookings")
-          .select("*")
-          .eq("vet_user_id", uid)
-          .in("status", ["in_progress", "completed"])
-          .gte("created_at", `${new Date().toISOString().split("T")[0]}T00:00:00`)
-          .order("created_at", { ascending: false }),
-      ]);
-      const today = new Date().toISOString().split("T")[0];
-      const rows = Array.isArray(todayRes.data) ? todayRes.data : [];
-      const filteredToday = rows.filter((row: any) => {
-        const scheduledDate = String(row.scheduled_date || "").slice(0, 10);
-        if (scheduledDate) return scheduledDate === today;
-        const createdDate = String(row.created_at || "").slice(0, 10);
-        return createdDate === today;
-      });
-      return { pendingBookings: pendingRes.data || [], todayBookings: filteredToday };
+      const token = readSession()?.access_token;
+      const res = await withApiTiming("/v1/medibondhu/vet/dashboard/bootstrap", () =>
+        fetch(`${API_BASE}/v1/medibondhu/vet/dashboard/bootstrap?limit=30`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
+      if (!res.ok || res.status === 304) {
+        const prev = queryClient.getQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(dashboardQueryKey);
+        return prev || { pendingBookings: [], todayBookings: [] };
+      }
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: { pendingBookings?: any[]; todayBookings?: any[] };
+      };
+      return {
+        pendingBookings: body.data?.pendingBookings || [],
+        todayBookings: body.data?.todayBookings || [],
+      };
     },
   });
 
@@ -78,7 +73,6 @@ export default function VetDashboard() {
             return { pendingBookings: nextPending, todayBookings: nextToday };
           }
         );
-        queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
       },
     });
 

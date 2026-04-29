@@ -400,6 +400,8 @@ export default function AdminMediBondhu() {
                         <TableCell className="max-w-[220px] text-xs text-muted-foreground">{w.review_note || "-"}</TableCell>
                         <TableCell>
                           <input
+                            id={`withdraw-review-note-${w.id}`}
+                            name={`withdrawReviewNote-${w.id}`}
                             className="w-full rounded border px-2 py-1 text-sm bg-background"
                             value={reviewNote[w.id] || ""}
                             onChange={(e) => setReviewNote((prev) => ({ ...prev, [w.id]: e.target.value }))}

@@ -24,15 +24,59 @@ export async function userHasAnyRole(userId, roles) {
 }
 
 /**
+ * Request-scoped role resolver to avoid repeated DB checks.
+ * @param {{ userId?: string, __fbRoleSet?: Set<string> }} req
+ */
+export async function getRequestRoleSet(req) {
+  if (req.__fbRoleSet) return req.__fbRoleSet;
+  const userId = String(req.userId || "");
+  if (!userId) return new Set();
+  const [roles, profile] = await Promise.all([
+    sql`
+      select lower(trim(role)) as role
+      from user_roles
+      where user_id = ${userId}
+    `,
+    sql`
+      select lower(trim(primary_role)) as primary_role
+      from profiles
+      where id = ${userId}
+      limit 1
+    `,
+  ]);
+  const set = new Set(
+    roles
+      .map((r) => String(r.role || "").trim().toLowerCase())
+      .concat(profile?.primary_role ? [String(profile.primary_role).trim().toLowerCase()] : [])
+      .filter(Boolean)
+  );
+  req.__fbRoleSet = set;
+  return set;
+}
+
+/**
+ * @param {{ userId?: string, __fbRoleSet?: Set<string> }} req
+ * @param {string[]} roles
+ */
+export async function requestHasAnyRole(req, roles) {
+  const normalized = roles.map((r) => String(r || "").trim().toLowerCase()).filter(Boolean);
+  if (!normalized.length) return false;
+  const set = await getRequestRoleSet(req);
+  return normalized.some((role) => set.has(role));
+}
+
+/**
  * @param {string} userId
  */
 export async function assertVetAccess(userId) {
-  const ok = await userHasAnyRole(userId, ["vet", "admin"]);
-  if (!ok) {
-    const err = new Error("Vet access required");
-    err.status = 403;
-    throw err;
-  }
+  const [hasRole, vetProfile] = await Promise.all([
+    userHasAnyRole(userId, ["vet", "admin"]),
+    getVetProfileByUserId(userId),
+  ]);
+  if (hasRole || vetProfile) return;
+  const err = new Error("Vet access required");
+  err.status = 403;
+  throw err;
 }
 
 /**

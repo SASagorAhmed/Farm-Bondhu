@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { API_BASE, api, readSession } from "@/api/client";
+import { withApiTiming } from "@/lib/perfMetrics";
 import { useAuth } from "@/contexts/AuthContext";
 import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
@@ -45,30 +46,67 @@ export default function Consultations() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [offset, setOffset] = useState(0);
+  const [rows, setRows] = useState<any[]>([]);
+  const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
   const { data } = useQuery({
-    queryKey: ["medibondhu-consultations", user?.id],
+    queryKey: ["medibondhu-consultations", user?.id, offset],
     enabled: Boolean(user?.id),
-    staleTime: moduleCachePolicy.vet.staleTime,
+    staleTime: 20 * 1000,
     gcTime: moduleCachePolicy.vet.gcTime,
+    refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (!user) return { consultations: [], totalSpent: 0 };
       const token = readSession()?.access_token;
-      const [consultationsRes, spentRes] = await Promise.all([
-        api.from("consultation_bookings").select("*").eq("patient_mock_id", user.id).order("created_at", { ascending: false }),
-        fetch(`${API_BASE}/v1/medibondhu/spent-summary`, {
+      const res = await withApiTiming("/v1/medibondhu/bookings/bootstrap", () =>
+        fetch(`${API_BASE}/v1/medibondhu/bookings/bootstrap?view=patient&limit=50&offset=${offset}`, {
+          cache: "no-store",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
-        }),
-      ]);
-      const spentBody = (await spentRes.json().catch(() => ({}))) as { data?: { total_spent?: number } };
+        })
+      );
+      if (!res.ok || res.status === 304) {
+        return {
+          consultations: offset === 0 ? rows : [],
+          totalSpent: 0,
+          page: { hasMore: false, nextOffset: null },
+        };
+      }
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: {
+          consultations?: any[];
+          totalSpent?: number;
+          page?: { hasMore?: boolean; nextOffset?: number | null };
+        };
+      };
       return {
-        consultations: (consultationsRes.data || []) as any[],
-        totalSpent: spentRes.ok ? Number(spentBody.data?.total_spent || 0) : 0,
+        consultations: (body.data?.consultations || []) as any[],
+        totalSpent: Number(body.data?.totalSpent || 0),
+        page: {
+          hasMore: Boolean(body.data?.page?.hasMore),
+          nextOffset: body.data?.page?.nextOffset ?? null,
+        },
       };
     },
   });
+  useEffect(() => {
+    if (!data) return;
+    setRows((prev) => {
+      if (offset === 0) return data.consultations || [];
+      const seen = new Set(prev.map((r) => r.id));
+      const incoming = (data.consultations || []).filter((r: any) => !seen.has(r.id));
+      return [...prev, ...incoming];
+    });
+    setPage(data.page || { hasMore: false, nextOffset: null });
+  }, [data, offset]);
 
-  const consultations = data?.consultations || [];
+  useEffect(() => {
+    setOffset(0);
+    setRows([]);
+    setPage({ hasMore: false, nextOffset: null });
+  }, [user?.id]);
+
+  const consultations = rows;
   const totalSpent = data?.totalSpent || 0;
 
   useEffect(() => {
@@ -91,6 +129,10 @@ export default function Consultations() {
         if (row?.id) {
           queryClient.invalidateQueries({ queryKey: ["consultation-room", row.id] });
         }
+        queryClient.invalidateQueries({
+          queryKey: ["medibondhu-consultations", user.id],
+          exact: false,
+        });
       },
     });
     return unsubscribe;
@@ -162,6 +204,19 @@ export default function Consultations() {
             </Card>
           </motion.div>
         ))}
+        {page.hasMore && (
+          <div className="pt-2 flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (page.nextOffset == null) return;
+                setOffset(page.nextOffset);
+              }}
+            >
+              Load older consultations
+            </Button>
+          </div>
+        )}
         {consultations.length === 0 && <p className="text-center text-muted-foreground py-12">No consultations yet</p>}
       </div>
     </div>
