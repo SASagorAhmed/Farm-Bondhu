@@ -25,8 +25,7 @@ export default function VetDashboard() {
     enabled: Boolean(user?.id),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
-    refetchInterval: 1500,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const uid = user!.id;
       const [pendingRes, todayRes] = await Promise.all([

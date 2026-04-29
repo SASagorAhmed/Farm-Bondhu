@@ -640,8 +640,12 @@ router.post(
     const { action, table } = body;
 
     if (action === "select" && table === "profiles" && body.mode === "all_admin") {
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
       const rows = await sql`
-        select * from profiles order by created_at desc limit 5000
+        select id, email, name, primary_role, phone, location, avatar_url, created_at, updated_at
+        from profiles
+        order by created_at desc
+        limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }
@@ -711,7 +715,7 @@ router.post(
     }
 
     if (action === "select" && table === "approval_requests" && body.mode === "list") {
-      const limit = Math.min(Number(body.limit) || 5000, 5000);
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
       const ascending = Boolean(body.ascending);
       const sort = ascending ? sql`asc` : sql`desc`;
       const rows = await sql`
@@ -743,7 +747,8 @@ router.post(
     }
 
     if (action === "select" && table === "farms" && body.mode === "all_admin") {
-      const rows = await sql`select * from farms order by created_at desc limit 5000`;
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
+      const rows = await sql`select * from farms order by created_at desc limit ${limit}`;
       return res.json({ data: rows, error: null });
     }
 
@@ -778,38 +783,43 @@ router.post(
     }
 
     if (action === "select" && table === "products" && body.mode === "admin_all") {
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
       const rows = await sql`
-        select * from products order by created_at desc limit 5000
+        select * from products order by created_at desc limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "shops" && body.mode === "admin_all") {
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
       const rows = await sql`
-        select * from shops order by created_at desc limit 5000
+        select * from shops order by created_at desc limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "community_posts" && body.mode === "admin_all") {
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
       const rows = await sql`
-        select * from community_posts order by created_at desc limit 5000
+        select * from community_posts order by created_at desc limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "community_reports" && body.mode === "admin_all") {
+      const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 1000);
       const rows = await sql`
-        select * from community_reports order by created_at desc limit 2000
+        select * from community_reports order by created_at desc limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "conversations" && body.mode === "admin_all") {
+      const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 1000);
       const rows = await sql`
         select * from conversations
         order by coalesce(last_message_at, created_at) desc nulls last
-        limit 2000
+        limit ${limit}
       `;
       return res.json({ data: rows, error: null });
     }

@@ -24,6 +24,10 @@ function isoDate(value) {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
+function readLimit(req, fallback = 100, max = 300) {
+  return Math.min(Math.max(Number(req.query.limit) || fallback, 1), max);
+}
+
 router.get(
   "/overview-bundle",
   ...chain,
@@ -127,6 +131,7 @@ router.get(
       },
     };
     res.setHeader("x-fb-dashboard-bundle-ms", String(payload.metrics.generated_in_ms));
+    res.setHeader("Cache-Control", "private, max-age=10");
     res.json({ data: payload });
   })
 );
@@ -136,8 +141,13 @@ router.get(
   "/production-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from production_records where user_id = ${req.userId} order by date asc
+      select id, user_id, date, eggs, milk, created_at, updated_at
+      from production_records
+      where user_id = ${req.userId}
+      order by date asc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -200,8 +210,13 @@ router.get(
   "/financial-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from financial_records where user_id = ${req.userId} order by date desc
+      select id, user_id, date, type, category, amount, description, created_at, updated_at
+      from financial_records
+      where user_id = ${req.userId}
+      order by date desc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -264,8 +279,13 @@ router.get(
   "/mortality-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from mortality_records where user_id = ${req.userId} order by date desc
+      select id, user_id, farm_id, date, cause, animal_type, batch_id, count, created_at, updated_at
+      from mortality_records
+      where user_id = ${req.userId}
+      order by date desc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -328,8 +348,13 @@ router.get(
   "/feed-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from feed_records where user_id = ${req.userId} order by date desc
+      select id, user_id, farm_id, animal_id, animal_label, date, feed_type, quantity, unit, cost, created_at, updated_at
+      from feed_records
+      where user_id = ${req.userId}
+      order by date desc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -410,8 +435,13 @@ router.get(
   "/feed-inventory",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 100, 300);
     const rows = await sql`
-      select * from feed_inventory where user_id = ${req.userId} order by created_at asc
+      select id, user_id, name, category, stock, reorder_level, unit, created_at, updated_at
+      from feed_inventory
+      where user_id = ${req.userId}
+      order by created_at asc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -474,8 +504,13 @@ router.get(
   "/health-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from health_records where user_id = ${req.userId} order by date desc
+      select id, user_id, animal_id, animal_label, date, type, description, vet_name, cost, created_at, updated_at
+      from health_records
+      where user_id = ${req.userId}
+      order by date desc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })
@@ -554,8 +589,13 @@ router.get(
   "/sale-records",
   ...chain,
   asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 180, 365);
     const rows = await sql`
-      select * from sale_records where user_id = ${req.userId} order by date desc
+      select id, user_id, date, product, category, buyer, quantity, unit, unit_price, total, created_at, updated_at
+      from sale_records
+      where user_id = ${req.userId}
+      order by date desc
+      limit ${limit}
     `;
     res.json({ data: rows });
   })

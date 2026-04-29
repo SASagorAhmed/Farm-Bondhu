@@ -38,21 +38,27 @@ export function clearStoredSession() {
   writeSession(null);
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(method: string, hasBody: boolean): HeadersInit {
   const s = readSession();
-  const h: Record<string, string> = { "Content-Type": "application/json" };
+  const h: Record<string, string> = {};
   if (s?.access_token) h.Authorization = `Bearer ${s.access_token}`;
+  const upper = String(method || "GET").toUpperCase();
+  if (hasBody && upper !== "GET" && upper !== "HEAD") {
+    h["Content-Type"] = "application/json";
+  }
   return h;
 }
 
 async function apiJson(path: string, init: RequestInit = {}) {
   let res: Response;
   let text: string;
+  const method = String(init.method || "GET").toUpperCase();
+  const hasBody = init.body !== undefined && init.body !== null && init.body !== "";
   try {
     res = await withApiTiming(path, () =>
       fetch(`${API_BASE}${path}`, {
         ...init,
-        headers: { ...authHeaders(), ...(init.headers || {}) },
+        headers: { ...authHeaders(method, hasBody), ...(init.headers || {}) },
       })
     );
     text = await res.text();
