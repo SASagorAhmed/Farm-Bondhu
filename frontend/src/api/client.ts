@@ -1327,3 +1327,39 @@ export const api = {
     },
   },
 };
+
+/** Patient device: tell connected vet clients to refetch pending requests (cross-tab / cross-user). */
+export function broadcastVetInboxNewBooking(vetUserId: string | null | undefined, bookingId: string): void {
+  const client = getRealtimeClient();
+  if (!client || !vetUserId) return;
+  const topic = `vet-inbox-${vetUserId}`;
+  const channel = client.channel(topic);
+  channel.subscribe((status) => {
+    if (status !== "SUBSCRIBED") return;
+    void channel
+      .send({
+        type: "broadcast",
+        event: "new-booking",
+        payload: { bookingId },
+      })
+      .finally(() => {
+        void client.removeChannel(channel);
+      });
+  });
+}
+
+/** Vet Dashboard / Consultations: wake on patient-paid booking without waiting for postgres replication. */
+export function subscribeVetInboxNewBooking(vetUserId: string | null | undefined, onEvent: () => void): () => void {
+  const client = getRealtimeClient();
+  if (!client || !vetUserId) return () => {};
+  const topic = `vet-inbox-${vetUserId}`;
+  const channel = client
+    .channel(topic)
+    .on("broadcast", { event: "new-booking" }, () => {
+      onEvent();
+    });
+  channel.subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
+}

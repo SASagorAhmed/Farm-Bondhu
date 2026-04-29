@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { subscribeConsultationBookings } from "@/lib/consultationRealtime";
 import { withApiTiming } from "@/lib/perfMetrics";
+import { useAuth } from "@/contexts/AuthContext";
 
 const MB = "#12C2D6";
 
@@ -22,9 +23,23 @@ const TIPS = [
   "Have previous prescriptions ready for reference",
 ];
 
+type WaitingRoomBooking = {
+  status?: string | null;
+  leave_deadline_at?: string | null;
+  left_user_id?: string | null;
+};
+
+function canPatientJoinRoomNow(booking: WaitingRoomBooking, currentUserId?: string) {
+  if (booking?.status !== "in_progress") return false;
+  const hasLeaveDeadline = Boolean(booking?.leave_deadline_at);
+  if (!hasLeaveDeadline) return true;
+  return !!currentUserId && String(booking?.left_user_id || "") === String(currentUserId);
+}
+
 export default function WaitingRoom() {
   const { bookingId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [elapsed, setElapsed] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
   const [waitingError, setWaitingError] = useState<string | null>(null);
@@ -46,16 +61,20 @@ export default function WaitingRoom() {
           description: "Connecting you to the consultation room...",
         });
       }
-      navigate(`/medibondhu/room/${bookingId}`);
+      navigate(`/medibondhu/room/${bookingId}`, {
+        replace: true,
+        state: { from: "waiting", bookingId, intent: "room_entry" },
+      });
     },
     [bookingId, navigate]
   );
 
   const fetchBooking = useCallback(async () => {
-    if (!bookingId) return;
+    if (!bookingId) return null;
     const token = readSession()?.access_token;
     const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
       fetch(`${API_BASE}/v1/medibondhu/bookings/${bookingId}/room-bootstrap?message_limit=1`, {
+        cache: "no-store",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
     );
@@ -63,56 +82,63 @@ export default function WaitingRoom() {
     const data = body.data?.booking;
     if (!res.ok || !data) {
       setWaitingError("Failed to load consultation.");
-      return;
+      return null;
     }
 
     setWaitingError(null);
     if (data.status === "in_progress") {
-      if (data.leave_deadline_at && data.left_user_id && data.left_user_id !== data.patient_mock_id) {
+      if (!canPatientJoinRoomNow(data, user?.id)) {
         hasNavigatedRef.current = true;
         toast({
           title: "Consultation is ending",
           description: "Room is no longer available. Returning to consultations.",
         });
         navigate("/medibondhu/consultations");
-        return;
+        return data;
       }
       handleInProgress(false);
-      return;
+      return data;
     }
     if (data.status === "cancelled" || data.status === "completed") {
       hasNavigatedRef.current = true;
       queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
       toast({
-        title: data.status === "cancelled" ? "Consultation cancelled" : "Consultation already completed",
-        description: "Returning to consultations.",
+        title: "Your consultation successfully completed.",
       });
       navigate("/medibondhu/consultations");
     }
     return data;
-  }, [bookingId, handleInProgress, navigate]);
+  }, [bookingId, handleInProgress, navigate, queryClient, user?.id]);
 
   const { data: booking, isLoading: loadingBooking } = useQuery({
     queryKey: queryKeys().waitingRoomBooking(bookingId),
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
+    // Reliability fallback: if realtime event is missed, polling still
+    // detects status change and auto-joins the room quickly.
+    refetchInterval: (q) => {
+      const status = String((q.state.data as any)?.status || "");
+      return status === "pending" || status === "confirmed" || !status ? 3000 : false;
+    },
+    refetchOnWindowFocus: true,
     queryFn: fetchBooking,
   });
 
   // Realtime: auto-redirect when vet accepts (status → in_progress)
   useEffect(() => {
-    if (!bookingId) return;
+    if (!bookingId || !user?.id) return;
     const unsubscribe = subscribeConsultationBookings({
       channelKey: `waiting-${bookingId}`,
-      userId: booking?.patient_mock_id || booking?.vet_user_id || undefined,
-      queryClient,
+      // Keep realtime filter simple and stable, same as booking page flow.
+      userId: user.id,
       onEvent: (_eventType, row) => {
         if (row.id !== bookingId) return;
         const newStatus = row.status;
         if (newStatus === "in_progress") {
-          if (row.leave_deadline_at && row.left_user_id && row.left_user_id !== row.patient_mock_id) {
+          if (!canPatientJoinRoomNow(row, user.id)) {
             if (hasNavigatedRef.current) return;
             hasNavigatedRef.current = true;
             toast({
@@ -128,10 +154,10 @@ export default function WaitingRoom() {
           hasNavigatedRef.current = true;
           queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
           queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
-          toast({
-            title: newStatus === "cancelled" ? "Consultation cancelled" : "Consultation completed",
-            description: "Returning to consultations.",
-          });
+          queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
+            toast({
+              title: "Your consultation successfully completed.",
+            });
           navigate("/medibondhu/consultations");
         } else {
           queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
@@ -139,7 +165,7 @@ export default function WaitingRoom() {
       },
     });
     return unsubscribe;
-  }, [booking?.patient_mock_id, booking?.vet_user_id, bookingId, handleInProgress, navigate, queryClient]);
+  }, [booking?.patient_mock_id, booking?.vet_mock_id, booking?.vet_user_id, bookingId, handleInProgress, navigate, queryClient, user?.id]);
 
   // Timer
   useEffect(() => {

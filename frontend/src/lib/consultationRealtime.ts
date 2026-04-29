@@ -5,6 +5,7 @@ type BookingRow = {
   patient_mock_id?: string | null;
   vet_user_id?: string | null;
   vet_mock_id?: string | null;
+  vet_id?: string | null;
   created_at?: string;
   status?: string;
 };
@@ -52,6 +53,10 @@ export function subscribeConsultationBookings(params: {
       .map((v) => String(v || "").trim())
       .filter(Boolean)
   );
+  const matchesIdentity = (value: unknown) => {
+    const normalized = String(value || "").trim();
+    return normalized ? identities.has(normalized) : false;
+  };
   const channel = api
     .channel(channelKey)
     .on("postgres_changes", { event: "*", schema: "public", table: "consultation_bookings" }, (payload) => {
@@ -59,9 +64,10 @@ export function subscribeConsultationBookings(params: {
       const row = (eventType === "DELETE" ? payload.old : payload.new) as BookingRow;
       if (!row) return;
       const isParticipant =
-        identities.has(String(row.patient_mock_id || "")) ||
-        identities.has(String(row.vet_user_id || "")) ||
-        identities.has(String(row.vet_mock_id || ""));
+        matchesIdentity(row.patient_mock_id) ||
+        matchesIdentity(row.vet_user_id) ||
+        matchesIdentity(row.vet_mock_id) ||
+        matchesIdentity(row.vet_id);
       if (!isParticipant) return;
       log(`${channelKey}:${eventType}`, row);
       onEvent?.(eventType, row);

@@ -27,7 +27,9 @@ const canEnterActiveRoom = (booking: any, currentUserId?: string) => {
   if (isTerminalBookingStatus(booking.status)) return false;
   const hasLeaveDeadline = Boolean(booking.leave_deadline_at);
   if (!hasLeaveDeadline) return true;
-  return !!currentUserId && String(booking.left_user_id || "") === String(currentUserId);
+  // During grace window, keep both participants in room so both can
+  // observe synchronized countdown and terminal status update.
+  return true;
 };
 
 const getMessagesSignature = (items: any[]) =>
@@ -53,6 +55,28 @@ const getZegoJoinErrorMessage = (err: unknown) => {
   return "Failed to start call. Please retry after verifying backend and Zego configuration.";
 };
 
+const patchConsultationCaches = (
+  prev: any,
+  targetBookingId: string,
+  nextStatus: "completed" | "cancelled"
+) => {
+  if (!prev) return prev;
+  const patchRow = (row: any) =>
+    row?.id === targetBookingId
+      ? { ...row, status: nextStatus, leave_deadline_at: null, left_user_id: null }
+      : row;
+  if (Array.isArray(prev)) {
+    return prev.map(patchRow);
+  }
+  if (Array.isArray(prev.consultations)) {
+    return {
+      ...prev,
+      consultations: prev.consultations.map(patchRow),
+    };
+  }
+  return prev;
+};
+
 export default function ConsultationRoom() {
   const { bookingId } = useParams();
   const navigate = useNavigate();
@@ -61,8 +85,6 @@ export default function ConsultationRoom() {
   const consultationsPath = location.pathname.startsWith("/vet/")
     ? "/vet/consultations"
     : "/medibondhu/consultations";
-  const isRejoinIntent =
-    (location.state as { from?: string; bookingId?: string } | null)?.from === "rejoin";
   const queryClient = useQueryClient();
   const [booking, setBooking] = useState<any>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
@@ -88,33 +110,46 @@ export default function ConsultationRoom() {
   /** Prevent duplicate finalize writes from leave + click races. */
   const finalizeInFlightRef = useRef(false);
   const hasFinalizedRef = useRef(false);
-  const manualGraceRequestedRef = useRef(false);
   const lastLeftParticipantIdRef = useRef<string | null>(null);
   const localLeaveDeadlineRef = useRef<Date | null>(null);
   const zegoInitInFlightRef = useRef(false);
   const zegoInitStatusRef = useRef<"idle" | "bootstrapping" | "joined" | "failed">("idle");
   const zegoRetryCountRef = useRef(0);
   const zegoRetryTimerRef = useRef<number | null>(null);
+  const isDestroyingZegoRef = useRef(false);
+  const hasExitGraceStartedRef = useRef(false);
   const zegoRoomKeyRef = useRef<string | null>(null);
+  const zegoJoinedRoomKeyRef = useRef<string | null>(null);
+  const zegoInitAttemptRef = useRef(0);
+  const isMountedRef = useRef(true);
   const bookingRef = useRef<any>(null);
   const isUnmountingRef = useRef(false);
   const markLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
   const clearLeaveGraceTimerRef = useRef<(() => void) | null>(null);
   const clearLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
-  const finalizeConsultationRef = useRef<((source: "button" | "sdk_leave") => Promise<void>) | null>(null);
+  const finalizeConsultationRef = useRef<((source: "sdk_leave" | "grace_timeout") => Promise<void>) | null>(null);
 
   useEffect(() => {
     bookingRef.current = booking;
   }, [booking]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       isUnmountingRef.current = true;
       if (zegoRetryTimerRef.current) {
         window.clearTimeout(zegoRetryTimerRef.current);
         zegoRetryTimerRef.current = null;
       }
     };
+  }, []);
+
+  const clearZegoRetryTimer = useCallback(() => {
+    if (zegoRetryTimerRef.current) {
+      window.clearTimeout(zegoRetryTimerRef.current);
+      zegoRetryTimerRef.current = null;
+    }
   }, []);
 
   const normalizedConsultMethod = useMemo(
@@ -127,6 +162,15 @@ export default function ConsultationRoom() {
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
+    // Reliability fallback: if realtime misses an update, both sides still
+    // observe terminal status and close the room.
+    refetchInterval: (q) => {
+      const status = String((q.state.data as any)?.booking?.status || bookingRef.current?.status || "");
+      if (!status) return 3000;
+      if (status === "completed" || status === "cancelled") return false;
+      return 3000;
+    },
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const token = readSession()?.access_token;
       const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
@@ -149,7 +193,15 @@ export default function ConsultationRoom() {
     if (!roomBootstrap?.booking) return;
     bookingStatusRef.current = roomBootstrap.booking.status ?? null;
     setBooking((prev: any) => {
-      if (prev && prev.id === roomBootstrap.booking.id && prev.status === roomBootstrap.booking.status) return prev;
+      if (
+        prev &&
+        prev.id === roomBootstrap.booking.id &&
+        prev.status === roomBootstrap.booking.status &&
+        String(prev.leave_deadline_at || "") === String(roomBootstrap.booking.leave_deadline_at || "") &&
+        String(prev.left_user_id || "") === String(roomBootstrap.booking.left_user_id || "")
+      ) {
+        return prev;
+      }
       return roomBootstrap.booking;
     });
     if (Array.isArray(roomBootstrap.messages)) {
@@ -164,25 +216,16 @@ export default function ConsultationRoom() {
       hasHandledTerminalStatusRef.current = true;
       queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
-      toast.info(
-        booking.status === "cancelled"
-          ? "Consultation is cancelled. Returning to consultations."
-          : "Consultation already completed. Returning to consultations."
-      );
+      queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
+      if (booking.status === "completed") {
+        toast.success("Your consultation successfully completed.");
+      } else {
+        toast.info("Consultation cancelled.");
+      }
       navigate(consultationsPath);
       return;
     }
-    if (booking.status === "in_progress" && booking.leave_deadline_at && booking.left_user_id !== user?.id) {
-      hasHandledTerminalStatusRef.current = true;
-      toast.info("Consultation is ending. Room is no longer available.");
-      navigate(consultationsPath);
-      return;
-    }
-    if (isRejoinIntent && booking.status !== "in_progress") {
-      toast.info("This consultation is not active right now.");
-      navigate(consultationsPath);
-    }
-  }, [booking, consultationsPath, isRejoinIntent, navigate, user?.id]);
+  }, [booking, consultationsPath, navigate, user?.id]);
 
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
@@ -226,11 +269,22 @@ export default function ConsultationRoom() {
     setLeaveGraceSeconds(null);
     lastLeftParticipantIdRef.current = null;
     localLeaveDeadlineRef.current = null;
-    manualGraceRequestedRef.current = false;
   }, []);
   useEffect(() => {
     clearLeaveGraceTimerRef.current = clearLeaveGraceTimer;
   }, [clearLeaveGraceTimer]);
+
+  /** Clear local grace state when the session is active and DB has no leave window (chat rejoin, realtime clear, bootstrap). */
+  const resetGraceUiWhenNoLeaveDeadline = useCallback(() => {
+    clearLeaveGraceTimer();
+    hasExitGraceStartedRef.current = false;
+  }, [clearLeaveGraceTimer]);
+
+  useEffect(() => {
+    const b = roomBootstrap?.booking;
+    if (!b || b.status !== "in_progress" || b.leave_deadline_at) return;
+    resetGraceUiWhenNoLeaveDeadline();
+  }, [roomBootstrap, resetGraceUiWhenNoLeaveDeadline]);
 
   const markLeaveGraceInDb = useCallback(async () => {
     if (!bookingId || !user?.id) return;
@@ -304,18 +358,7 @@ export default function ConsultationRoom() {
     }
 
     finalizeInFlightRef.current = true;
-    const isVetOrAdminActor =
-      user?.primaryRole === "vet" ||
-      user?.primaryRole === "admin" ||
-      b?.vet_user_id === user?.id ||
-      b?.vet_mock_id === user?.id;
-    const actorId = String(b?.left_user_id || "");
-    const leftByVetOrAdmin =
-      !!actorId &&
-      (actorId === String(b?.vet_user_id || "") ||
-        actorId === String(b?.vet_mock_id || "") ||
-        (user?.primaryRole === "admin" && actorId === user.id));
-    const nextStatus = leftByVetOrAdmin || isVetOrAdminActor ? "completed" : "cancelled";
+    const nextStatus = "completed";
     try {
       const { error } = await api
         .from("consultation_bookings")
@@ -329,7 +372,16 @@ export default function ConsultationRoom() {
       hasFinalizedRef.current = true;
       await clearLeaveGraceInDb();
       clearLeaveGraceTimer();
-      toast.info(nextStatus === "cancelled" ? "Consultation cancelled." : "Consultation completed.");
+      queryClient.setQueriesData(
+        { queryKey: ["medibondhu-consultations"] },
+        (prev: any) => patchConsultationCaches(prev, bookingId, "completed")
+      );
+      queryClient.setQueriesData(
+        { queryKey: ["vet-consultations"] },
+        (prev: any) => patchConsultationCaches(prev, bookingId, "completed")
+      );
+      queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
+      toast.success("Your consultation successfully completed.");
       queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
       navigate(consultationsPath);
     } catch (error) {
@@ -344,7 +396,7 @@ export default function ConsultationRoom() {
   }, [finalizeConsultation]);
 
   const beginGraceLeave = useCallback(
-    async (reason: "button" | "sdk_leave" | "navigate_back" | "unmount", opts?: { navigateAway?: boolean }) => {
+    async (reason: "sdk_leave" | "navigate_back" | "unmount", opts?: { navigateAway?: boolean }) => {
       if (hasFinalizedRef.current) {
         if (opts?.navigateAway) navigate(consultationsPath);
         return;
@@ -353,11 +405,15 @@ export default function ConsultationRoom() {
         if (opts?.navigateAway) navigate(consultationsPath);
         return;
       }
-      if (reason === "button") manualGraceRequestedRef.current = true;
+      if (reason === "navigate_back" || reason === "unmount") {
+        if (hasExitGraceStartedRef.current) {
+          if (opts?.navigateAway) navigate(consultationsPath);
+          return;
+        }
+        hasExitGraceStartedRef.current = true;
+      }
       await markLeaveGraceInDb();
-      if (reason === "button") {
-        toast.info("Ending call in 20s grace window. Rejoin before timeout to continue.");
-      } else if (reason === "sdk_leave") {
+      if (reason === "sdk_leave") {
         toast.info("You left the room. Rejoin within 20 seconds or consultation will auto-complete.");
       }
       queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
@@ -366,9 +422,71 @@ export default function ConsultationRoom() {
     [bookingId, consultationsPath, markLeaveGraceInDb, navigate, queryClient, user?.id]
   );
 
+  const completeConsultationImmediately = useCallback(async () => {
+    if (!bookingId || !user) return;
+    if (finalizeInFlightRef.current) return;
+    if (hasFinalizedRef.current) {
+      navigate(consultationsPath);
+      return;
+    }
+    finalizeInFlightRef.current = true;
+    try {
+      const completeAttempt = await api
+        .from("consultation_bookings")
+        .update({
+          status: "completed",
+          leave_deadline_at: null,
+          left_user_id: null,
+        })
+        .eq("id", bookingId);
+      let finalStatus: "completed" | "cancelled" = "completed";
+      if (completeAttempt.error) {
+        const cancelAttempt = await api
+          .from("consultation_bookings")
+          .update({
+            status: "cancelled",
+            leave_deadline_at: null,
+            left_user_id: null,
+          })
+          .eq("id", bookingId);
+        if (cancelAttempt.error) {
+          toast.error(
+            completeAttempt.error.message ||
+              cancelAttempt.error.message ||
+              "Unable to complete consultation"
+          );
+          return;
+        }
+        finalStatus = "cancelled";
+      }
+      hasFinalizedRef.current = true;
+      clearLeaveGraceTimer();
+      queryClient.setQueriesData(
+        { queryKey: ["medibondhu-consultations"] },
+        (prev: any) => patchConsultationCaches(prev, bookingId, finalStatus)
+      );
+      queryClient.setQueriesData(
+        { queryKey: ["vet-consultations"] },
+        (prev: any) => patchConsultationCaches(prev, bookingId, finalStatus)
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
+      queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
+      if (finalStatus === "completed") {
+        toast.success("Your consultation successfully completed.");
+      } else {
+        toast.info("Consultation cancelled.");
+      }
+      navigate(consultationsPath);
+    } finally {
+      finalizeInFlightRef.current = false;
+    }
+  }, [bookingId, clearLeaveGraceTimer, consultationsPath, navigate, queryClient, user]);
+
   const endConsultation = useCallback(async () => {
-    await beginGraceLeave("button");
-  }, [beginGraceLeave]);
+    await completeConsultationImmediately();
+  }, [completeConsultationImmediately]);
 
   const leaveRoomAndGoBack = useCallback(async () => {
     await beginGraceLeave("navigate_back", { navigateAway: true });
@@ -383,23 +501,29 @@ export default function ConsultationRoom() {
     if (!bookingId || !user?.id) return;
     if (!normalizedConsultMethod || normalizedConsultMethod === "chat") return;
     if (!canJoinRoom) return;
+    if (isUnmountingRef.current || !isMountedRef.current) return;
     const roomKey = `${bookingId}:${user.id}:${normalizedConsultMethod}`;
+    if (zegoJoinedRoomKeyRef.current === roomKey) return;
+    if (zegoRoomKeyRef.current === roomKey && zegoInitStatusRef.current === "joined") return;
     if (zegoInitInFlightRef.current || zegoInitStatusRef.current === "bootstrapping") return;
     zegoInitInFlightRef.current = true;
     zegoInitStatusRef.current = "bootstrapping";
     zegoRoomKeyRef.current = roomKey;
+    const attemptId = ++zegoInitAttemptRef.current;
 
     let cancelled = false;
 
     const initZego = async () => {
       try {
         if (zegoInstanceRef.current) {
+          isDestroyingZegoRef.current = true;
           try {
             zegoInstanceRef.current.destroy();
           } catch {
             /* ignore stale sdk cleanup */
           }
           zegoInstanceRef.current = null;
+          isDestroyingZegoRef.current = false;
         }
         const accessToken = readSession()?.access_token;
         if (!accessToken) {
@@ -422,10 +546,27 @@ export default function ConsultationRoom() {
         }
 
         const { token, appID } = await res.json();
-        if (cancelled) return;
+        if (
+          cancelled ||
+          zegoRoomKeyRef.current !== roomKey ||
+          attemptId !== zegoInitAttemptRef.current ||
+          isUnmountingRef.current ||
+          !isMountedRef.current
+        ) {
+          return;
+        }
 
         // Dynamically import ZegoCloud SDK
         const { ZegoUIKitPrebuilt } = await import("@zegocloud/zego-uikit-prebuilt");
+        if (
+          cancelled ||
+          zegoRoomKeyRef.current !== roomKey ||
+          attemptId !== zegoInitAttemptRef.current ||
+          isUnmountingRef.current ||
+          !isMountedRef.current
+        ) {
+          return;
+        }
 
         const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
           Number(appID),
@@ -438,11 +579,29 @@ export default function ConsultationRoom() {
         zegoInstanceRef.current = zp;
         hasJoinedZegoRoomRef.current = false;
 
-        if (!zegoContainerRef.current || cancelled) {
+        const container = zegoContainerRef.current;
+        if (
+          !container ||
+          !container.isConnected ||
+          cancelled ||
+          zegoRoomKeyRef.current !== roomKey ||
+          attemptId !== zegoInitAttemptRef.current ||
+          isUnmountingRef.current ||
+          !isMountedRef.current
+        ) {
           zegoInitStatusRef.current = "failed";
-          if (zegoRetryCountRef.current < 3 && !cancelled) {
+          try {
+            zp.destroy();
+          } catch {
+            /* ignore */
+          }
+          if (zegoInstanceRef.current === zp) zegoInstanceRef.current = null;
+          if (zegoRetryCountRef.current < 3 && !cancelled && zegoJoinedRoomKeyRef.current !== roomKey) {
             zegoRetryCountRef.current += 1;
+            clearZegoRetryTimer();
             zegoRetryTimerRef.current = window.setTimeout(() => {
+              if (attemptId !== zegoInitAttemptRef.current) return;
+              if (isUnmountingRef.current || !isMountedRef.current) return;
               setZegoRetryTick((n) => n + 1);
             }, 700);
           }
@@ -450,7 +609,7 @@ export default function ConsultationRoom() {
         }
 
         zp.joinRoom({
-          container: zegoContainerRef.current,
+          container,
           scenario: {
             mode: ZegoUIKitPrebuilt.OneONoneCall,
           },
@@ -461,22 +620,30 @@ export default function ConsultationRoom() {
           onJoinRoom: () => {
             hasJoinedZegoRoomRef.current = true;
             zegoInitStatusRef.current = "joined";
+            zegoJoinedRoomKeyRef.current = roomKey;
             zegoRetryCountRef.current = 0;
+            clearZegoRetryTimer();
+            // Successful room join always resets local leave cycle state.
+            clearLeaveGraceTimer();
+            hasExitGraceStartedRef.current = false;
             const current = bookingRef.current;
             const sameUserLeftRecently = lastLeftParticipantIdRef.current === user.id;
-            if (
-              sameUserLeftRecently ||
-              (current?.left_user_id === user.id && current?.leave_deadline_at)
-            ) {
+            const hasActiveGrace = Boolean(current?.leave_deadline_at);
+            if (hasActiveGrace) {
               void clearLeaveGraceInDb();
-              toast.success("Rejoined in time. Consultation is still active.");
+              if (sameUserLeftRecently || current?.left_user_id === user.id) {
+                toast.success("Rejoined in time. Consultation is still active.");
+              }
             }
           },
           onLeaveRoom: () => {
             if (skipZegoLeaveHookRef.current) return;
+            if (isDestroyingZegoRef.current) return;
             if (!hasJoinedZegoRoomRef.current) return;
+            clearZegoRetryTimer();
             hasJoinedZegoRoomRef.current = false;
             zegoInitStatusRef.current = "idle";
+            zegoJoinedRoomKeyRef.current = null;
             // SDK already left room; avoid duplicate destroy on unmount race.
             zegoInstanceRef.current = null;
             void beginGraceLeave("sdk_leave");
@@ -487,9 +654,12 @@ export default function ConsultationRoom() {
         const friendlyMessage = getZegoJoinErrorMessage(err);
         setRoomError(friendlyMessage);
         zegoInitStatusRef.current = "failed";
-        if (zegoRetryCountRef.current < 3 && !cancelled) {
+        if (zegoRetryCountRef.current < 3 && !cancelled && zegoJoinedRoomKeyRef.current !== roomKey) {
           zegoRetryCountRef.current += 1;
+          clearZegoRetryTimer();
           zegoRetryTimerRef.current = window.setTimeout(() => {
+            if (attemptId !== zegoInitAttemptRef.current) return;
+            if (isUnmountingRef.current || !isMountedRef.current) return;
             setZegoRetryTick((n) => n + 1);
           }, 1200);
         } else {
@@ -504,6 +674,8 @@ export default function ConsultationRoom() {
 
     return () => {
       cancelled = true;
+      zegoInitAttemptRef.current += 1;
+      clearZegoRetryTimer();
       const hadActiveRoom = hasJoinedZegoRoomRef.current;
       if (isUnmountingRef.current && hadActiveRoom && !hasFinalizedRef.current) {
         void beginGraceLeave("unmount");
@@ -511,22 +683,25 @@ export default function ConsultationRoom() {
       clearLeaveGraceTimerRef.current?.();
       hasJoinedZegoRoomRef.current = false;
       zegoInitStatusRef.current = "idle";
+      zegoJoinedRoomKeyRef.current = null;
       zegoRoomKeyRef.current = null;
       zegoInitInFlightRef.current = false;
       if (zegoInstanceRef.current) {
         skipZegoLeaveHookRef.current = true;
+        isDestroyingZegoRef.current = true;
         try {
           zegoInstanceRef.current.destroy();
         } catch {
           /* ignore */
         }
         zegoInstanceRef.current = null;
+        isDestroyingZegoRef.current = false;
         queueMicrotask(() => {
           skipZegoLeaveHookRef.current = false;
         });
       }
     };
-  }, [beginGraceLeave, bookingId, canJoinRoom, normalizedConsultMethod, user?.id, user?.name, zegoRetryTick]);
+  }, [beginGraceLeave, bookingId, canJoinRoom, clearZegoRetryTimer, normalizedConsultMethod, user?.id, zegoRetryTick]);
 
   useEffect(() => {
     if (!bookingId) return;
@@ -541,14 +716,48 @@ export default function ConsultationRoom() {
           filter: `id=eq.${bookingId}`,
         },
         (payload) => {
-          setBooking((prev: any) => ({ ...(prev || {}), ...(payload.new || {}) }));
+          setBooking((prev: any) => {
+            const next = { ...(prev || {}), ...(payload.new || {}) } as any;
+            // Keep canonical vet_user_id if UPDATE payload omits it (legacy rows /
+            // partial updates), so finalize logic stays accurate.
+            if (!next.vet_user_id && prev?.vet_user_id) next.vet_user_id = prev.vet_user_id;
+            return next;
+          });
+          const mergedNew = payload.new as Record<string, unknown> | null;
+          const hadDeadlineInPayload =
+            mergedNew &&
+            typeof mergedNew === "object" &&
+            Object.prototype.hasOwnProperty.call(mergedNew, "leave_deadline_at");
+          const clearedDeadline =
+            hadDeadlineInPayload &&
+            (mergedNew!.leave_deadline_at == null || mergedNew!.leave_deadline_at === "");
+          if (clearedDeadline) {
+            resetGraceUiWhenNoLeaveDeadline();
+          }
+          const nextStatus = String((payload.new as any)?.status || "");
+          if ((nextStatus === "completed" || nextStatus === "cancelled") && !hasHandledTerminalStatusRef.current) {
+            hasHandledTerminalStatusRef.current = true;
+            if (nextStatus === "completed") {
+              toast.success("Your consultation successfully completed.");
+            } else {
+              toast.info("Consultation cancelled.");
+            }
+            navigate(consultationsPath);
+          }
         }
       )
       .subscribe();
     return () => {
       api.removeChannel(channel);
     };
-  }, [bookingId]);
+  }, [bookingId, consultationsPath, navigate, resetGraceUiWhenNoLeaveDeadline]);
+
+  useEffect(() => {
+    const activeNoGrace =
+      booking?.status === "in_progress" && !booking?.leave_deadline_at;
+    if (!activeNoGrace) return;
+    resetGraceUiWhenNoLeaveDeadline();
+  }, [booking?.leave_deadline_at, booking?.status, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
     const deadlineFromDb = booking?.leave_deadline_at
@@ -652,7 +861,7 @@ export default function ConsultationRoom() {
   const showConnecting =
     !roomEnded &&
     !canJoinRoom &&
-    (bookingLoading || isRejoinIntent || normalizedConsultMethod !== "chat");
+    (bookingLoading || normalizedConsultMethod !== "chat");
 
   return (
     <div className="space-y-4 h-full">
@@ -770,6 +979,7 @@ export default function ConsultationRoom() {
                 <Input
                   id="consultationMessageInput"
                   name="consultationMessageInput"
+                  aria-label="Consultation message"
                   placeholder="Type a message..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
