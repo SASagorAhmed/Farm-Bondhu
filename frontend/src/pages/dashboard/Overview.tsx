@@ -12,6 +12,13 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 type ActivityIconKey = "health" | "sales" | "mortality";
+type OverviewActivity = { id: string; iconKey: ActivityIconKey; text: string; date: string; link: string };
+type OverviewPayload = {
+  totalAnimals: number;
+  productionData: { date: string; eggs: number; milk: number }[];
+  financials: { totalRevenue: number; totalExpenses: number; profit: number };
+  recentActivity: OverviewActivity[];
+};
 
 const activityIconMap: Record<ActivityIconKey, React.ReactNode> = {
   health: <HeartPulse className="h-4 w-4" />,
@@ -30,45 +37,21 @@ export default function Overview() {
     gcTime: 8 * 60 * 60 * 1000,
     placeholderData: (prev) => prev,
     queryFn: async () => {
-      const uid = user!.id;
-      const [animalsRes, productionRes, financialRes, healthRes, salesRes, mortRes] = await Promise.all([
-        api.from("animals").select("id", { count: "exact", head: true }).eq("user_id", uid),
-        api.from("production_records").select("*").eq("user_id", uid).order("date", { ascending: true }).limit(10),
-        api.from("financial_records").select("type, amount").eq("user_id", uid),
-        api.from("health_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-        api.from("sale_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-        api.from("mortality_records").select("*").eq("user_id", uid).order("date", { ascending: false }).limit(2),
-      ]);
-
-      const productionData = (productionRes.data || []).map((r) => ({ date: r.date, eggs: r.eggs, milk: Number(r.milk) }));
-      const records = financialRes.data || [];
-      const totalRevenue = records.filter((r) => r.type === "income").reduce((s, r) => s + Number(r.amount), 0);
-      const totalExpenses = records.filter((r) => r.type === "expense").reduce((s, r) => s + Number(r.amount), 0);
-
-      const recentActivity: { id: string; iconKey: ActivityIconKey; color: string; text: string; date: string; link: string }[] = [];
-      (healthRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `h-${r.id}`, iconKey: "health", color: ICON_COLORS.health, text: `${r.description} — ${r.animal_label || "Animal"}`, date: r.date, link: "/dashboard/health" });
-      });
-      (salesRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `s-${r.id}`, iconKey: "sales", color: ICON_COLORS.finance, text: `${r.product} sold to ${r.buyer} — ৳${Number(r.total).toLocaleString()}`, date: r.date, link: "/dashboard/sales" });
-      });
-      (mortRes.data || []).forEach((r) => {
-        recentActivity.push({ id: `m-${r.id}`, iconKey: "mortality", color: ICON_COLORS.mortality, text: `${r.count} ${r.animal_type} deaths — ${r.cause}`, date: r.date, link: "/dashboard/mortality" });
-      });
-
-      return {
-        totalAnimals: animalsRes.count || 0,
-        productionData,
-        financials: { totalRevenue, totalExpenses, profit: totalRevenue - totalExpenses },
-        recentActivity: recentActivity.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5),
-      };
+      const { data, error } = await api.from("dashboard_overview").select("*").single();
+      if (error) throw error;
+      return (data || {
+        totalAnimals: 0,
+        productionData: [],
+        financials: { totalRevenue: 0, totalExpenses: 0, profit: 0 },
+        recentActivity: [],
+      }) as OverviewPayload;
     },
   });
 
   const totalAnimals = overviewData?.totalAnimals || 0;
   const productionData = overviewData?.productionData || [];
   const financials = overviewData?.financials || { totalRevenue: 0, totalExpenses: 0, profit: 0 };
-  const recentActivity = overviewData?.recentActivity || [];
+  const recentActivity: OverviewActivity[] = overviewData?.recentActivity || [];
 
   useEffect(() => {
     if (!user?.id) return;
@@ -221,7 +204,13 @@ export default function Overview() {
                 <div className="space-y-3">
                   {recentActivity.map((item) => (
                     <div key={item.id} className="flex items-start gap-3 p-3 rounded-lg bg-accent/50 cursor-pointer hover:bg-accent/70 transition-colors" onClick={() => navigate(item.link)}>
-                      <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${item.color}1A`, color: item.color }}>
+                      <div
+                        className="h-8 w-8 rounded-full flex items-center justify-center shrink-0"
+                        style={{
+                          backgroundColor: `${item.iconKey === "health" ? ICON_COLORS.health : item.iconKey === "sales" ? ICON_COLORS.finance : ICON_COLORS.mortality}1A`,
+                          color: item.iconKey === "health" ? ICON_COLORS.health : item.iconKey === "sales" ? ICON_COLORS.finance : ICON_COLORS.mortality,
+                        }}
+                      >
                         {activityIconMap[item.iconKey]}
                       </div>
                       <div className="flex-1 min-w-0">

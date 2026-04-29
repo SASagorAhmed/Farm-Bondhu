@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { api, readSession, API_BASE, type AppSession, clearStoredSession } from "@/api/client";
 import { AuthContext, type User, type SignupData, type UserRole } from "./auth-context";
 import { queryClient } from "@/lib/queryClient";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 type MeResult = { ok: true; user: User } | { ok: false; error: string };
 
@@ -29,9 +30,11 @@ async function fetchMe(): Promise<MeResult> {
   const s = readSession();
   if (!s?.access_token) return { ok: false, error: "No session token" };
   try {
-    const r = await fetch(`${API_BASE}/v1/me`, {
-      headers: { Authorization: `Bearer ${s.access_token}` },
-    });
+    const r = await withApiTiming("/v1/me", () =>
+      fetch(`${API_BASE}/v1/me`, {
+        headers: { Authorization: `Bearer ${s.access_token}` },
+      })
+    );
     const text = await r.text();
     let body: { user?: User; error?: string } = {};
     try {
