@@ -6,6 +6,7 @@ import { requireUser } from "../../middleware/requireUser.js";
 import { buildUserBundle } from "../../services/userBundle.js";
 
 const router = Router();
+const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 /** Full app user (profile + roles + capabilities) for the authenticated subject. */
 router.get(
@@ -13,11 +14,14 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
+    const startedAt = nowMs();
     const user = await buildUserBundle(req.userId);
     if (!user) {
       res.status(404).json({ error: "Profile not found" });
       return;
     }
+    const elapsed = Math.max(0, nowMs() - startedAt);
+    res.setHeader("x-fb-me-ms", String(elapsed));
     res.json({ user });
   })
 );
