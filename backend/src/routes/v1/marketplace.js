@@ -4,10 +4,23 @@ import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
 import { requireAdmin } from "../../middleware/requireAdmin.js";
+import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
+const MARKETPLACE_CACHE_PREFIX = "marketplace";
+
+router.use((req, res, next) => {
+  if (req.method === "GET") return next();
+  res.on("finish", () => {
+    if (res.statusCode >= 400) return;
+    if (req.userId) invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|u:${req.userId}|`);
+    invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|u:anon|products`);
+    invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|u:anon|product`);
+  });
+  next();
+});
 
 /** Public product lists */
 router.get(
@@ -17,7 +30,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const startedAt = nowMs();
     const uid = req.userId;
-    const rows = await sql`
+    const cacheKey = makeCacheKey(MARKETPLACE_CACHE_PREFIX, { userId: uid, parts: ["chat-inbox"] });
+    const { value: rows, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, () => sql`
       select
         c.id,
         c.buyer_id,
@@ -37,7 +51,8 @@ router.get(
       where c.buyer_id = ${uid} or c.seller_id = ${uid}
       order by coalesce(c.last_message_at, c.created_at) desc nulls last
       limit 500
-    `;
+    `);
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: rows });
   })
 );
@@ -56,7 +71,8 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const rows = await sql`
+    const cacheKey = makeCacheKey(MARKETPLACE_CACHE_PREFIX, { userId: sellerId, parts: ["seller-bootstrap"] });
+    const { value: rows, cacheHit } = await getOrSetCachedValue(cacheKey, 10_000, () => sql`
       select
         c.id,
         c.buyer_id,
@@ -74,9 +90,10 @@ router.get(
       where c.seller_id = ${sellerId}
       order by coalesce(c.last_message_at, c.created_at) desc nulls last
       limit 300
-    `;
+    `);
     res.setHeader("Cache-Control", "private, max-age=10");
     res.setHeader("x-fb-seller-inbox-ms", String(Math.max(0, nowMs() - startedAt)));
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: rows });
   })
 );
@@ -216,23 +233,29 @@ router.get(
     const sellerName = req.query.seller_name;
     const sellerId = req.query.seller_id;
     const limit = Math.min(Number(req.query.limit) || 200, 500);
-    let rows;
-    if (sellerName) {
-      rows = await sql`
-        select * from products where seller_name = ${sellerName}
-        order by created_at desc limit ${limit}
-      `;
-    } else if (sellerId && typeof sellerId === "string") {
-      rows = await sql`
-        select * from products where seller_id = ${sellerId}
-        order by created_at desc limit ${limit}
-      `;
-    } else {
-      rows = await sql`
+    const cacheKey = makeCacheKey(MARKETPLACE_CACHE_PREFIX, {
+      userId: "anon",
+      parts: ["products", sellerName || "", sellerId || "", limit],
+    });
+    const { value: rows, cacheHit } = await getOrSetCachedValue(cacheKey, 15_000, async () => {
+      if (sellerName) {
+        return sql`
+          select * from products where seller_name = ${sellerName}
+          order by created_at desc limit ${limit}
+        `;
+      }
+      if (sellerId && typeof sellerId === "string") {
+        return sql`
+          select * from products where seller_id = ${sellerId}
+          order by created_at desc limit ${limit}
+        `;
+      }
+      return sql`
         select * from products order by created_at desc limit ${limit}
       `;
-    }
+    });
     res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: rows });
   })
 );
@@ -272,12 +295,20 @@ router.get(
   "/products/:id",
   requireDatabase,
   asyncHandler(async (req, res) => {
-    const [row] = await sql`select * from products where id = ${req.params.id} limit 1`;
+    const cacheKey = makeCacheKey(MARKETPLACE_CACHE_PREFIX, {
+      userId: "anon",
+      parts: ["product", req.params.id],
+    });
+    const { value: row, cacheHit } = await getOrSetCachedValue(cacheKey, 20_000, async () => {
+      const [data] = await sql`select * from products where id = ${req.params.id} limit 1`;
+      return data || null;
+    });
     if (!row) {
       res.status(404).json({ error: "Not found" });
       return;
     }
     res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
+    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: row });
   })
 );

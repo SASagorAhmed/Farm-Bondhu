@@ -650,6 +650,18 @@ export async function ensureSchema(sql) {
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
 
+  await runOptional(
+    sql,
+    "backfill consultation_bookings.vet_user_id from vets",
+    `UPDATE public.consultation_bookings b
+     SET vet_user_id = v.user_id
+     FROM public.vets v
+     WHERE b.vet_user_id IS NULL
+       AND b.vet_mock_id IS NOT NULL
+       AND v.id = b.vet_mock_id
+       AND v.user_id IS NOT NULL`
+  );
+
   await addColumns(sql, "consultation_messages", [
     "booking_id uuid NOT NULL",
     "sender_id uuid NOT NULL",
@@ -1062,6 +1074,8 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_patient ON public.consultation_bookings (patient_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_vet_user ON public.consultation_bookings (vet_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_status ON public.consultation_bookings (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_vet_status_created ON public.consultation_bookings (vet_user_id, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_patient_status_created ON public.consultation_bookings (patient_mock_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_messages_booking ON public.consultation_messages (booking_id, created_at ASC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_availability_user_day ON public.vet_availability (user_id, day_of_week, start_time)`,
     `CREATE INDEX IF NOT EXISTS idx_prescriptions_vet ON public.prescriptions (vet_user_id, created_at DESC)`,
