@@ -16,6 +16,12 @@ import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultat
 
 const MB = "#12C2D6";
 const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
+type JoinableBooking = {
+  id: string;
+  status?: string | null;
+  leave_deadline_at?: string | null;
+  left_user_id?: string | null;
+};
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "cancelled") return <Badge className="bg-destructive/15 text-destructive flex items-center gap-1"><XCircle className="h-3.5 w-3.5" />{status}</Badge>;
@@ -35,10 +41,22 @@ function canRejoinNow(booking: any, currentUserId?: string) {
   return !!currentUserId && leftUserId === String(currentUserId);
 }
 
-function canShowJoinButton(booking: any, currentUserId?: string) {
+function canShowJoinButton(booking: JoinableBooking, currentUserId?: string) {
   const status = String(booking?.status || "");
+  if (status === "pending" || status === "confirmed") return true;
   if (TERMINAL_STATUSES.has(status)) return false;
   return canRejoinNow(booking, currentUserId);
+}
+
+function resolveJoinDestination(booking: JoinableBooking, currentUserId?: string): string | null {
+  const status = String(booking?.status || "");
+  if (status === "pending" || status === "confirmed") {
+    return `/medibondhu/waiting/${booking.id}`;
+  }
+  if (canRejoinNow(booking, currentUserId)) {
+    return `/medibondhu/room/${booking.id}`;
+  }
+  return null;
 }
 
 export default function Consultations() {
@@ -47,6 +65,7 @@ export default function Consultations() {
   const queryClient = useQueryClient();
 
   const [offset, setOffset] = useState(0);
+  const [rejoiningId, setRejoiningId] = useState<string | null>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
   const { data } = useQuery({
@@ -66,10 +85,18 @@ export default function Consultations() {
         })
       );
       if (!res.ok || res.status === 304) {
+        const prev = queryClient.getQueryData<{
+          consultations?: any[];
+          totalSpent?: number;
+          page?: { hasMore?: boolean; nextOffset?: number | null };
+        }>(["medibondhu-consultations", user.id, offset]);
         return {
-          consultations: offset === 0 ? rows : [],
-          totalSpent: 0,
-          page: { hasMore: false, nextOffset: null },
+          consultations: prev?.consultations || (offset === 0 ? rows : []),
+          totalSpent: Number(prev?.totalSpent || 0),
+          page: {
+            hasMore: Boolean(prev?.page?.hasMore),
+            nextOffset: prev?.page?.nextOffset ?? null,
+          },
         };
       }
       const body = (await res.json().catch(() => ({}))) as {
@@ -104,10 +131,18 @@ export default function Consultations() {
     setOffset(0);
     setRows([]);
     setPage({ hasMore: false, nextOffset: null });
+    setRejoiningId(null);
   }, [user?.id]);
 
-  const consultations = rows;
+  const consultations = offset === 0 ? (data?.consultations || rows) : rows;
   const totalSpent = data?.totalSpent || 0;
+
+  useEffect(() => {
+    if (!rejoiningId) return;
+    if (consultations.some((c) => c.id === rejoiningId && TERMINAL_STATUSES.has(String(c.status || "")))) {
+      setRejoiningId(null);
+    }
+  }, [consultations, rejoiningId]);
 
   useEffect(() => {
     if (!user) return;
@@ -116,13 +151,17 @@ export default function Consultations() {
       userId: user.id,
       queryClient,
       onEvent: (eventType, row) => {
-        queryClient.setQueryData<{ consultations: any[]; totalSpent: number }>(
-          ["medibondhu-consultations", user.id],
-          (prev) => {
+        queryClient.setQueriesData(
+          { queryKey: ["medibondhu-consultations", user.id] },
+          (prev: any) => {
             if (!prev) return prev;
+            if (Array.isArray(prev)) {
+              return patchBookingList(prev, eventType, row);
+            }
+            const prevConsultations = Array.isArray(prev.consultations) ? prev.consultations : [];
             return {
               ...prev,
-              consultations: patchBookingList(prev.consultations || [], eventType, row),
+              consultations: patchBookingList(prevConsultations, eventType, row),
             };
           }
         );
@@ -181,17 +220,24 @@ export default function Consultations() {
                       <div className="pt-1">
                         <Button
                           size="sm"
+                          disabled={rejoiningId === c.id}
                           onClick={() => {
-                            if (c.status !== "in_progress") return;
-                            navigate(`/medibondhu/room/${c.id}`, {
-                              state: { from: "rejoin", bookingId: c.id },
+                            const destination = resolveJoinDestination(c, user?.id);
+                            if (!destination) return;
+                            setRejoiningId(c.id);
+                            const targetIntent = destination.includes("/waiting/")
+                              ? "waiting_entry"
+                              : "room_entry";
+                            navigate(destination, {
+                              replace: true,
+                              state: { from: "rejoin", bookingId: c.id, intent: targetIntent },
                             });
                           }}
                           className="text-white"
                           style={{ backgroundColor: MB }}
                         >
                           <Video className="h-4 w-4 mr-1" />
-                          Join Again
+                          {rejoiningId === c.id ? "Joining..." : "Join Again"}
                         </Button>
                       </div>
                     )}

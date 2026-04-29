@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Vet } from "@/data/mockData";
 import { useAuth } from "@/contexts/AuthContext";
-import { api, API_BASE, readSession } from "@/api/client";
+import { api, API_BASE, broadcastVetInboxNewBooking, readSession } from "@/api/client";
 import { toast } from "sonner";
 import {
   DEFAULT_BOOKABLE_ANIMAL_TYPES,
@@ -193,6 +193,8 @@ export default function BookConsultation() {
         status: "pending", payment_status: "paid", payment_amount: vet.fee, fee: vet.fee,
       }).select().single();
       if (error) throw error;
+      const newId = (data as { id?: string } | null)?.id;
+      if (vetIdentity?.user_id && newId) broadcastVetInboxNewBooking(vetIdentity.user_id, newId);
       setBookingId(data.id);
       setStep(3);
       toast.success("Booking confirmed!");

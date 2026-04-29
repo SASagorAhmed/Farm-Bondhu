@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { API_BASE, api, readSession } from "@/api/client";
+import { API_BASE, api, readSession, subscribeVetInboxNewBooking } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, Clock, CheckCircle, AlertCircle, Video, FileText } from "lucide-react";
@@ -67,8 +67,10 @@ export default function VetConsultations() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejoiningId, setRejoiningId] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [rows, setRows] = useState<Booking[]>([]);
+  const [vetParticipantIds, setVetParticipantIds] = useState<string[]>([]);
   const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
   const consultationsQueryKey = queryKeys().vetConsultations(user?.id);
   const { data, isLoading: loading, isFetching } = useQuery({
@@ -76,7 +78,13 @@ export default function VetConsultations() {
     enabled: Boolean(user?.id) && offset >= 0,
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: (q) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      const list = (q.state.data as { consultations?: Booking[] } | undefined)?.consultations || [];
+      const hasActiveRequests = list.some((b) => b.status === "pending" || b.status === "confirmed" || b.status === "in_progress");
+      return hasActiveRequests ? 1000 : 2000;
+    },
     queryFn: async () => {
       const token = readSession()?.access_token;
       const res = await withApiTiming("/v1/medibondhu/vet/consultations/bootstrap", () =>
@@ -86,9 +94,16 @@ export default function VetConsultations() {
         })
       );
       if (!res.ok || res.status === 304) {
+        const prev = queryClient.getQueryData<{
+          consultations?: Booking[];
+          page?: { hasMore?: boolean; nextOffset?: number | null };
+        }>([...consultationsQueryKey, offset]);
         return {
-          consultations: offset === 0 ? rows : [],
-          page: { hasMore: false, nextOffset: null },
+          consultations: prev?.consultations || (offset === 0 ? rows : []),
+          page: {
+            hasMore: Boolean(prev?.page?.hasMore),
+            nextOffset: prev?.page?.nextOffset ?? null,
+          },
         };
       }
       const body = (await res.json().catch(() => ({}))) as {
@@ -103,7 +118,7 @@ export default function VetConsultations() {
       };
     },
   });
-  const bookings = rows;
+  const bookings = offset === 0 ? (data?.consultations || rows) : rows;
 
   useEffect(() => {
     if (!data) return;
@@ -120,6 +135,38 @@ export default function VetConsultations() {
     setOffset(0);
     setRows([]);
     setPage({ hasMore: false, nextOffset: null });
+    setRejoiningId(null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!rejoiningId) return;
+    if (bookings.some((b) => b.id === rejoiningId && TERMINAL_STATUSES.has(String(b.status || "")))) {
+      setRejoiningId(null);
+    }
+  }, [bookings, rejoiningId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setVetParticipantIds([]);
+      return;
+    }
+    void api
+      .from("vets")
+      .select("id,user_id")
+      .eq("user_id", user.id)
+      .limit(1)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const row = Array.isArray(data) ? data[0] : null;
+        const ids = [user.id, row?.id, row?.user_id]
+          .map((v) => String(v || "").trim())
+          .filter(Boolean);
+        setVetParticipantIds(Array.from(new Set(ids)));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -127,18 +174,39 @@ export default function VetConsultations() {
     const unsubscribe = subscribeConsultationBookings({
       channelKey: `vet-consultations-${user.id}`,
       userId: user.id,
+      participantIds: vetParticipantIds,
       onEvent: (eventType, row) => {
-        queryClient.setQueryData<Booking[]>(
-          consultationsQueryKey,
-          (prev) => patchBookingList(prev || [], eventType, row) as Booking[]
+        queryClient.setQueriesData(
+          { queryKey: consultationsQueryKey },
+          (prev: any) => {
+            if (!prev) return prev;
+            if (Array.isArray(prev)) {
+              return patchBookingList(prev, eventType, row) as Booking[];
+            }
+            const prevConsultations = Array.isArray(prev.consultations) ? prev.consultations : [];
+            return {
+              ...prev,
+              consultations: patchBookingList(prevConsultations, eventType, row) as Booking[],
+            };
+          }
         );
         if (row?.id) {
           queryClient.invalidateQueries({ queryKey: ["consultation-room", row.id] });
         }
+        queryClient.invalidateQueries({ queryKey: consultationsQueryKey });
+        queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user?.id) });
       },
     });
     return unsubscribe;
-  }, [consultationsQueryKey, queryClient, user]);
+  }, [consultationsQueryKey, queryClient, user, vetParticipantIds]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribeVetInboxNewBooking(user.id, () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetConsultations(user.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user.id) });
+    });
+  }, [queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {
     setAcceptingId(bookingId);
@@ -227,14 +295,17 @@ export default function VetConsultations() {
                     ) && (
                       <Button
                         size="sm"
+                        disabled={rejoiningId === b.id}
                         onClick={() => {
                           if (b.status !== "in_progress") return;
+                          setRejoiningId(b.id);
                           navigate(`/vet/room/${b.id}`, {
-                            state: { from: "rejoin", bookingId: b.id },
+                            replace: true,
+                            state: { from: "rejoin", bookingId: b.id, intent: "room_entry" },
                           });
                         }}
                       >
-                        <Video className="h-4 w-4 mr-1" /> Rejoin
+                        <Video className="h-4 w-4 mr-1" /> {rejoiningId === b.id ? "Joining..." : "Rejoin"}
                       </Button>
                     )}
                     {b.status === "in_progress" &&
