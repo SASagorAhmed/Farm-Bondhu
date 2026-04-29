@@ -6,9 +6,9 @@ import postgres from "postgres";
  */
 const connectionString = process.env.DATABASE_URL?.trim();
 const isVercel = process.env.VERCEL === "1";
-const poolMaxDefault = isVercel ? 2 : 5;
-const idleTimeoutDefault = isVercel ? 10 : 20;
-const connectTimeoutDefault = isVercel ? 5 : 10;
+const poolMaxDefault = isVercel ? 1 : 5;
+const idleTimeoutDefault = isVercel ? 8 : 20;
+const connectTimeoutDefault = isVercel ? 4 : 10;
 const maxLifetimeDefault = isVercel ? 60 : 0;
 const poolMax = Math.max(1, Number(process.env.DB_POOL_MAX || poolMaxDefault));
 const idleTimeoutSec = Math.max(1, Number(process.env.DB_IDLE_TIMEOUT_SEC || idleTimeoutDefault));

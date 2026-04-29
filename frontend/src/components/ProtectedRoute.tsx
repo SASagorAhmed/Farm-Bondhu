@@ -33,11 +33,9 @@ export default function ProtectedRoute({
 
   const requiresAuthz = Boolean(allowedRoles?.length || requiredCapability || requireAnyCapability?.length);
   if (requiresAuthz && authzHydrating) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-7 w-7 animate-spin text-primary" />
-      </div>
-    );
+    // Keep routes responsive while role/capability bundle refreshes in background.
+    if (isAuthenticated) return <>{children}</>;
+    return <Navigate to="/login" replace />;
   }
 
   if (allowedRoles && user && !allowedRoles.some((r) => hasRole(r))) {

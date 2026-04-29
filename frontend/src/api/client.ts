@@ -341,6 +341,11 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
         health_records: "/v1/dashboard/health-records",
         sale_records: "/v1/dashboard/sale-records",
       };
+      if (this.op === "select" && this.table === "dashboard_overview") {
+        const { res, body } = await apiJson("/v1/dashboard/overview-bundle");
+        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        return { data: (body as { data: unknown }).data, error: null };
+      }
       if (this.op === "select" && dashMap[this.table]) {
         const { res, body } = await apiJson(dashMap[this.table]);
         if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };

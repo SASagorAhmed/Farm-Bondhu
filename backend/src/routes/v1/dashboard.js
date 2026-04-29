@@ -7,6 +7,7 @@ import { requireUser } from "../../middleware/requireUser.js";
 const router = Router();
 
 const chain = [requireDatabase, requireUser];
+const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
 
 function pick(body, keys) {
   const o = {};
@@ -15,6 +16,120 @@ function pick(body, keys) {
   }
   return o;
 }
+
+function isoDate(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 10);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+router.get(
+  "/overview-bundle",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const startedAt = nowMs();
+    const uid = req.userId;
+    const [animalsRows, productionRows, financialRows, healthRows, salesRows, mortalityRows] =
+      await Promise.all([
+        sql`select count(*)::int as count from animals where user_id = ${uid}`,
+        sql`
+          select date, eggs, milk
+          from production_records
+          where user_id = ${uid}
+          order by date asc
+          limit 10
+        `,
+        sql`
+          select type, amount
+          from financial_records
+          where user_id = ${uid}
+        `,
+        sql`
+          select id, date, description, animal_label
+          from health_records
+          where user_id = ${uid}
+          order by date desc
+          limit 2
+        `,
+        sql`
+          select id, date, product, buyer, total
+          from sale_records
+          where user_id = ${uid}
+          order by date desc
+          limit 2
+        `,
+        sql`
+          select id, date, count, animal_type, cause
+          from mortality_records
+          where user_id = ${uid}
+          order by date desc
+          limit 2
+        `,
+      ]);
+
+    const records = financialRows || [];
+    const totalRevenue = records
+      .filter((r) => r.type === "income")
+      .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    const totalExpenses = records
+      .filter((r) => r.type === "expense")
+      .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+    const productionData = (productionRows || []).map((r) => ({
+      date: isoDate(r.date),
+      eggs: Number(r.eggs || 0),
+      milk: Number(r.milk || 0),
+    }));
+
+    const recentActivity = [];
+    for (const row of healthRows || []) {
+      recentActivity.push({
+        id: `h-${row.id}`,
+        iconKey: "health",
+        text: `${row.description} — ${row.animal_label || "Animal"}`,
+        date: isoDate(row.date),
+        link: "/dashboard/health",
+      });
+    }
+    for (const row of salesRows || []) {
+      recentActivity.push({
+        id: `s-${row.id}`,
+        iconKey: "sales",
+        text: `${row.product} sold to ${row.buyer} — ৳${Number(row.total || 0).toLocaleString()}`,
+        date: isoDate(row.date),
+        link: "/dashboard/sales",
+      });
+    }
+    for (const row of mortalityRows || []) {
+      recentActivity.push({
+        id: `m-${row.id}`,
+        iconKey: "mortality",
+        text: `${row.count} ${row.animal_type} deaths — ${row.cause}`,
+        date: isoDate(row.date),
+        link: "/dashboard/mortality",
+      });
+    }
+
+    const payload = {
+      totalAnimals: animalsRows?.[0]?.count || 0,
+      productionData,
+      financials: {
+        totalRevenue,
+        totalExpenses,
+        profit: totalRevenue - totalExpenses,
+      },
+      recentActivity: recentActivity
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 5),
+      metrics: {
+        generated_in_ms: Math.max(0, nowMs() - startedAt),
+      },
+    };
+    res.setHeader("x-fb-dashboard-bundle-ms", String(payload.metrics.generated_in_ms));
+    res.json({ data: payload });
+  })
+);
 
 /** production_records */
 router.get(
