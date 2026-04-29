@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api } from "@/api/client";
+import { api, API_BASE, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import ReportDialog from "@/components/community/ReportDialog";
 import LinkPreview from "@/components/community/LinkPreview";
 import SharedPostEmbed, { type SharedPostData } from "@/components/community/SharedPostEmbed";
 import { CATEGORY_LABELS, ANIMAL_LABELS } from "@/components/community/PostCard";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 type PostRow = {
   id: string; user_id: string; post_type: string; title: string; body: string;
@@ -65,50 +66,29 @@ export default function PostDetail() {
 
   const fetchAll = async () => {
     if (!id) return;
-    const { data: postData } = await api.from("community_posts").select("*").eq("id", id).single();
-    if (!postData) { setLoading(false); return; }
-    setPost(postData as PostRow);
-
-    const [{ data: cmts }, { data: ans }] = await Promise.all([
-      api.from("community_comments").select("*").eq("post_id", id).order("created_at"),
-      api.from("community_answers").select("*").eq("post_id", id).order("is_best_answer", { ascending: false }).order("upvote_count", { ascending: false }),
-    ]);
-    setComments((cmts || []) as CommentRow[]);
-    setAnswers((ans || []) as AnswerRow[]);
-
-    const allUserIds = new Set([postData.user_id, ...(cmts || []).map((c: any) => c.user_id), ...(ans || []).map((a: any) => a.user_id)]);
-    const { data: profs } = await api.from("profiles").select("id, name, primary_role").in("id", [...allUserIds]);
-    if (profs) {
-      const map: Record<string, { name: string; primary_role: string }> = {};
-      profs.forEach((p: any) => { map[p.id] = { name: p.name, primary_role: p.primary_role }; });
-      setProfiles(map);
+    const token = readSession()?.access_token;
+    const res = await withApiTiming("/v1/community/posts/:id/detail", () =>
+      fetch(`${API_BASE}/v1/community/posts/${id}/detail`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    );
+    const body = await res.json().catch(() => ({}));
+    const data = (body as { data?: any }).data;
+    if (!res.ok || !data?.post) {
+      setLoading(false);
+      return;
     }
-
-    if (user) {
-      const [{ data: rx }, { data: sv }] = await Promise.all([
-        api.from("community_reactions").select("id").eq("post_id", id).eq("user_id", user.id).maybeSingle(),
-        api.from("community_saves").select("id").eq("post_id", id).eq("user_id", user.id).maybeSingle(),
-      ]);
-      setHasReacted(!!rx);
-      setHasSaved(!!sv);
-    }
+    setPost(data.post as PostRow);
+    setComments((data.comments || []) as CommentRow[]);
+    setAnswers((data.answers || []) as AnswerRow[]);
+    setProfiles((data.profiles || {}) as Record<string, { name: string; primary_role: string }>);
+    setHasReacted(Boolean(data.hasReacted));
+    setHasSaved(Boolean(data.hasSaved));
+    setSharedPost((data.sharedPost || null) as SharedPostData | null);
     setLoading(false);
   };
 
   useEffect(() => { fetchAll(); }, [id]);
-
-  // Fetch shared post embed
-  useEffect(() => {
-    if (!post?.shared_post_id) return;
-    const fetchShared = async () => {
-      const { data } = await api.from("community_posts").select("id, title, body, post_type, category, animal_type, created_at, user_id").eq("id", post.shared_post_id!).single();
-      if (data) {
-        const { data: profile } = await api.from("profiles").select("name, primary_role").eq("id", data.user_id).single();
-        setSharedPost({ ...data, author_name: profile?.name, author_role: profile?.primary_role });
-      }
-    };
-    fetchShared();
-  }, [post?.shared_post_id]);
 
   const toggleReaction = async () => {
     if (!user || !post) return;
