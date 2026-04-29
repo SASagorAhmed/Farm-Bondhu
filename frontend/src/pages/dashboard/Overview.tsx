@@ -10,6 +10,7 @@ import { ICON_COLORS } from "@/lib/iconColors";
 import { api } from "@/api/client";
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy } from "@/lib/queryClient";
 
 type ActivityIconKey = "health" | "sales" | "mortality";
 type OverviewActivity = { id: string; iconKey: ActivityIconKey; text: string; date: string; link: string };
@@ -33,8 +34,9 @@ export default function Overview() {
   const { data: overviewData, isFetching } = useQuery({
     queryKey: ["dashboard-overview", user?.id],
     enabled: Boolean(user?.id),
-    staleTime: 60 * 1000,
-    gcTime: 8 * 60 * 60 * 1000,
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+    refetchOnMount: false,
     placeholderData: (prev) => prev,
     queryFn: async () => {
       const { data, error } = await api.from("dashboard_overview").select("*").single();

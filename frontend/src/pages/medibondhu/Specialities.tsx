@@ -69,7 +69,7 @@ export default function Specialities() {
         <Card className="shadow-card overflow-hidden"><div className="h-1" style={{ backgroundColor: MB }} />
           <CardContent className="p-5"><h2 className="font-display font-bold text-foreground mb-3">Quick Search</h2>
             <div className="flex gap-2">
-              <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Search doctor by name or specialization..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} className="pl-9" /></div>
+              <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="specialitiesSearch" name="specialitiesSearch" placeholder="Search doctor by name or specialization..." value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} className="pl-9" /></div>
               <Button onClick={handleSearch} className="text-white shrink-0" style={{ backgroundColor: MB }}><Search className="h-4 w-4 mr-1" />Search</Button>
             </div>
           </CardContent>

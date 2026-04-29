@@ -14,6 +14,7 @@ import {
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 const MB = "#12C2D6";
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled"]);
@@ -121,37 +122,41 @@ export default function ConsultationRoom() {
     [booking?.consultation_method]
   );
 
-  const { data: bookingData, isLoading: bookingLoading } = useQuery({
+  const { data: roomBootstrap, isLoading: bookingLoading } = useQuery({
     queryKey: queryKeys().consultationRoom(bookingId),
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
     queryFn: async () => {
-      const { data, error } = await api
-        .from("consultation_bookings")
-        .select("*")
-        .eq("id", bookingId)
-        .single();
-      if (error) {
-        setRoomError(error.message || "Failed to load consultation details.");
-        return null;
-      }
-      if (!data) {
+      const token = readSession()?.access_token;
+      const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
+        fetch(`${API_BASE}/v1/medibondhu/bookings/${bookingId}/room-bootstrap?message_limit=160`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: { booking?: any; messages?: any[] };
+      };
+      if (!res.ok || !body.data?.booking) {
         setRoomError("Consultation not found or you do not have access.");
         return null;
       }
       setRoomError(null);
-      return data;
+      return body.data;
     },
   });
   useEffect(() => {
-    if (!bookingData) return;
-    bookingStatusRef.current = bookingData.status ?? null;
+    if (!roomBootstrap?.booking) return;
+    bookingStatusRef.current = roomBootstrap.booking.status ?? null;
     setBooking((prev: any) => {
-      if (prev && prev.id === bookingData.id && prev.status === bookingData.status) return prev;
-      return bookingData;
+      if (prev && prev.id === roomBootstrap.booking.id && prev.status === roomBootstrap.booking.status) return prev;
+      return roomBootstrap.booking;
     });
-  }, [bookingData]);
+    if (Array.isArray(roomBootstrap.messages)) {
+      messagesSignatureRef.current = getMessagesSignature(roomBootstrap.messages);
+      setMessages(roomBootstrap.messages);
+    }
+  }, [roomBootstrap]);
 
   useEffect(() => {
     if (!booking || hasHandledTerminalStatusRef.current) return;
@@ -179,26 +184,6 @@ export default function ConsultationRoom() {
     }
   }, [booking, consultationsPath, isRejoinIntent, navigate, user?.id]);
 
-  const { data: initialMessages } = useQuery({
-    queryKey: ["consultation-room-messages", bookingId || "unknown"],
-    enabled: Boolean(bookingId),
-    staleTime: moduleCachePolicy.vet.staleTime,
-    gcTime: moduleCachePolicy.vet.gcTime,
-    queryFn: async () => {
-      const { data } = await api
-        .from("consultation_messages")
-        .select("*")
-        .eq("booking_id", bookingId)
-        .order("created_at", { ascending: true });
-      return data || [];
-    },
-  });
-  useEffect(() => {
-    if (!initialMessages) return;
-    messagesSignatureRef.current = getMessagesSignature(initialMessages);
-    setMessages(initialMessages);
-  }, [initialMessages]);
-
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
     if (!bookingId) return;
@@ -225,88 +210,6 @@ export default function ConsultationRoom() {
 
     return () => { api.removeChannel(channel); };
   }, [bookingId]);
-
-  // Polling fallback for messages and booking status
-  useEffect(() => {
-    if (!bookingId) return;
-    let cancelled = false;
-
-    const pollFallback = async () => {
-      try {
-        const [messagesRes, bookingRes] = await Promise.all([
-          api
-            .from("consultation_messages")
-            .select("*")
-            .eq("booking_id", bookingId)
-            .order("created_at", { ascending: true }),
-          api
-            .from("consultation_bookings")
-            .select("*")
-            .eq("id", bookingId)
-            .single(),
-        ]);
-
-        if (cancelled) return;
-
-        if (messagesRes.data) {
-          const nextSignature = getMessagesSignature(messagesRes.data);
-          if (nextSignature !== messagesSignatureRef.current) {
-            messagesSignatureRef.current = nextSignature;
-            setMessages(messagesRes.data);
-          }
-        }
-
-        if (bookingRes.data) {
-          const nextStatus = bookingRes.data.status ?? null;
-          const prevStatus = bookingStatusRef.current;
-          const statusChanged = nextStatus !== prevStatus;
-
-          if (statusChanged) {
-            bookingStatusRef.current = nextStatus;
-          }
-
-          setBooking((prev: any) => {
-            if (!prev) return bookingRes.data;
-            if (prev.id === bookingRes.data.id && prev.status === bookingRes.data.status) {
-              return prev;
-            }
-            return bookingRes.data;
-          });
-
-          const becameTerminal =
-            !hasHandledTerminalStatusRef.current &&
-            isTerminalBookingStatus(nextStatus);
-
-          if (becameTerminal) {
-            hasHandledTerminalStatusRef.current = true;
-            queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
-            queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
-            toast.info(
-              nextStatus === "cancelled"
-                ? "Consultation was cancelled. Returning to consultations."
-                : "Consultation is completed. Returning to consultations."
-            );
-            navigate(consultationsPath);
-          }
-        }
-      } catch (error) {
-        console.error("Consultation polling fallback failed:", error);
-        setRoomError("Connection issue while syncing consultation status. Retrying...");
-      }
-    };
-
-    // Run immediate + periodic fallback sync for room and shared leave timer consistency.
-    pollFallback();
-    const interval = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void pollFallback();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [bookingId, consultationsPath, navigate]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -865,6 +768,8 @@ export default function ConsultationRoom() {
             <div className="p-3 border-t border-border">
               <div className="flex gap-2">
                 <Input
+                  id="consultationMessageInput"
+                  name="consultationMessageInput"
                   placeholder="Type a message..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}

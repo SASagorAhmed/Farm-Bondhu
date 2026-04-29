@@ -3,12 +3,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { api } from "@/api/client";
+import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { FileText, Pill, Download, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { buildPrescriptionPdfBlob, downloadPrescriptionPdf } from "@/lib/prescriptionPdf";
+import { withApiTiming } from "@/lib/perfMetrics";
 
 const MB = "#12C2D6";
 
@@ -49,26 +50,43 @@ export default function Prescriptions() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const isFetchingRef = useRef(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchPrescriptions = useCallback(async () => {
     if (!user || isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const { data } = await api
-        .from("e_prescriptions")
-        .select("*")
-        .eq("patient_mock_id", user.id)
-        .order("created_at", { ascending: false });
-      if (data) {
-        setPrescriptions(data);
-      }
+      const token = readSession()?.access_token;
+      const res = await withApiTiming("/v1/medibondhu/prescriptions/bootstrap", () =>
+        fetch(`${API_BASE}/v1/medibondhu/prescriptions/bootstrap?mode=farmer&limit=40&offset=${offset}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: { rows?: EPrescriptionRow[]; page?: { hasMore?: boolean } };
+      };
+      if (!res.ok || res.status === 304) return;
+      const rows = body.data?.rows || [];
+      setPrescriptions((prev) => {
+        if (offset === 0) return rows;
+        const seen = new Set(prev.map((r) => r.id));
+        const incoming = rows.filter((r) => !seen.has(r.id));
+        return [...prev, ...incoming];
+      });
+      setHasMore(Boolean(body.data?.page?.hasMore));
     } finally {
       isFetchingRef.current = false;
+      setLoadingMore(false);
     }
-  }, [user]);
+  }, [offset, user]);
 
   useEffect(() => {
     if (!user) return;
+    setOffset(0);
+    setHasMore(false);
     void fetchPrescriptions();
 
     const channel = api
@@ -223,6 +241,20 @@ export default function Prescriptions() {
               </Card>
             </motion.div>
           ))}
+          {hasMore && (
+            <div className="pt-2 flex justify-center">
+              <Button
+                variant="outline"
+                disabled={loadingMore}
+                onClick={() => {
+                  setLoadingMore(true);
+                  setOffset((prev) => prev + 40);
+                }}
+              >
+                {loadingMore ? "Loading..." : "Load older prescriptions"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

@@ -36,6 +36,7 @@ export default function Marketplace() {
     queryKey: queryKeys().products(),
     staleTime: moduleCachePolicy.marketplace.staleTime,
     gcTime: moduleCachePolicy.marketplace.gcTime,
+    refetchOnMount: false,
     queryFn: async () => {
       const { data } = await api.from("products").select("*").order("created_at", { ascending: false });
       return (data || []).map(dbToProduct);
@@ -79,7 +80,7 @@ export default function Marketplace() {
       </motion.div>
 
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
+        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="marketplaceSearch" name="marketplaceSearch" placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
         <Tabs value={category} onValueChange={setCategory}><TabsList className="flex-wrap">{categories.map(c => <TabsTrigger key={c} value={c} className="text-xs">{catLabels[c]}</TabsTrigger>)}</TabsList></Tabs>
       </div>
 

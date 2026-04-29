@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { API_BASE, api, readSession } from "@/api/client";
+import { withApiTiming } from "@/lib/perfMetrics";
 import { useAuth } from "@/contexts/AuthContext";
 import { FileText, Plus, Eye, Loader2, Send } from "lucide-react";
 import { format } from "date-fns";
@@ -49,20 +50,40 @@ export default function VetPrescriptions() {
   const navigate = useNavigate();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [issuingId, setIssuingId] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    api
-      .from("prescriptions")
-      .select("*")
-      .eq("vet_user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        setPrescriptions((data as Prescription[]) || []);
+    const token = readSession()?.access_token;
+    void withApiTiming("/v1/medibondhu/prescriptions/bootstrap", () =>
+      fetch(`${API_BASE}/v1/medibondhu/prescriptions/bootstrap?mode=vet&limit=50&offset=${offset}`, {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+    )
+      .then(async (res) => {
+        if (!res.ok || res.status === 304) return null;
+        return (await res.json().catch(() => ({}))) as { data?: { rows?: Prescription[]; page?: { hasMore?: boolean } } };
+      })
+      .then((body) => {
+        if (!body) return;
+        const rows = body.data?.rows || [];
+        setPrescriptions((prev) => {
+          if (offset === 0) return rows;
+          const seen = new Set(prev.map((r) => r.id));
+          const incoming = rows.filter((r) => !seen.has(r.id));
+          return [...prev, ...incoming];
+        });
+        setHasMore(Boolean(body.data?.page?.hasMore));
+      })
+      .finally(() => {
         setLoading(false);
+        setLoadingMore(false);
       });
-  }, [user]);
+  }, [offset, user]);
 
   const issueDraft = async (prescriptionId: string) => {
     const token = readSession()?.access_token;
@@ -171,6 +192,20 @@ export default function VetPrescriptions() {
                   </div>
                 );
               })}
+              {hasMore && (
+                <div className="pt-2 flex justify-center">
+                  <Button
+                    variant="outline"
+                    disabled={loadingMore}
+                    onClick={() => {
+                      setLoadingMore(true);
+                      setOffset((prev) => prev + 50);
+                    }}
+                  >
+                    {loadingMore ? "Loading..." : "Load older prescriptions"}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
