@@ -12,6 +12,7 @@ router.get(
     const rows = await sql`
       select * from community_posts where status = 'active' order by created_at desc limit 500
     `;
+    res.setHeader("Cache-Control", "public, s-maxage=30, max-age=15");
     res.json({ data: rows });
   })
 );
@@ -28,6 +29,7 @@ router.get(
       res.status(404).json({ error: "Not found" });
       return;
     }
+    res.setHeader("Cache-Control", "public, s-maxage=30, max-age=15");
     res.json({ data: row });
   })
 );
