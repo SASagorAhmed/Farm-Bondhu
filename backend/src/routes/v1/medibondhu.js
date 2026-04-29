@@ -491,7 +491,7 @@ router.get(
       userId: req.userId,
       parts: ["vet-dashboard-bootstrap", canonicalVetUserId, limit, today],
     });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 1_000, async () => {
       const [pendingRows, todayRows] = await Promise.all([
       sql`
         select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms,
@@ -518,7 +518,7 @@ router.get(
       return { pendingBookings: pendingRows, todayBookings: todayRows };
     });
     res.setHeader("x-fb-vet-dashboard-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, max-age=8");
+    res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: value });
   })
@@ -538,7 +538,7 @@ router.get(
       userId: req.userId,
       parts: ["vet-consultations-bootstrap", canonicalVetUserId, limit, offset],
     });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
+    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 1_000, async () => {
       const rows = await sql`
       select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms, b.fee,
              b.consultation_method, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.scheduled_date, b.scheduled_time
@@ -562,7 +562,7 @@ router.get(
       };
     });
     res.setHeader("x-fb-vet-consultations-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, max-age=8");
+    res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
     res.json({ data: value });
   })

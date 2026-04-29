@@ -55,6 +55,19 @@ const getZegoJoinErrorMessage = (err: unknown) => {
   return "Failed to start call. Please retry after verifying backend and Zego configuration.";
 };
 
+const maybeRecoverFromChunkLoadError = (err: unknown) => {
+  const message = String((err as { message?: unknown })?.message || err || "");
+  const chunkLoadFailed =
+    message.includes("Failed to fetch dynamically imported module") ||
+    message.includes("Importing a module script failed");
+  if (!chunkLoadFailed || typeof window === "undefined") return false;
+  const key = "fb:zego-chunk-reload-once";
+  if (window.sessionStorage.getItem(key) === "1") return false;
+  window.sessionStorage.setItem(key, "1");
+  window.location.reload();
+  return true;
+};
+
 const patchConsultationCaches = (
   prev: any,
   targetBookingId: string,
@@ -651,6 +664,7 @@ export default function ConsultationRoom() {
         });
       } catch (err: any) {
         console.error("ZegoCloud init error:", err);
+        if (maybeRecoverFromChunkLoadError(err)) return;
         const friendlyMessage = getZegoJoinErrorMessage(err);
         setRoomError(friendlyMessage);
         zegoInitStatusRef.current = "failed";
