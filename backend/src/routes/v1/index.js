@@ -16,6 +16,7 @@ import toolsRoutes from "./tools.js";
 import aiFarmChatRoutes from "./aiFarmChat.js";
 import publicRoutes from "./public.js";
 import medibondhuRoutes from "./medibondhu.js";
+import vetbondhuRoutes from "./vetbondhu.js";
 import communityRoutes from "./community.js";
 
 const router = Router();
@@ -37,6 +38,7 @@ router.use("/tools", toolsRoutes);
 router.use("/ai", aiFarmChatRoutes);
 router.use("/public", publicRoutes);
 router.use("/medibondhu", medibondhuRoutes);
+router.use("/vetbondhu", vetbondhuRoutes);
 router.use("/community", communityRoutes);
 
 export default router;
