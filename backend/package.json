@@ -8,6 +8,7 @@
     "free-port": "node scripts/free-port.js",
     "predev": "node scripts/free-port.js",
     "dev": "node --watch src/server.js",
+    "db:ensure": "node scripts/ensure-schema.js",
     "start": "node src/server.js",
     "gen-auth-secret": "node scripts/generate-auth-secret.js",
     "seed:official-admin": "node scripts/seed-official-super-admin.js",

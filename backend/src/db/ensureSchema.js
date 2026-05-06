@@ -540,6 +540,108 @@ export async function ensureSchema(sql) {
       last_sent_at timestamptz NOT NULL DEFAULT now(),
       created_at timestamptz NOT NULL DEFAULT now()
     )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_specialties (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL,
+      slug text UNIQUE,
+      sort_order integer NOT NULL DEFAULT 0,
+      is_active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_hospitals (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL,
+      address text,
+      phone text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_doctors (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid,
+      specialty_id uuid REFERENCES public.medibondhu_specialties(id),
+      hospital_id uuid REFERENCES public.medibondhu_hospitals(id),
+      full_name text NOT NULL DEFAULT 'Doctor',
+      qualification text,
+      experience_years integer NOT NULL DEFAULT 0,
+      chamber_address text,
+      consultation_fee numeric NOT NULL DEFAULT 0,
+      profile_photo_url text,
+      about text,
+      online_consultation boolean NOT NULL DEFAULT true,
+      chamber_consultation boolean NOT NULL DEFAULT true,
+      rating_avg numeric NOT NULL DEFAULT 0,
+      rating_count integer NOT NULL DEFAULT 0,
+      approval_status text NOT NULL DEFAULT 'pending',
+      rejection_reason text,
+      verified_by uuid,
+      verified_at timestamptz,
+      is_available boolean NOT NULL DEFAULT true,
+      medical_reg_number text,
+      registration_body text,
+      verification_documents jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_doctor_time_slots (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      doctor_id uuid NOT NULL REFERENCES public.medibondhu_doctors(id) ON DELETE CASCADE,
+      slot_date date NOT NULL,
+      slot_start timestamptz NOT NULL,
+      slot_end timestamptz NOT NULL,
+      booked boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (doctor_id, slot_start)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_appointments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      patient_user_id uuid NOT NULL,
+      doctor_id uuid NOT NULL REFERENCES public.medibondhu_doctors(id),
+      slot_id uuid REFERENCES public.medibondhu_doctor_time_slots(id),
+      specialty_id uuid REFERENCES public.medibondhu_specialties(id),
+      consultation_type text NOT NULL DEFAULT 'online',
+      status text NOT NULL DEFAULT 'pending',
+      payment_status text NOT NULL DEFAULT 'unpaid',
+      chief_complaint text,
+      cancelled_by text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_prescriptions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      appointment_id uuid REFERENCES public.medibondhu_appointments(id) ON DELETE SET NULL,
+      doctor_id uuid NOT NULL REFERENCES public.medibondhu_doctors(id),
+      patient_user_id uuid NOT NULL,
+      diagnosis text,
+      advice text,
+      follow_up_date date,
+      status text NOT NULL DEFAULT 'issued',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_prescription_items (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      prescription_id uuid NOT NULL REFERENCES public.medibondhu_prescriptions(id) ON DELETE CASCADE,
+      medication_name text NOT NULL,
+      dosage text,
+      notes text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_appointment_messages (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      appointment_id uuid NOT NULL REFERENCES public.medibondhu_appointments(id) ON DELETE CASCADE,
+      sender_id uuid NOT NULL,
+      message text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
   ];
 
   for (let i = 0; i < stmts.length; i++) {
@@ -553,6 +655,7 @@ export async function ensureSchema(sql) {
     "phone text",
     "location text",
     "avatar_url text",
+    "farmer_open_medibondhu boolean NOT NULL DEFAULT true",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -565,6 +668,12 @@ export async function ensureSchema(sql) {
     "broadcast_id uuid",
     `"read" boolean NOT NULL DEFAULT false`,
     "created_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
+  await addColumns(sql, "medibondhu_doctors", [
+    "medical_reg_number text",
+    "registration_body text",
+    `verification_documents jsonb NOT NULL DEFAULT '[]'::jsonb`,
   ]);
 
   await addColumns(sql, "community_posts", [
@@ -1035,13 +1144,16 @@ export async function ensureSchema(sql) {
       ('farmer', 'can_manage_animals'),
       ('farmer', 'can_access_learning'),
       ('farmer', 'can_book_vet'),
+      ('farmer', 'can_book_human'),
       ('farmer', 'can_buy'),
       ('buyer', 'can_buy'),
+      ('buyer', 'can_book_human'),
       ('buyer', 'can_bulk_buy'),
       ('vendor', 'can_sell'),
       ('vendor', 'can_manage_orders'),
       ('vendor', 'can_manage_store'),
       ('vendor', 'can_buy'),
+      ('doctor', 'can_practice_human'),
       ('vet', 'can_consult_as_vet'),
       ('vet', 'can_book_vet'),
       ('admin', 'can_manage_platform'),
@@ -1053,6 +1165,22 @@ export async function ensureSchema(sql) {
     ON CONFLICT DO NOTHING
   `;
   await runOptional(sql, "seed role_permissions", seedPerms);
+
+  await runOptional(
+    sql,
+    "seed medibondhu_specialties",
+    `INSERT INTO public.medibondhu_specialties (name, slug, sort_order) VALUES
+      ('General Physician', 'general-physician', 1),
+      ('Cardiologist', 'cardiologist', 2),
+      ('Pediatrician', 'pediatrician', 3),
+      ('Gynecologist', 'gynecologist', 4),
+      ('Orthopedic', 'orthopedic', 5),
+      ('Dermatologist', 'dermatologist', 6),
+      ('ENT', 'ent', 7),
+      ('Psychiatrist', 'psychiatrist', 8),
+      ('Neurologist', 'neurologist', 9)
+    ON CONFLICT (slug) DO NOTHING`
+  );
 
   const idx = [
     `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON public.user_roles (user_id)`,
@@ -1084,10 +1212,27 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_e_prescriptions_patient ON public.e_prescriptions (patient_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_vet ON public.vet_withdrawals (vet_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_status ON public.vet_withdrawals (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_specialties_active ON public.medibondhu_specialties (is_active, sort_order)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_specialty ON public.medibondhu_doctors (specialty_id, approval_status)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_user ON public.medibondhu_doctors (user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_slots_doctor_date ON public.medibondhu_doctor_time_slots (doctor_id, slot_date, booked)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_appointments_patient ON public.medibondhu_appointments (patient_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_appointments_doctor ON public.medibondhu_appointments (doctor_id, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_prescriptions_patient ON public.medibondhu_prescriptions (patient_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_prescriptions_doctor ON public.medibondhu_prescriptions (doctor_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_appointment_messages_appt ON public.medibondhu_appointment_messages (appointment_id, created_at ASC)`,
   ];
   for (let i = 0; i < idx.length; i++) {
     await runOptional(sql, `index ${i + 1}`, idx[i]);
   }
+
+  /** MediBondhu slots: align `slot_date` with Bangladesh calendar derived from `slot_start` so patient booking matches `/doctors/:id/slots`. */
+  await runOptional(
+    sql,
+    "medi backfill doctor_time_slots.slot_date",
+    `UPDATE medibondhu_doctor_time_slots SET slot_date = ((slot_start AT TIME ZONE 'Asia/Dhaka')::date)
+     WHERE slot_date IS DISTINCT FROM ((slot_start AT TIME ZONE 'Asia/Dhaka')::date)`,
+  );
 
   console.log("[ensureSchema] public tables and indexes checked");
 }

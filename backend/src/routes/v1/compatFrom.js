@@ -61,9 +61,79 @@ router.post(
 
     if (action === "select" && table === "user_capabilities" && body.user_id === uid) {
       const rows = await sql`
-        select capability_code, is_enabled from user_capabilities where user_id = ${uid}
+        select user_id, capability_code, is_enabled from user_capabilities where user_id = ${uid}
       `;
       return res.json({ data: rows, error: null });
+    }
+
+    if (action === "upsert" && table === "user_capabilities") {
+      const rows = Array.isArray(body.rows)
+        ? body.rows
+        : body.row
+          ? [body.row]
+          : [];
+      if (!rows.length) return bad(res, "No rows supplied");
+
+      const SAFE_SELF_TOGGLE = new Set([
+        "can_manage_farm",
+        "can_book_vet",
+        "can_book_human",
+        "can_sell",
+        "can_bulk_buy",
+        "can_access_learning",
+      ]);
+
+      const [profileRow] = await sql`select primary_role from profiles where id = ${uid} limit 1`;
+      const primaryRole = String(profileRow?.primary_role || "");
+      const userRoleRows = await sql`select role from user_roles where user_id = ${uid}`;
+      const userRoleSet = new Set(userRoleRows.map((r) => String(r.role)));
+
+      for (const row of rows) {
+        if (!isUuid(row?.user_id) || String(row.user_id) !== uid) {
+          return bad(res, "Cannot change another user's capabilities", 403);
+        }
+        const capabilityCode = String(row?.capability_code || "");
+        if (!SAFE_SELF_TOGGLE.has(capabilityCode)) {
+          return bad(res, "Capability cannot be changed here", 403);
+        }
+
+        const [roleGrant] = await sql`
+          select 1 as ok
+          from user_roles ur
+          join role_permissions rp on rp.role = ur.role
+          where ur.user_id = ${uid} and rp.permission_code = ${capabilityCode}
+          limit 1
+        `;
+        const [existingOverride] = await sql`
+          select 1 as ok
+          from user_capabilities
+          where user_id = ${uid} and capability_code = ${capabilityCode}
+          limit 1
+        `;
+        /** Farmer/buyer may self-toggle MediBondhu even if `user_roles` is empty (profile.primary_role still farmer). */
+        const implicitHumanBookOk =
+          capabilityCode === "can_book_human" &&
+          (primaryRole === "farmer" ||
+            primaryRole === "buyer" ||
+            userRoleSet.has("farmer") ||
+            userRoleSet.has("buyer"));
+        if (!roleGrant && !existingOverride && !implicitHumanBookOk) {
+          return bad(res, "Capability not available for this user", 403);
+        }
+
+        await sql`
+          delete from user_capabilities
+          where user_id = ${uid} and capability_code = ${capabilityCode}
+        `;
+        await sql`
+          insert into user_capabilities ${sql({
+            user_id: uid,
+            capability_code: capabilityCode,
+            is_enabled: Boolean(row?.is_enabled),
+          })}
+        `;
+      }
+      return res.json({ data: null, error: null });
     }
 
     if (action === "select" && table === "community_posts" && body.mode === "active_latest") {

@@ -26,7 +26,7 @@ router.get(
   })
 );
 
-const profilePatchKeys = ["name", "phone", "location", "avatar_url", "primary_role"];
+const profilePatchKeys = ["name", "phone", "location", "avatar_url", "primary_role", "farmer_open_medibondhu"];
 
 router.patch(
   "/",

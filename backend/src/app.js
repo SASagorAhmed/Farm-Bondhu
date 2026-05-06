@@ -34,7 +34,8 @@ app.use(
   })
 );
 app.use(morgan(config.nodeEnv === "production" ? "combined" : "dev"));
-app.use(express.json({ limit: "2mb" }));
+/** MediBondhu / vet uploads send files as JSON data URLs — base64 inflates size; keep headroom below typical proxy limits. */
+app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", routes);
