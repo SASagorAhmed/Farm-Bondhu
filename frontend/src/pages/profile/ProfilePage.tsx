@@ -17,6 +17,7 @@ const ROLE_COLORS: Record<string, string> = {
   farmer: "bg-green-100 text-green-800",
   vendor: "bg-orange-100 text-orange-800",
   vet: "bg-purple-100 text-purple-800",
+  doctor: "bg-teal-100 text-teal-800",
   admin: "bg-red-100 text-red-800",
 };
 

@@ -1,0 +1,547 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { readSession, API_BASE } from "@/api/client";
+import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  Clock,
+  MessageSquare,
+  PhoneOff,
+  Send,
+  Stethoscope,
+} from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { withApiTiming } from "@/lib/perfMetrics";
+import { ICON_COLORS } from "@/lib/iconColors";
+
+const MB = ICON_COLORS.medibondhu;
+
+type RoomBootstrap = {
+  appointment: Record<string, unknown> & {
+    id?: string;
+    status?: string;
+    consultation_type?: string;
+    chief_complaint?: string | null;
+    doctor_name?: string | null;
+  };
+  messages: Array<{
+    id: string;
+    sender_id: string;
+    sender_name?: string | null;
+    message: string;
+    created_at: string;
+  }>;
+  participants: unknown[];
+  permissions: {
+    isPatient: boolean;
+    isDoctor: boolean;
+    canJoinVideo: boolean;
+    zegoRoomId: string;
+  };
+};
+
+const TERMINAL = new Set(["completed", "cancelled", "rejected"]);
+
+const isTerminal = (status?: string | null) =>
+  !!status && TERMINAL.has(String(status).toLowerCase());
+
+const getZegoJoinErrorMessage = (err: unknown) => {
+  const message = String((err as { message?: unknown })?.message || "");
+  const codeFromObject = String((err as { code?: unknown })?.code || "");
+  const raw = (() => {
+    try {
+      return JSON.stringify(err || {});
+    } catch {
+      return "";
+    }
+  })();
+  const combined = `${codeFromObject} ${message} ${raw}`;
+  const codeMatch = combined.match(/\b(20014|50119)\b/);
+  if (codeMatch) {
+    return `Call authentication failed (code ${codeMatch[1]}). Check ZEGOCLOUD_APP_ID and ZEGOCLOUD_SERVER_SECRET, then restart backend.`;
+  }
+  return "Failed to start call. Please retry after verifying backend and Zego configuration.";
+};
+
+export default function MediHumanConsultationRoom() {
+  const { appointmentId } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [messages, setMessages] = useState<RoomBootstrap["messages"]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const bookingRef = useRef<RoomBootstrap["appointment"] | null>(null);
+  const zegoContainerRef = useRef<HTMLDivElement>(null);
+  const zegoInstanceRef = useRef<{ destroy: () => void } | null>(null);
+  const zegoAttemptRef = useRef(0);
+  const skipLeaveHookRef = useRef(false);
+  const finalizeBusyRef = useRef(false);
+  const terminalNavHandledRef = useRef(false);
+
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const backHref = () => "/medibondhu/consultations";
+
+  const {
+    data: roomBootstrap,
+    isLoading,
+    error: bootstrapError,
+  } = useQuery({
+    queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
+    enabled: Boolean(appointmentId),
+    staleTime: moduleCachePolicy.vet.staleTime,
+    gcTime: moduleCachePolicy.vet.gcTime,
+    refetchInterval: (q) => {
+      const st = String(
+        ((q.state.data as RoomBootstrap | undefined)?.appointment?.status as string | undefined) ||
+          bookingRef.current?.status ||
+          ""
+      ).toLowerCase();
+      if (!st || isTerminal(st)) return false;
+      return 3000;
+    },
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      if (!appointmentId) throw new Error("Missing appointment");
+      const token = readSession()?.access_token;
+      const res = await withApiTiming(
+        "/v1/medibondhu/appointments/:id/room-bootstrap",
+        () =>
+          fetch(
+            `${API_BASE}/v1/medibondhu/appointments/${appointmentId}/room-bootstrap?message_limit=160`,
+            {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            }
+          )
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: RoomBootstrap;
+        error?: string;
+      };
+      if (!res.ok || !body.data?.appointment) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : "Consultation not found or video is unavailable."
+        );
+      }
+      const ap = body.data.appointment as RoomBootstrap["appointment"];
+      bookingRef.current = ap;
+      if (Array.isArray(body.data.messages)) {
+        setMessages(body.data.messages);
+      }
+      setRoomError(null);
+      return body.data;
+    },
+  });
+
+  const appt = roomBootstrap?.appointment;
+  const permissionDoctor = Boolean(roomBootstrap?.permissions?.isDoctor);
+  const listBack = permissionDoctor ? "/medibondhu/doctor/dashboard" : backHref();
+
+  useEffect(() => {
+    bookingRef.current = appt ?? null;
+  }, [appt]);
+
+  const terminalNow = useMemo(() => isTerminal(appt?.status), [appt?.status]);
+
+  /** Online visits stay pending until the doctor accepts; avoid loading the video shell for patients. */
+  useEffect(() => {
+    const st = String(appt?.status || "").toLowerCase();
+    const online = String(appt?.consultation_type || "").toLowerCase() === "online";
+    if (!appointmentId || terminalNow || !online || permissionDoctor || st !== "pending") return;
+    navigate(`/medibondhu/waiting/${appointmentId}`, { replace: true });
+  }, [appointmentId, appt?.consultation_type, appt?.status, navigate, permissionDoctor, terminalNow]);
+
+  /** v1 realtime: polling via `refetchInterval` plus invalidations (Medi realtime hook intentionally still a stub). */
+
+  useEffect(() => {
+    if (!appointmentId) return;
+    if (!terminalNow) {
+      terminalNavHandledRef.current = false;
+      return;
+    }
+    if (terminalNavHandledRef.current) return;
+    terminalNavHandledRef.current = true;
+    const st = String(appt?.status || "").toLowerCase();
+    void qc.invalidateQueries({
+      queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
+    });
+    void qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
+    void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+    void qc.invalidateQueries({
+      queryKey: queryKeys().medibondhuHumanAppointmentDetail(appointmentId),
+    });
+    if (st === "completed") toast.success("Consultation ended.");
+    else if (st === "cancelled" || st === "rejected") toast.info("This appointment is closed.");
+    navigate(listBack);
+  }, [appointmentId, appt?.status, listBack, navigate, qc, terminalNow]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const canJoinRoom = Boolean(roomBootstrap?.permissions?.canJoinVideo && !terminalNow);
+
+  const completeVisit = useCallback(async () => {
+    if (!appointmentId || finalizeBusyRef.current) return;
+    finalizeBusyRef.current = true;
+    try {
+      const { res, body } = await mediHumanJson(`/appointments/${appointmentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed" }),
+      });
+      if (!res.ok)
+        throw new Error(String((body as { error?: string }).error || res.status));
+      toast.success("Visit marked complete.");
+      await qc.invalidateQueries({
+        queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
+      });
+      await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+      await qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
+      navigate(listBack);
+    } catch (e) {
+      toast.error((e as Error).message || "Could not complete visit");
+    } finally {
+      finalizeBusyRef.current = false;
+    }
+  }, [appointmentId, listBack, navigate, qc]);
+
+  const sendMessage = useCallback(async () => {
+    if (!newMessage.trim() || !user || !appointmentId) return;
+    if (terminalNow) {
+      toast.error("Messaging is disabled for closed appointments.");
+      return;
+    }
+    const txt = newMessage.trim();
+    const optimisticId = `local-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        sender_id: user.id,
+        sender_name: user.name,
+        message: txt,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    setNewMessage("");
+    const { res, body } = await mediHumanJson<{ data?: { id: string } }>(
+      `/appointments/${appointmentId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message: txt }),
+      }
+    );
+    const errText = typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : "";
+    if (!res.ok) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      toast.error(errText || "Failed to send");
+      setNewMessage(txt);
+      return;
+    }
+    void qc.invalidateQueries({
+      queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
+    });
+  }, [appointmentId, newMessage, qc, terminalNow, user]);
+
+  useEffect(() => {
+    if (!appointmentId || !user?.id) return;
+    if (!canJoinRoom) return;
+    const container = zegoContainerRef.current;
+    if (!container) return;
+
+    zegoAttemptRef.current += 1;
+    const attemptId = zegoAttemptRef.current;
+    let cancelled = false;
+
+    const zegoRoomId = String(roomBootstrap?.permissions?.zegoRoomId || `medi-human-${appointmentId}`);
+
+    const run = async () => {
+      if (zegoInstanceRef.current) {
+        skipLeaveHookRef.current = true;
+        try {
+          zegoInstanceRef.current.destroy();
+        } catch {
+          /* ignore */
+        }
+        skipLeaveHookRef.current = false;
+        zegoInstanceRef.current = null;
+      }
+
+      try {
+        const accessToken = readSession()?.access_token;
+        if (!accessToken) {
+          toast.error("Not authenticated");
+          return;
+        }
+        const tk = await fetch(`${API_BASE}/v1/tools/zego-token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            roomId: zegoRoomId,
+            userName: user.name || "Participant",
+          }),
+        });
+        if (!tk.ok) {
+          const err = await tk.json().catch(() => ({}));
+          throw new Error((err as { error?: string }).error || "Token failed");
+        }
+        const { token, appID } = (await tk.json()) as {
+          token: string;
+          appID: string | number;
+        };
+        if (cancelled || attemptId !== zegoAttemptRef.current) return;
+
+        const { ZegoUIKitPrebuilt } = await import("@zegocloud/zego-uikit-prebuilt");
+        if (cancelled || attemptId !== zegoAttemptRef.current) return;
+
+        const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
+          Number(appID),
+          String(token),
+          zegoRoomId,
+          String(user.id),
+          String(user.name || "User")
+        );
+        const zp = ZegoUIKitPrebuilt.create(kitToken);
+        zegoInstanceRef.current = zp;
+
+        zp.joinRoom({
+          container,
+          scenario: {
+            mode: ZegoUIKitPrebuilt.OneONoneCall,
+          },
+          turnOnCameraWhenJoining: false,
+          turnOnMicrophoneWhenJoining: false,
+          showPreJoinView: false,
+          onLeaveRoom: () => {
+            if (skipLeaveHookRef.current) return;
+            zegoInstanceRef.current = null;
+          },
+        });
+      } catch (err: unknown) {
+        console.error("MediBondhu Zego init error:", err);
+        toast.error(getZegoJoinErrorMessage(err));
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      zegoAttemptRef.current += 1;
+      if (zegoInstanceRef.current) {
+        skipLeaveHookRef.current = true;
+        try {
+          zegoInstanceRef.current.destroy();
+        } catch {
+          /* ignore */
+        }
+        skipLeaveHookRef.current = false;
+        zegoInstanceRef.current = null;
+      }
+    };
+  }, [appointmentId, canJoinRoom, roomBootstrap?.permissions?.zegoRoomId, user?.id, user?.name]);
+
+  const leaveOnly = () => {
+    navigate(listBack);
+  };
+
+  const fmt = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  if (bootstrapError instanceof Error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center px-4">
+        <p className="text-sm text-muted-foreground max-w-md">{bootstrapError.message}</p>
+        <Button type="button" variant="outline" className="rounded-xl" onClick={() => navigate(listBack)}>
+          Back
+        </Button>
+      </div>
+    );
+  }
+
+  if (isLoading || !appt) {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <Clock className="h-8 w-8 animate-spin" style={{ color: MB }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 h-full max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button type="button" variant="ghost" size="icon" onClick={leaveOnly} aria-label="Back">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div
+            className="h-10 w-10 rounded-full flex items-center justify-center text-white shrink-0"
+            style={{ backgroundColor: MB }}
+          >
+            <Stethoscope className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-display font-bold text-foreground text-sm truncate">
+              {String(appt.doctor_name || "MediBondhu doctor")}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge className="text-xs" style={{ backgroundColor: `${MB}18`, color: MB }}>
+                Online teleconsult
+              </Badge>
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Clock className="h-3 w-3" /> {fmt(elapsed)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {permissionDoctor && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="rounded-lg"
+              disabled={terminalNow}
+              onClick={() => void completeVisit()}
+            >
+              <PhoneOff className="h-4 w-4 mr-1" />
+              End &amp; complete
+            </Button>
+          )}
+          {!permissionDoctor && (
+            <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={leaveOnly}>
+              Leave room
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {roomError && (
+        <p className="text-sm text-destructive border border-destructive/30 rounded-lg px-3 py-2">{roomError}</p>
+      )}
+
+      {!canJoinRoom && !terminalNow && (
+        <p className="text-sm rounded-lg border px-3 py-2 bg-muted/30 text-muted-foreground">
+          Waiting for your scheduled slot or the consultation is not active yet.
+        </p>
+      )}
+
+      <div
+        className="grid grid-cols-1 lg:grid-cols-3 gap-4"
+        style={{ minHeight: "calc(100vh - 280px)" }}
+      >
+        <div className="lg:col-span-2">
+          <Card className="shadow-card overflow-hidden h-full rounded-xl border-border">
+            <div className="h-1" style={{ backgroundColor: MB }} />
+            <CardContent className="p-0 h-full" style={{ minHeight: 420 }}>
+              <div ref={zegoContainerRef} className="w-full h-full" style={{ minHeight: 420 }} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="lg:col-span-1">
+          <Card className="shadow-card overflow-hidden h-full flex flex-col rounded-xl border-border">
+            <div className="h-1" style={{ backgroundColor: MB }} />
+            <div className="p-3 border-b border-border flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" style={{ color: MB }} />
+              <span className="font-display font-bold text-sm text-foreground">Chat</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: 240 }}>
+              {appt.chief_complaint ? (
+                <div className="text-center py-2">
+                  <Badge
+                    style={{ backgroundColor: `${MB}14`, color: MB }}
+                    className="text-xs max-w-[95%] whitespace-normal"
+                  >
+                    Chief complaint · {String(appt.chief_complaint).slice(0, 120)}
+                    {String(appt.chief_complaint).length > 120 ? "…" : ""}
+                  </Badge>
+                </div>
+              ) : null}
+
+              {messages.map((msg) => {
+                const isMe = msg.sender_id === user?.id;
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex ${isMe ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[88%] rounded-2xl px-3 py-2 ${
+                        isMe ? "rounded-br-sm text-white" : "rounded-bl-sm bg-accent"
+                      }`}
+                      style={isMe ? { backgroundColor: MB } : undefined}
+                    >
+                      {!isMe && (
+                        <p className="text-xs font-semibold mb-0.5" style={{ color: MB }}>
+                          {msg.sender_name || "Participant"}
+                        </p>
+                      )}
+                      <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                      <p
+                        className={`text-[10px] mt-1 ${isMe ? "text-white/70" : "text-muted-foreground"}`}
+                      >
+                        {new Date(msg.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  </motion.div>
+                );
+              })}
+              <div ref={chatEndRef} />
+            </div>
+
+            <div className="p-3 border-t border-border">
+              <div className="flex gap-2">
+                <Input
+                  aria-label="Chat message"
+                  placeholder="Type a message…"
+                  value={newMessage}
+                  disabled={terminalNow}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void sendMessage()}
+                  className="flex-1 rounded-lg"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="shrink-0 rounded-lg text-white"
+                  style={{ backgroundColor: MB }}
+                  disabled={!newMessage.trim() || terminalNow}
+                  onClick={() => void sendMessage()}
+                  aria-label="Send"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

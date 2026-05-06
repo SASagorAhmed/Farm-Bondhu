@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { getDefaultRoute } from "@/components/ProtectedRoute";
+import { getPostLoginPath } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldX, ArrowLeft } from "lucide-react";
@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 
 export default function AccessDenied() {
   const { user } = useAuth();
-  const homeRoute = user ? getDefaultRoute(user.primaryRole) : "/";
+  const homeRoute = user ? getPostLoginPath(user) : "/";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

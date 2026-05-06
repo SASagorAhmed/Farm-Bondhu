@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { AppSession } from "@/api/client";
 
-export type UserRole = "farmer" | "buyer" | "vendor" | "vet" | "admin";
+export type UserRole = "farmer" | "buyer" | "vendor" | "vet" | "doctor" | "admin";
 
 /** Row in `admin_team` for platform admins (granular UI vs `primaryRole` = app role `admin`). */
 export type AdminTeamLevel = "super_admin" | "co_admin" | "moderator";
@@ -15,6 +15,8 @@ export interface User {
   /** From `admin_team` when the user is on the admin team; null otherwise. */
   adminLevel?: AdminTeamLevel | null;
   capabilities: string[];
+  /** When true, farmers with MediBondhu access land on /medibondhu after sign-in. Toggle in Access Center. */
+  farmerOpenMedibondhu?: boolean;
   avatar?: string;
   phone?: string;
   location?: string;
@@ -45,6 +47,10 @@ export interface SignupData {
   district?: string;
   address?: string;
   specialization?: string;
+  /** Human physician (MediBondhu) — degree / diplomas as text (e.g. MBBS, FCPS). */
+  qualification?: string;
+  medical_reg_number?: string;
+  registration_body?: string;
   experience_years?: number;
   consultation_fee?: number;
 }

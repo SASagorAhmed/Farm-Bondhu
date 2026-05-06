@@ -96,7 +96,7 @@ export default function CommunitySidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vet", "medibondhu", "learning"]} collapsed={collapsed} />
+        <WorkspaceButtons targets={["farm", "marketplace", "vetbondhu", "medibondhu", "learning"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

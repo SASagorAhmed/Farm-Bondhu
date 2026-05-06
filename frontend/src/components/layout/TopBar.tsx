@@ -15,6 +15,7 @@ function useProfileColor(pathname: string): string {
   if (pathname.startsWith("/learning")) return ICON_COLORS.learning;
   if (pathname.startsWith("/dashboard")) return ICON_COLORS.farmBrand;
   if (pathname.startsWith("/marketplace")) return ICON_COLORS.cart;
+  if (pathname.startsWith("/vetbondhu")) return ICON_COLORS.vetbondhu;
   if (pathname.startsWith("/medibondhu")) return ICON_COLORS.medibondhu;
   if (pathname.startsWith("/vet")) return ICON_COLORS.vet;
   if (pathname.startsWith("/buyer")) return ICON_COLORS.cart;
@@ -41,6 +42,7 @@ function getNotificationPath(pathname: string): string {
   if (pathname.startsWith("/buyer")) return "/buyer/notifications";
   if (pathname.startsWith("/seller")) return "/seller/notifications";
   if (pathname.startsWith("/vet")) return "/vet/notifications";
+  if (pathname.startsWith("/vetbondhu")) return "/vetbondhu/notifications";
   if (pathname.startsWith("/medibondhu")) return "/medibondhu/notifications";
   if (pathname.startsWith("/learning")) return "/learning/notifications";
   if (pathname.startsWith("/admin")) return "/admin/notifications";
@@ -57,6 +59,12 @@ export default function TopBar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
+  const searchPlaceholder =
+    location.pathname.startsWith("/medibondhu")
+      ? t("topbar.search.medibondhu")
+      : location.pathname.startsWith("/vetbondhu")
+        ? t("topbar.search.vetbondhu")
+        : t("topbar.search");
 
   useEffect(() => {
     if (!user) return;
@@ -90,7 +98,7 @@ export default function TopBar() {
       <div className="hidden md:flex flex-1 max-w-md ml-4">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder={t("topbar.search")} className="pl-10 h-9 bg-background" />
+          <Input placeholder={searchPlaceholder} className="pl-10 h-9 bg-background" />
         </div>
       </div>
 

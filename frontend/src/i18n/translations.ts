@@ -247,6 +247,14 @@ const translations: Record<string, Record<Language, string>> = {
 
   // ─── TopBar ───
   "topbar.search": { en: "Search...", bn: "অনুসন্ধান করুন..." },
+  "topbar.search.medibondhu": {
+    en: "Search specialties, doctors, care…",
+    bn: "বিশেষজ্ঞ, ডাক্তার, সেবা খুঁজুন…",
+  },
+  "topbar.search.vetbondhu": {
+    en: "Search vets, specialties, animal care…",
+    bn: "ভেট, বিশেষজ্ঞ, প্রাণী সেবা খুঁজুন…",
+  },
 
   // ─── Settings ───
   "settings.title": { en: "Settings", bn: "সেটিংস" },
@@ -268,6 +276,7 @@ const translations: Record<string, Record<Language, string>> = {
 
   // Farmer role label
   "role.farmer": { en: "Farmer Panel", bn: "কৃষক প্যানেল" },
+  "role.doctor": { en: "Physician — MediBondhu", bn: "চিকিৎসক — মেডিবন্ধু" },
   "role.buyer": { en: "Buyer Panel", bn: "ক্রেতা প্যানেল" },
   "role.vendor": { en: "Vendor Panel", bn: "বিক্রেতা প্যানেল" },
   "role.vet": { en: "Vet Panel", bn: "ভেট প্যানেল" },

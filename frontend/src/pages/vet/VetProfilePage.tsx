@@ -71,7 +71,7 @@ export default function VetProfilePage() {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/v1/medibondhu/vet-profile/me`, {
+        const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/me`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const body = (await res.json().catch(() => ({}))) as { data?: Partial<VetProfile>; error?: string };
@@ -168,7 +168,7 @@ export default function VetProfilePage() {
   const uploadFile = async (file: File, purpose: "profile_image" | "verification_document") => {
     const token = readSession()?.access_token;
     const dataUrl = await toDataUrl(file);
-    const res = await fetch(`${API_BASE}/v1/medibondhu/vet-profile/upload`, {
+    const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/upload`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -219,7 +219,7 @@ export default function VetProfilePage() {
     const token = readSession()?.access_token;
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/vet-profile/me`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/me`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

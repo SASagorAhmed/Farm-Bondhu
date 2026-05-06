@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { api } from "@/api/client";
+import { api, API_BASE, readSession } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -42,6 +44,15 @@ const ACCESS_CARDS: AccessCard[] = [
     iconColor: "hsl(160, 84%, 39%)",
     requirements: ["Animal types you manage", "Location for service area", "Contact information"],
     capability: "can_book_vet",
+  },
+  {
+    type: "human_doctor_access",
+    title: "MediBondhu Human Doctors",
+    description: "Book outpatient slots with verified physicians — separate from animal VetBondhu care.",
+    icon: Stethoscope,
+    iconColor: "hsl(188, 84%, 45%)",
+    requirements: ["Valid profile", "Contact information"],
+    capability: "can_book_human",
   },
   {
     type: "seller_access",
@@ -84,7 +95,7 @@ interface CapabilityRecord {
 }
 
 export default function AccessCenter() {
-  const { user, refreshProfile, hasCapability } = useAuth();
+  const { user, refreshProfile, hasCapability, hasRole } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -94,6 +105,7 @@ export default function AccessCenter() {
   const [activeForm, setActiveForm] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [farmerLandingSaving, setFarmerLandingSaving] = useState(false);
 
   useEffect(() => {
     const requestType = searchParams.get("request");
@@ -117,7 +129,21 @@ export default function AccessCenter() {
         .eq("user_id", user.id),
     ]);
     setRequests((reqRes.data as RequestRecord[]) || []);
-    setCapabilities((capRes.data as CapabilityRecord[]) || []);
+    const rawCaps = (Array.isArray(capRes.data) ? capRes.data : []) as Record<string, unknown>[];
+    if (capRes.error) {
+      toast({
+        title: "Could not load access settings",
+        description: capRes.error.message,
+        variant: "destructive",
+      });
+    }
+    setCapabilities(
+      rawCaps.map((c) => ({
+        id: `${String(c.user_id ?? user.id)}:${String(c.capability_code ?? "")}`,
+        capability_code: String(c.capability_code ?? ""),
+        is_enabled: Boolean(c.is_enabled),
+      }))
+    );
     setLoading(false);
   };
 
@@ -173,32 +199,25 @@ export default function AccessCenter() {
 
   const handleToggleCapability = async (capabilityCode: string, newEnabled: boolean) => {
     if (!user) return;
-    const cap = capabilityMap[capabilityCode];
     setToggling(capabilityCode);
 
-    let error: any = null;
-
-    if (cap) {
-      // Existing row — just update
-      const res = await api
-        .from("user_capabilities")
-        .update({ is_enabled: newEnabled })
-        .eq("id", cap.id)
-        .eq("user_id", user.id);
-      error = res.error;
-    } else {
-      // No row (role default) — insert override with is_enabled=false
-      const res = await api
-        .from("user_capabilities")
-        .insert({ user_id: user.id, capability_code: capabilityCode, is_enabled: newEnabled });
-      error = res.error;
-    }
+    const { error } = await api.from("user_capabilities").upsert({
+      user_id: user.id,
+      capability_code: capabilityCode,
+      is_enabled: newEnabled,
+    });
 
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({
+        title: "Could not update access",
+        description: error.message || "Request failed.",
+        variant: "destructive",
+      });
+      await fetchData();
+      await refreshProfile();
     } else {
       toast({
-        title: newEnabled ? "Access Enabled" : "Access Disabled",
+        title: newEnabled ? "Access enabled" : "Access disabled",
         description: newEnabled
           ? "Workspace is now visible in your sidebar."
           : "Workspace hidden from your sidebar. You can re-enable anytime.",
@@ -207,6 +226,44 @@ export default function AccessCenter() {
       await refreshProfile();
     }
     setToggling(null);
+  };
+
+  const handleFarmerMediLanding = async (checked: boolean) => {
+    const token = readSession()?.access_token;
+    if (!user || !token) {
+      toast({ title: "Error", description: "Not signed in", variant: "destructive" });
+      return;
+    }
+    setFarmerLandingSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/v1/me`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ farmer_open_medibondhu: checked }),
+      });
+      const text = await r.text();
+      let body: { error?: string } = {};
+      try {
+        body = text ? (JSON.parse(text) as { error?: string }) : {};
+      } catch {
+        /* ignore */
+      }
+      if (!r.ok) {
+        toast({
+          title: "Error",
+          description: body.error || `Could not save preference (${r.status})`,
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Preference saved",
+        description: checked ? "You will land on MediBondhu after sign-in." : "You will land on your farm dashboard after sign-in.",
+      });
+      await refreshProfile();
+    } finally {
+      setFarmerLandingSaving(false);
+    }
   };
 
   if (activeForm) {
@@ -242,13 +299,14 @@ export default function AccessCenter() {
           const roleDefault = !cap && hasCapability(card.capability); // active via role_permissions
           const hasCapEnabled = cap?.is_enabled === true || roleDefault;
           const hasCapDisabled = cap && !cap.is_enabled;
-          const requestStatus = statusMap[card.type];
+          const isFarmerDoctorAccess = card.capability === "can_book_human" && hasRole("farmer");
+          const requestStatus = isFarmerDoctorAccess ? undefined : statusMap[card.type];
           const isPending = requestStatus === "pending";
           const isRejected = requestStatus === "rejected";
           const pendingRequest = isPending ? requests.find(r => r.request_type === card.type && r.status === "pending") : null;
 
           // Determine card state
-          const canRequest = !cap && !roleDefault && !requestStatus;
+          const canRequest = !isFarmerDoctorAccess && !cap && !roleDefault && !requestStatus;
 
           return (
             <motion.div key={card.type} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
@@ -289,7 +347,7 @@ export default function AccessCenter() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   {/* Requirements - show only when no capability yet */}
-                  {!cap && (
+                  {!cap && !isFarmerDoctorAccess && (
                     <div className="mb-4">
                       <p className="text-xs font-medium text-muted-foreground mb-2">Requirements:</p>
                       <ul className="space-y-1">
@@ -308,6 +366,24 @@ export default function AccessCenter() {
                     <Button size="sm" className="w-full" onClick={() => setActiveForm(card.type)}>
                       Request Access <ArrowRight className="h-4 w-4 ml-1" />
                     </Button>
+                  )}
+
+                  {/* Farmer + human doctor access: no request workflow, simple direct enable/disable */}
+                  {isFarmerDoctorAccess && !hasCapEnabled && !hasCapDisabled && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground text-center">
+                        Doctor booking is available for farmers. Enable it anytime.
+                      </p>
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => handleToggleCapability(card.capability, true)}
+                        disabled={toggling === card.capability}
+                      >
+                        <Power className="h-3.5 w-3.5 mr-1" />
+                        {toggling === card.capability ? "Enabling..." : "Enable Access"}
+                      </Button>
+                    </div>
                   )}
 
                   {/* State: Pending */}
@@ -340,6 +416,25 @@ export default function AccessCenter() {
                   {hasCapEnabled && (
                     <div className="space-y-2">
                       <p className="text-xs text-green-600 dark:text-green-400 text-center font-medium">✓ You have full access to this module.</p>
+                      {card.capability === "can_book_human" && hasRole("farmer") && (
+                        <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/60 p-3 text-left">
+                          <div className="space-y-0.5 pr-2 min-w-0">
+                            <Label htmlFor={`medi-landing-${card.type}`} className="text-sm font-medium cursor-pointer">
+                              Open MediBondhu after sign-in
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              When off, you start on your farm dashboard. This does not turn off MediBondhu access.
+                            </p>
+                          </div>
+                          <Switch
+                            id={`medi-landing-${card.type}`}
+                            checked={user?.farmerOpenMedibondhu !== false}
+                            onCheckedChange={(v) => void handleFarmerMediLanding(v)}
+                            disabled={farmerLandingSaving}
+                            className="shrink-0 mt-0.5"
+                          />
+                        </div>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

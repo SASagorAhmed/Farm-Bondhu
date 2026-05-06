@@ -20,7 +20,7 @@ import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
-const ALL_ROLES = ["buyer", "farmer", "vendor", "vet", "admin"] as const;
+const ALL_ROLES = ["buyer", "farmer", "vendor", "vet", "doctor", "admin"] as const;
 type AppRole = (typeof ALL_ROLES)[number];
 
 interface UserRow {
@@ -92,7 +92,7 @@ export default function UserManagement() {
       });
 
       const token = readSession()?.access_token;
-      const vetProfilesRes = await fetch(`${API_BASE}/v1/medibondhu/admin/vet-profiles`, {
+      const vetProfilesRes = await fetch(`${API_BASE}/v1/vetbondhu/admin/vet-profiles`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const vetProfilesBody = (await vetProfilesRes.json().catch(() => ({}))) as {

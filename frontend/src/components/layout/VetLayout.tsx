@@ -44,7 +44,7 @@ export default function VetLayout() {
     let active = true;
     const check = async () => {
       try {
-        const res = await fetch(`${API_BASE}/v1/medibondhu/vet-profile/me`, {
+        const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const body = (await res.json().catch(() => ({}))) as { data?: Record<string, unknown> };

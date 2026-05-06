@@ -119,7 +119,10 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
   /** After insert().select(), return created row from API response. */
   private wantReturning = false;
 
-  constructor(private readonly table: string) {}
+  constructor(
+    private readonly table: string,
+    private readonly consultationNamespace: "medibondhu" | "vetbondhu" = "medibondhu"
+  ) {}
 
   select(columns = "*", opts?: { count?: "exact"; head?: boolean }) {
     if (this.insertRow && this.op === "insert") {
@@ -436,11 +439,44 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           this.table === "user_capabilities" && this.upsertRows.length === 1
             ? { action: "upsert", table: this.table, row: this.upsertRows[0] }
             : { action: "upsert", table: this.table, rows: this.upsertRows };
-        const { res, body } = await apiJson("/v1/compat/from/admin", {
+
+        if (this.table === "user_capabilities" && this.upsertRows.length === 1) {
+          const rowObj = this.upsertRows[0] as Record<string, unknown>;
+          const selfOnly = String(rowObj?.user_id || "") === String(uid);
+          if (!inAdminArea) {
+            if (!selfOnly) {
+              return { data: null, error: new Error("You can only change your own access preferences here.") };
+            }
+            const { res, body } = await apiJson("/v1/compat/from", {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+              return {
+                data: null,
+                error: new Error(messageFromApiJson(body, res, "Could not save access preference.")),
+              };
+            }
+            return { data: null, error: null };
+          }
+        }
+
+        let { res, body } = await apiJson("/v1/compat/from/admin", {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        if (this.table === "user_capabilities" && this.upsertRows.length === 1 && res.status === 403) {
+          const rowObj = this.upsertRows[0] as Record<string, unknown>;
+          if (String(rowObj?.user_id || "") === String(uid)) {
+            const fb = await apiJson("/v1/compat/from", {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            res = fb.res;
+            body = fb.body;
+          }
+        }
+        if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Save failed")) };
         return { data: null, error: null };
       }
 
@@ -526,7 +562,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           if (this.op === "select") {
             const id = this.getEq("id");
             if (id && this.expectOne) {
-              const { res, body } = await apiJson(`/v1/medibondhu/vets/${id}`);
+              const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/vets/${id}`);
               if (res.status === 404) return { data: null, error: { message: "PGRST116" } as unknown as Error };
               if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
               return { data: (body as { data: unknown }).data, error: null };
@@ -535,7 +571,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             const q = new URLSearchParams();
             if (lim) q.set("limit", String(lim.n));
             if (this.getEq("available") === true) q.set("available", "true");
-            const { res, body } = await apiJson(`/v1/medibondhu/vets?${q.toString()}`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/vets?${q.toString()}`);
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data: unknown }).data ?? [], error: null };
           }
@@ -562,7 +598,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             if (createdGte) q.set("created_gte", String(createdGte));
             if (lim) q.set("limit", String(lim.n));
             if (ord?.column === "created_at") q.set("ascending", String(ord.ascending));
-            const { res, body } = await apiJson(`/v1/medibondhu/bookings?${q.toString()}`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/bookings?${q.toString()}`);
             if (res.status === 404 && this.expectOne) return { data: null, error: { message: "PGRST116" } as unknown as Error };
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             const data = (body as { data: unknown }).data;
@@ -570,7 +606,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             return { data: (Array.isArray(data) ? data : data ? [data] : []) as unknown, error: null };
           }
           if (this.op === "insert" && this.insertRow) {
-            const { res, body } = await apiJson("/v1/medibondhu/bookings", {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/bookings`, {
               method: "POST",
               body: JSON.stringify(this.insertRow),
             });
@@ -581,7 +617,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           if (this.op === "update" && this.updatePatch) {
             const id = this.getEq("id");
             if (!id) return { data: null, error: new Error("consultation_bookings update requires .eq('id', ...)") };
-            const { res, body } = await apiJson(`/v1/medibondhu/bookings/${id}`, {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/bookings/${id}`, {
               method: "PATCH",
               body: JSON.stringify(this.updatePatch),
             });
@@ -594,12 +630,12 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           const bookingId = this.getEq("booking_id");
           if (!bookingId) return { data: null, error: new Error("consultation_messages requires .eq('booking_id', ...)") };
           if (this.op === "select") {
-            const { res, body } = await apiJson(`/v1/medibondhu/bookings/${bookingId}/messages`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/bookings/${bookingId}/messages`);
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data: unknown }).data ?? [], error: null };
           }
           if (this.op === "insert" && this.insertRow) {
-            const { res, body } = await apiJson(`/v1/medibondhu/bookings/${bookingId}/messages`, {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/bookings/${bookingId}/messages`, {
               method: "POST",
               body: JSON.stringify(this.insertRow),
             });
@@ -613,21 +649,23 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             const userId = this.getEq("user_id");
             const q = new URLSearchParams();
             if (userId) q.set("user_id", String(userId));
-            const { res, body } = await apiJson(`/v1/medibondhu/availability?${q.toString()}`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/availability?${q.toString()}`);
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data: unknown }).data ?? [], error: null };
           }
           if (this.op === "delete") {
             const id = this.getEq("id");
             const userId = this.getEq("user_id");
-            const path = id ? `/v1/medibondhu/availability/${id}` : `/v1/medibondhu/availability${userId ? `?user_id=${encodeURIComponent(String(userId))}` : ""}`;
+            const path = id
+              ? `/v1/${this.consultationNamespace}/availability/${id}`
+              : `/v1/${this.consultationNamespace}/availability${userId ? `?user_id=${encodeURIComponent(String(userId))}` : ""}`;
             const { res, body } = await apiJson(path, { method: "DELETE" });
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: null, error: null };
           }
           if (this.op === "insert" && this.insertRow) {
             const rows = Array.isArray(this.insertRow) ? this.insertRow : [this.insertRow];
-            const { res, body } = await apiJson("/v1/medibondhu/availability/bulk", {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/availability/bulk`, {
               method: "POST",
               body: JSON.stringify({ rows }),
             });
@@ -640,7 +678,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           if (this.op === "select") {
             const id = this.getEq("id");
             if (id && this.expectOne) {
-              const { res, body } = await apiJson(`/v1/medibondhu/prescriptions/${id}`);
+              const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions/${id}`);
               if (res.status === 404) return { data: null, error: { message: "PGRST116" } as unknown as Error };
               if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
               return { data: (body as { data: unknown }).data ?? null, error: null };
@@ -652,12 +690,12 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             if (vetUserId) q.set("vet_user_id", String(vetUserId));
             if (farmerUserId) q.set("farmer_user_id", String(farmerUserId));
             if (lim) q.set("limit", String(lim.n));
-            const { res, body } = await apiJson(`/v1/medibondhu/prescriptions?${q.toString()}`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions?${q.toString()}`);
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data: unknown }).data ?? [], error: null };
           }
           if (this.op === "insert" && this.insertRow) {
-            const { res, body } = await apiJson("/v1/medibondhu/prescriptions", {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions`, {
               method: "POST",
               body: JSON.stringify(this.insertRow),
             });
@@ -677,13 +715,13 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           }
           if (!prescriptionId) return { data: null, error: new Error("prescription_items requires prescription_id") };
           if (this.op === "select") {
-            const { res, body } = await apiJson(`/v1/medibondhu/prescriptions/${prescriptionId}/items`);
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions/${prescriptionId}/items`);
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data: unknown }).data ?? [], error: null };
           }
           if (this.op === "insert" && this.insertRow) {
             const rows = Array.isArray(this.insertRow) ? this.insertRow : [this.insertRow];
-            const { res, body } = await apiJson(`/v1/medibondhu/prescriptions/${prescriptionId}/items/bulk`, {
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions/${prescriptionId}/items/bulk`, {
               method: "POST",
               body: JSON.stringify({ rows }),
             });
@@ -696,7 +734,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           const patientId = this.getEq("patient_mock_id");
           const q = new URLSearchParams();
           if (patientId) q.set("patient_mock_id", String(patientId));
-          const { res, body } = await apiJson(`/v1/medibondhu/e-prescriptions?${q.toString()}`);
+          const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/e-prescriptions?${q.toString()}`);
           if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
           return { data: (body as { data: unknown }).data ?? [], error: null };
         }
@@ -803,15 +841,33 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
 
       if (this.table === "user_capabilities") {
         if (this.op === "select") {
+          const userIdEq = this.getEq("user_id");
+          const capCode = this.getEq("capability_code");
+          if (!inAdminArea && userIdEq && String(userIdEq) === String(uid)) {
+            const { res, body } = await apiJson("/v1/compat/from", {
+              method: "POST",
+              body: JSON.stringify({ action: "select", table: "user_capabilities", user_id: userIdEq }),
+            });
+            if (!res.ok) {
+              return {
+                data: null,
+                error: new Error(messageFromApiJson(body as Record<string, unknown>, res, "Could not load access settings.")),
+              };
+            }
+            let rows = ((body as { data?: unknown[] }).data || []) as Record<string, unknown>[];
+            if (capCode) rows = rows.filter((r) => String(r.capability_code || "") === String(capCode));
+            if (this.expectOne || this.expectMaybeOne) return { data: rows[0] || null, error: null };
+            return { data: rows, error: null };
+          }
           if (!inAdminArea) return { data: [], error: null };
+
           const { res, body } = await apiJson("/v1/compat/from/admin", {
             method: "POST",
             body: JSON.stringify({ action: "select", table: "user_capabilities", mode: "list" }),
           });
           if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
           let rows = ((body as { data?: unknown[] }).data || []) as Record<string, unknown>[];
-          const userId = this.getEq("user_id");
-          const capCode = this.getEq("capability_code");
+          const userId = userIdEq;
           if (userId) rows = rows.filter((r) => String(r.user_id || "") === String(userId));
           if (capCode) rows = rows.filter((r) => String(r.capability_code || "") === String(capCode));
           if (this.expectOne || this.expectMaybeOne) return { data: rows[0] || null, error: null };
@@ -830,11 +886,40 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           if (!row.user_id || !row.capability_code) {
             return { data: null, error: new Error("user_capabilities write requires user_id and capability_code") };
           }
-          const { res, body } = await apiJson("/v1/compat/from/admin", {
-            method: "POST",
-            body: JSON.stringify({ action: "upsert", table: "user_capabilities", row }),
-          });
-          if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+          let res: Response;
+          let body: Record<string, unknown>;
+          if (!inAdminArea) {
+            if (String(row.user_id) !== String(uid)) {
+              return { data: null, error: new Error("You can only change your own access preferences here.") };
+            }
+            const wr = await apiJson("/v1/compat/from", {
+              method: "POST",
+              body: JSON.stringify({ action: "upsert", table: "user_capabilities", row }),
+            });
+            res = wr.res;
+            body = wr.body;
+          } else {
+            const ar = await apiJson("/v1/compat/from/admin", {
+              method: "POST",
+              body: JSON.stringify({ action: "upsert", table: "user_capabilities", row }),
+            });
+            res = ar.res;
+            body = ar.body;
+            if (res.status === 403 && String(row.user_id) === String(uid)) {
+              const fb = await apiJson("/v1/compat/from", {
+                method: "POST",
+                body: JSON.stringify({ action: "upsert", table: "user_capabilities", row }),
+              });
+              res = fb.res;
+              body = fb.body;
+            }
+          }
+          if (!res.ok) {
+            return {
+              data: null,
+              error: new Error(messageFromApiJson(body, res, "Could not save access preference.")),
+            };
+          }
           return { data: null, error: null };
         }
       }
@@ -1117,6 +1202,11 @@ function from(table: string) {
   return new QueryBuilder(table);
 }
 
+/** Same Supabase-compat client as {@link api}, but consultation tables route to `/v1/vetbondhu/*` instead of MediBondhu. */
+function vetbondhuFrom(table: string) {
+  return new QueryBuilder(table, "vetbondhu");
+}
+
 let realtimeClient: SupabaseClient | null = null;
 function getRealtimeClient() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
@@ -1328,6 +1418,14 @@ export const api = {
   },
 };
 
+/** VetBondhu patient UI: realtime + auth match {@link api}; data calls use `/v1/vetbondhu/*` for consultation domain tables. */
+export const vetbondhuApi = {
+  from: vetbondhuFrom,
+  channel: (name: string) => api.channel(name),
+  removeChannel: (channel?: RealtimeChannel | { unsubscribe?: () => unknown }) => api.removeChannel(channel),
+  auth: api.auth,
+};
+
 /** Patient device: tell connected vet clients to refetch pending requests (cross-tab / cross-user). */
 export function broadcastVetInboxNewBooking(vetUserId: string | null | undefined, bookingId: string): void {
   const client = getRealtimeClient();
@@ -1363,3 +1461,41 @@ export function subscribeVetInboxNewBooking(vetUserId: string | null | undefined
     void client.removeChannel(channel);
   };
 }
+
+/** VetBondhu: parallel broadcast topic so MediBondhu and VetBondhu patient flows do not collide. */
+export function broadcastVetbondhuVetInboxNewBooking(vetUserId: string | null | undefined, bookingId: string): void {
+  const client = getRealtimeClient();
+  if (!client || !vetUserId) return;
+  const topic = `vetbondhu-vet-inbox-${vetUserId}`;
+  const channel = client.channel(topic);
+  channel.subscribe((status) => {
+    if (status !== "SUBSCRIBED") return;
+    void channel
+      .send({
+        type: "broadcast",
+        event: "new-booking",
+        payload: { bookingId },
+      })
+      .finally(() => {
+        void client.removeChannel(channel);
+      });
+  });
+}
+
+export function subscribeVetbondhuVetInboxNewBooking(vetUserId: string | null | undefined, onEvent: () => void): () => void {
+  const client = getRealtimeClient();
+  if (!client || !vetUserId) return () => {};
+  const topic = `vetbondhu-vet-inbox-${vetUserId}`;
+  const channel = client
+    .channel(topic)
+    .on("broadcast", { event: "new-booking" }, () => {
+      onEvent();
+    });
+  channel.subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
+
+/** MediBondhu human module (`/v1/medibondhu/*`) — use {@link mediHumanJson} instead of vet consultation {@link api}. */
+export { MEDI_HUMAN_NS, mediHumanAppointmentChannel, mediHumanJson } from "@/lib/medibondhuHuman";

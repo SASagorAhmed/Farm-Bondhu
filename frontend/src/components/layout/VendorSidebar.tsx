@@ -91,7 +91,7 @@ export default function VendorSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "vet", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

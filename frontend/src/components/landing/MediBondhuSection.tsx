@@ -73,7 +73,7 @@ const MediBondhuSection = () => {
               size="lg"
               className="text-white hover:opacity-90"
               style={{ backgroundColor: ICON_COLORS.vet }}
-              onClick={() => navigate("/medibondhu/vets")}
+              onClick={() => navigate("/medibondhu/doctors")}
             >
               {t("medibondhu.findVet")}
               <ArrowRight className="ml-2 h-5 w-5" />

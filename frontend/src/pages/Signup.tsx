@@ -14,6 +14,12 @@ const ROLES: { value: UserRole; label: string; icon: string; desc: string }[] = 
   { value: "buyer", label: "Buyer", icon: "🛒", desc: "Purchase products" },
   { value: "vendor", label: "Vendor", icon: "🏪", desc: "Sell products" },
   { value: "vet", label: "Veterinarian", icon: "👩‍⚕️", desc: "Provide animal care" },
+  {
+    value: "doctor",
+    label: "Physician",
+    icon: "🩺",
+    desc: "MediBondhu — human outpatient (verification required)",
+  },
 ];
 
 export default function Signup() {
@@ -26,6 +32,9 @@ export default function Signup() {
   const [location, setLocation] = useState("");
   const [address, setAddress] = useState("");
   const [specialization, setSpecialization] = useState("");
+  const [doctorQualification, setDoctorQualification] = useState("");
+  const [doctorMedicalReg, setDoctorMedicalReg] = useState("");
+  const [doctorRegistrationBody, setDoctorRegistrationBody] = useState("");
   const [experienceYears, setExperienceYears] = useState("");
   const [consultationFee, setConsultationFee] = useState("");
   const [otp, setOtp] = useState("");
@@ -39,8 +48,27 @@ export default function Signup() {
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!role) return;
+    if (role === "doctor") {
+      if (!doctorQualification.trim() || !doctorMedicalReg.trim()) {
+        toast({
+          title: "Missing details",
+          description: "Degrees/qualifications and medical registration number are required for physicians.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!experienceYears.trim() || !Number.isFinite(Number(experienceYears)) || Number(experienceYears) < 0) {
+        toast({ title: "Experience", description: "Enter valid years of experience.", variant: "destructive" });
+        return;
+      }
+      if (consultationFee === "" || !Number.isFinite(Number(consultationFee)) || Number(consultationFee) < 0) {
+        toast({ title: "Fee", description: "Enter your proposed consultation fee in BDT.", variant: "destructive" });
+        return;
+      }
+    }
     setLoading(true);
     const isVet = role === "vet";
+    const isDoctor = role === "doctor";
     const result = await sendSignupOtp({
       name,
       email,
@@ -51,8 +79,13 @@ export default function Signup() {
       district: location,
       address: address || undefined,
       specialization: isVet ? specialization : undefined,
-      experience_years: isVet && experienceYears !== "" ? Number(experienceYears) : undefined,
-      consultation_fee: isVet && consultationFee !== "" ? Number(consultationFee) : undefined,
+      qualification: isDoctor ? doctorQualification : undefined,
+      medical_reg_number: isDoctor ? doctorMedicalReg : undefined,
+      registration_body: isDoctor && doctorRegistrationBody.trim() ? doctorRegistrationBody : undefined,
+      experience_years:
+        (isVet || isDoctor) && experienceYears !== "" ? Number(experienceYears) : undefined,
+      consultation_fee:
+        (isVet || isDoctor) && consultationFee !== "" ? Number(consultationFee) : undefined,
     });
     setLoading(false);
     if (result.success) {
@@ -62,9 +95,24 @@ export default function Signup() {
         description: `Check ${email} for a 6-digit verification code.`,
       });
     } else {
+      const err = result.error?.trim() || "";
+      /** Backend returns 409 when email already exists in profiles (active account). */
+      const emailAlreadyRegistered =
+        err.toLowerCase().includes("already registered") || err.toLowerCase().includes("try signing in");
       toast({
-        title: "Could not send code",
-        description: result.error?.trim() || "Check the API connection and server settings, then try again.",
+        title: emailAlreadyRegistered ? "This email already has an account" : "Could not send code",
+        description: emailAlreadyRegistered ? (
+          <span className="leading-relaxed">
+            {err}{" "}
+            Open{" "}
+            <Link to="/login" className="underline font-semibold text-foreground">
+              Sign in
+            </Link>{" "}
+            or register with a different email.
+          </span>
+        ) : (
+          err || "Check the API connection and server settings, then try again."
+        ),
         variant: "destructive",
       });
     }
@@ -83,7 +131,21 @@ export default function Signup() {
     if (result.success) {
       setRegistered(true);
       toast({ title: "Welcome!", description: "Your account is ready." });
-      navigate(role === "vet" ? "/vet/profile" : "/", { replace: true });
+      const dest =
+        role === "vet" ? "/vet/profile" : role === "doctor" ? "/medibondhu/doctor/profile-setup" : "/";
+      const navState =
+        role === "doctor"
+          ? {
+              doctorPrefill: {
+                qualification: doctorQualification,
+                medical_reg_number: doctorMedicalReg,
+                registration_body: doctorRegistrationBody.trim() || undefined,
+                experience_years: Number(experienceYears) || 0,
+                consultation_fee: Number(consultationFee) || 0,
+              },
+            }
+          : undefined;
+      navigate(dest, { replace: true, state: navState });
     } else {
       toast({ title: "Verification failed", description: result.error || "Invalid or expired code.", variant: "destructive" });
     }
@@ -251,6 +313,79 @@ export default function Signup() {
                         <Label htmlFor="consultation_fee">Consultation Fee (BDT)</Label>
                         <Input
                           id="consultation_fee"
+                          type="number"
+                          min={0}
+                          value={consultationFee}
+                          onChange={(e) => setConsultationFee(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {role === "doctor" && (
+                  <>
+                    <p className="text-xs text-muted-foreground border-l-4 border-teal-500 pl-3 py-1 rounded-r-md bg-muted/50">
+                      After email verification you will upload degree certificate, council registration, and CV on the MediBondhu verification page.
+                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="doc-qual">Degrees & qualifications</Label>
+                      <Input
+                        id="doc-qual"
+                        placeholder="MBBS, FCPS, etc."
+                        value={doctorQualification}
+                        onChange={(e) => setDoctorQualification(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="doc-reg">Medical registration number</Label>
+                      <Input
+                        id="doc-reg"
+                        placeholder="Council / BMDC registration ID"
+                        value={doctorMedicalReg}
+                        onChange={(e) => setDoctorMedicalReg(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="doc-reg-body">
+                        Issuing council <span className="text-muted-foreground font-normal">(optional)</span>
+                      </Label>
+                      <Input
+                        id="doc-reg-body"
+                        placeholder="BMDC / other registrar"
+                        value={doctorRegistrationBody}
+                        onChange={(e) => setDoctorRegistrationBody(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address-doc">Practice address</Label>
+                      <Input
+                        id="address-doc"
+                        placeholder="Chamber location or correspondence address"
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="experience_years_doc">Clinical experience (years)</Label>
+                        <Input
+                          id="experience_years_doc"
+                          type="number"
+                          min={0}
+                          max={70}
+                          value={experienceYears}
+                          onChange={(e) => setExperienceYears(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="consultation_fee_doc">Proposed consultation fee (BDT)</Label>
+                        <Input
+                          id="consultation_fee_doc"
                           type="number"
                           min={0}
                           value={consultationFee}

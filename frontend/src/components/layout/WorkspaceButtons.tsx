@@ -8,6 +8,8 @@ import { useAuth } from "@/contexts/AuthContext";
 
 interface WorkspaceTarget {
   label: string;
+  /** Collapsed sidebar tooltip; defaults to label without the “Go to ” prefix. */
+  tooltip?: string;
   url: string;
   icon: React.ElementType;
   color: string;
@@ -16,8 +18,21 @@ interface WorkspaceTarget {
 const ALL_WORKSPACES: Record<string, WorkspaceTarget> = {
   farm: { label: "Go to Farm", url: "/dashboard", icon: Warehouse, color: ICON_COLORS.farm },
   marketplace: { label: "Go to Marketplace", url: "/marketplace", icon: ShoppingCart, color: ICON_COLORS.cart },
-  vet: { label: "Go to Vet", url: "/vet/dashboard", icon: Stethoscope, color: ICON_COLORS.vet },
-  medibondhu: { label: "Go to MediBondhu", url: "/medibondhu", icon: Stethoscope, color: ICON_COLORS.medibondhu },
+  vet: { label: "Go to Vet portal", url: "/vet/dashboard", icon: Stethoscope, color: ICON_COLORS.vet },
+  medibondhu: {
+    label: "Go to MediBondhu",
+    tooltip: "Human outpatient (MediBondhu)",
+    url: "/medibondhu",
+    icon: Stethoscope,
+    color: ICON_COLORS.medibondhu,
+  },
+  vetbondhu: {
+    label: "Go to VetBondhu",
+    tooltip: "Animal telemed (VetBondhu)",
+    url: "/vetbondhu",
+    icon: Stethoscope,
+    color: ICON_COLORS.vetbondhu,
+  },
   learning: { label: "Go to Learning", url: "/learning", icon: BookOpen, color: ICON_COLORS.learning },
   community: { label: "Go to Community", url: "/community", icon: MessageSquareText, color: ICON_COLORS.community },
 };
@@ -37,7 +52,16 @@ export default function WorkspaceButtons({ targets, collapsed }: WorkspaceButton
     if (key === "community") return true;
     if (key === "vet") return isVet;
     if (key === "farm") return hasRole("farmer") || hasCapability("can_manage_farm");
-    if (key === "medibondhu") return !isVet && (hasRole("farmer") || hasCapability("can_book_vet"));
+    /** Human outpatient — separate capability from VetBondhu animal booking. */
+    if (key === "medibondhu")
+      return (
+        hasCapability("can_book_human") ||
+        hasCapability("can_practice_human") ||
+        hasRole("doctor") ||
+        hasRole("admin")
+      );
+    /** Animal telemed patient flow */
+    if (key === "vetbondhu") return hasCapability("can_book_vet") || isVet || hasRole("admin");
     if (key === "learning") return hasCapability("can_access_learning") || hasRole("farmer") || isVet;
     return false;
   });
@@ -87,7 +111,10 @@ export default function WorkspaceButtons({ targets, collapsed }: WorkspaceButton
         <SidebarMenu>
           {items.map((ws) => (
             <SidebarMenuItem key={ws.url}>
-              <SidebarMenuButton onClick={() => navigate(ws.url)} tooltip={ws.label.replace("Go to ", "")}>
+              <SidebarMenuButton
+                onClick={() => navigate(ws.url)}
+                tooltip={ws.tooltip ?? ws.label.replace(/^Go to /, "")}
+              >
                 <ws.icon className="h-4 w-4" style={{ color: ws.color }} />
               </SidebarMenuButton>
             </SidebarMenuItem>

@@ -2,17 +2,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { API_BASE, api, readSession } from "@/api/client";
+import { API_BASE, readSession } from "@/api/client";
 import { Clock, Stethoscope, Lightbulb, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
-import { subscribeConsultationBookings } from "@/lib/consultationRealtime";
+import { subscribeConsultationBookings } from "@/lib/vetbondhuConsultationRealtime";
 import { withApiTiming } from "@/lib/perfMetrics";
 import { useAuth } from "@/contexts/AuthContext";
 
-const MB = "#12C2D6";
+import { ICON_COLORS } from "@/lib/iconColors";
+
+const VB = ICON_COLORS.vetbondhu;
 
 const TIPS = [
   "Have your animal's recent health records ready",
@@ -61,7 +63,7 @@ export default function WaitingRoom() {
           description: "Connecting you to the consultation room...",
         });
       }
-      navigate(`/medibondhu/room/${bookingId}`, {
+      navigate(`/vetbondhu/room/${bookingId}`, {
         replace: true,
         state: { from: "waiting", bookingId, intent: "room_entry" },
       });
@@ -72,8 +74,8 @@ export default function WaitingRoom() {
   const fetchBooking = useCallback(async () => {
     if (!bookingId) return null;
     const token = readSession()?.access_token;
-    const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
-      fetch(`${API_BASE}/v1/medibondhu/bookings/${bookingId}/room-bootstrap?message_limit=1`, {
+    const res = await withApiTiming("/v1/vetbondhu/bookings/:id/room-bootstrap", () =>
+      fetch(`${API_BASE}/v1/vetbondhu/bookings/${bookingId}/room-bootstrap?message_limit=1`, {
         cache: "no-store",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
@@ -93,7 +95,7 @@ export default function WaitingRoom() {
           title: "Consultation is ending",
           description: "Room is no longer available. Returning to consultations.",
         });
-        navigate("/medibondhu/consultations");
+        navigate("/vetbondhu/consultations");
         return data;
       }
       handleInProgress(false);
@@ -101,19 +103,19 @@ export default function WaitingRoom() {
     }
     if (data.status === "cancelled" || data.status === "completed") {
       hasNavigatedRef.current = true;
-      queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
       toast({
         title: "Your consultation successfully completed.",
       });
-      navigate("/medibondhu/consultations");
+      navigate("/vetbondhu/consultations");
     }
     return data;
   }, [bookingId, handleInProgress, navigate, queryClient, user?.id]);
 
   const { data: booking, isLoading: loadingBooking } = useQuery({
-    queryKey: queryKeys().waitingRoomBooking(bookingId),
+    queryKey: queryKeys().vetbondhuWaitingRoomBooking(bookingId),
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
@@ -131,7 +133,7 @@ export default function WaitingRoom() {
   useEffect(() => {
     if (!bookingId || !user?.id) return;
     const unsubscribe = subscribeConsultationBookings({
-      channelKey: `waiting-${bookingId}`,
+      channelKey: `vetbondhu-waiting-${bookingId}`,
       // Keep realtime filter simple and stable, same as booking page flow.
       userId: user.id,
       onEvent: (_eventType, row) => {
@@ -145,22 +147,22 @@ export default function WaitingRoom() {
               title: "Consultation is ending",
               description: "Room is no longer available. Returning to consultations.",
             });
-            navigate("/medibondhu/consultations");
+            navigate("/vetbondhu/consultations");
             return;
           }
           handleInProgress(true);
         } else if (newStatus === "completed" || newStatus === "cancelled") {
           if (hasNavigatedRef.current) return;
           hasNavigatedRef.current = true;
-          queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+          queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations"] });
           queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
           queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
             toast({
               title: "Your consultation successfully completed.",
             });
-          navigate("/medibondhu/consultations");
+          navigate("/vetbondhu/consultations");
         } else {
-          queryClient.invalidateQueries({ queryKey: queryKeys().waitingRoomBooking(bookingId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuWaitingRoomBooking(bookingId) });
         }
       },
     });
@@ -199,7 +201,7 @@ export default function WaitingRoom() {
         <p className="text-sm text-muted-foreground">{waitingError}</p>
         <div className="flex items-center justify-center gap-2">
           <Button variant="outline" onClick={() => fetchBooking()}>Retry</Button>
-          <Button onClick={() => navigate("/medibondhu/consultations")}>Back to Consultations</Button>
+          <Button onClick={() => navigate("/vetbondhu/consultations")}>Back to Consultations</Button>
         </div>
       </div>
     );
@@ -207,31 +209,31 @@ export default function WaitingRoom() {
 
   return (
     <div className="max-w-lg mx-auto space-y-6 py-8">
-      <Button variant="ghost" onClick={() => navigate("/medibondhu/consultations")}>
+      <Button variant="ghost" onClick={() => navigate("/vetbondhu/consultations")}>
         <ArrowLeft className="h-4 w-4 mr-2" />Back to Consultations
       </Button>
 
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ backgroundColor: MB }} />
+          <div className="h-1" style={{ backgroundColor: VB }} />
           <CardContent className="p-8 text-center space-y-6">
             {/* Animated pulse */}
             <div className="relative mx-auto h-32 w-32">
               <motion.div
                 className="absolute inset-0 rounded-full"
-                style={{ backgroundColor: `${MB}15` }}
+                style={{ backgroundColor: `${VB}15` }}
                 animate={{ scale: [1, 1.3, 1] }}
                 transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               />
               <motion.div
                 className="absolute inset-4 rounded-full"
-                style={{ backgroundColor: `${MB}25` }}
+                style={{ backgroundColor: `${VB}25` }}
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
               />
               <div
                 className="absolute inset-8 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: MB }}
+                style={{ backgroundColor: VB }}
               >
                 <Stethoscope className="h-8 w-8 text-white" />
               </div>
@@ -250,7 +252,7 @@ export default function WaitingRoom() {
 
             {/* Timer */}
             <div className="flex items-center justify-center gap-2">
-              <Clock className="h-5 w-5" style={{ color: MB }} />
+              <Clock className="h-5 w-5" style={{ color: VB }} />
               <span className="text-2xl font-mono font-bold text-foreground">
                 {formatTime(elapsed)}
               </span>
@@ -269,10 +271,10 @@ export default function WaitingRoom() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="p-4 rounded-xl"
-              style={{ backgroundColor: `${MB}08`, border: `1px solid ${MB}20` }}
+              style={{ backgroundColor: `${VB}08`, border: `1px solid ${VB}20` }}
             >
               <div className="flex items-start gap-2">
-                <Lightbulb className="h-4 w-4 shrink-0 mt-0.5" style={{ color: MB }} />
+                <Lightbulb className="h-4 w-4 shrink-0 mt-0.5" style={{ color: VB }} />
                 <p className="text-sm text-foreground text-left">{TIPS[tipIndex]}</p>
               </div>
             </motion.div>

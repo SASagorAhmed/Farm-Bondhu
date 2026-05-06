@@ -98,7 +98,7 @@ export default function FarmSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["marketplace", "vet", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons targets={["marketplace", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

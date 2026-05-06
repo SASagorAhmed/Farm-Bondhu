@@ -58,8 +58,8 @@ export default function VetPrescriptions() {
   useEffect(() => {
     if (!user) return;
     const token = readSession()?.access_token;
-    void withApiTiming("/v1/medibondhu/prescriptions/bootstrap", () =>
-      fetch(`${API_BASE}/v1/medibondhu/prescriptions/bootstrap?mode=vet&limit=50&offset=${offset}`, {
+    void withApiTiming("/v1/vetbondhu/prescriptions/bootstrap", () =>
+      fetch(`${API_BASE}/v1/vetbondhu/prescriptions/bootstrap?mode=vet&limit=50&offset=${offset}`, {
         cache: "no-store",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
@@ -89,7 +89,7 @@ export default function VetPrescriptions() {
     const token = readSession()?.access_token;
     setIssuingId(prescriptionId);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/prescriptions/${prescriptionId}/issue`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/prescriptions/${prescriptionId}/issue`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });

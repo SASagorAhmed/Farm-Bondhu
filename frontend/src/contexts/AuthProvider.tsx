@@ -204,6 +204,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         district: data.district || data.location || null,
         address: data.address || null,
         specialization: data.specialization || null,
+        qualification:
+          data.qualification == null || data.qualification === ""
+            ? null
+            : String(data.qualification).slice(0, 400),
+        medical_reg_number:
+          data.medical_reg_number == null || data.medical_reg_number === ""
+            ? null
+            : String(data.medical_reg_number).slice(0, 120),
+        registration_body:
+          data.registration_body == null || data.registration_body === ""
+            ? null
+            : String(data.registration_body).slice(0, 400),
         experience_years:
           typeof data.experience_years === "number" && Number.isFinite(data.experience_years)
             ? data.experience_years

@@ -119,7 +119,7 @@ export default function PrescriptionDetail() {
     const token = readSession()?.access_token;
     setIssuing(true);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/prescriptions/${p.id}/issue`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/prescriptions/${p.id}/issue`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
