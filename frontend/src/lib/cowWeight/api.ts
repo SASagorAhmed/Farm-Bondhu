@@ -1,5 +1,8 @@
-import { apiJson, clearStoredSession, readSession } from "@/api/client";
+import { API_BASE, apiJson, clearStoredSession, readSession } from "@/api/client";
 import type { CowAnalysisResult, CowEstimationRow, DetectionMode } from "./types";
+
+/** New scans always use plan_b; plan_c is legacy DB value only. */
+export const COW_WEIGHT_DETECTION_MODE: DetectionMode = "plan_b";
 import { dimensionsFromLines, dimensionsFromLinesPlanB } from "./pixelsToCm";
 import { cmPerPixelFromReference } from "./referenceScale";
 import type { CowLines } from "./types";
@@ -20,34 +23,32 @@ function handleAuthFailure(res: Response, body: Record<string, unknown>): never 
 }
 
 export function resolveDimensions(
-  mode: DetectionMode,
   lines: CowLines,
   analysis: CowAnalysisResult,
   referenceTap?: { a: { x: number; y: number }; b: { x: number; y: number } } | null
-): { chest_width_cm: number; body_length_cm: number; confidence: number } {
-  let cmPerPixel = analysis.cmPerPixel ?? 0;
-
-  if (mode === "plan_c") {
-    const refLine = referenceTap || lines.reference;
-    if (refLine) {
-      cmPerPixel = cmPerPixelFromReference(refLine);
-    }
+): {
+  chest_width_cm: number;
+  body_length_cm: number;
+  confidence: number;
+  scaleMethod: "reference_100cm" | "bbox_assumed_150cm";
+} {
+  const refLine = referenceTap || lines.reference;
+  if (refLine) {
+    const cmPerPixel = cmPerPixelFromReference(refLine);
     if (!cmPerPixel || cmPerPixel <= 0) {
       throw new Error("Could not scale from reference. Tap the top and bottom of your 1m stick.");
     }
-  } else {
-    const planB = dimensionsFromLinesPlanB(lines, analysis.bbox);
-    return {
-      chest_width_cm: planB.chest_width_cm,
-      body_length_cm: planB.body_length_cm,
-      confidence: Math.min(analysis.confidence, 0.5),
-    };
+    const dims = dimensionsFromLines(lines, cmPerPixel);
+    return { ...dims, confidence: analysis.confidence, scaleMethod: "reference_100cm" };
   }
 
-  const dims = dimensionsFromLines(lines, cmPerPixel);
-  let confidence = analysis.confidence;
-
-  return { ...dims, confidence };
+  const planB = dimensionsFromLinesPlanB(lines, analysis.bbox, analysis.standoffMeters);
+  return {
+    chest_width_cm: planB.chest_width_cm,
+    body_length_cm: planB.body_length_cm,
+    confidence: Math.min(analysis.confidence, 0.5),
+    scaleMethod: "bbox_assumed_150cm",
+  };
 }
 
 export async function saveCowEstimation(payload: {
@@ -80,6 +81,94 @@ export async function saveCowEstimation(payload: {
   }
   if (!record.data) throw new Error("Save failed: empty response");
   return record.data;
+}
+
+export interface CowDirectionAssistResult {
+  headSide: "left" | "right" | "unknown";
+  confidence: number;
+  headBbox: { x: number; y: number; width: number; height: number } | null;
+  frontLeg: { x: number; y: number } | null;
+  hindLeg: { x: number; y: number } | null;
+  topChest: { x: number; y: number } | null;
+  lowerChest: { x: number; y: number } | null;
+  standoffDistanceM: number | null;
+  distanceConfidence: number;
+  reason: string | null;
+  model?: string;
+}
+
+export async function assistCowDirection(payload: {
+  image_data: string;
+  local_hints?: Record<string, unknown>;
+}): Promise<CowDirectionAssistResult> {
+  if (!readSession()?.access_token) {
+    throw new Error("You are not signed in. Please log in and try again.");
+  }
+
+  const { res, body } = await apiJson("/v1/cow-estimations/assist-direction", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  const record = body as {
+    error?: string;
+    detail?: string;
+    data?: CowDirectionAssistResult;
+  };
+  if (!res.ok) {
+    handleAuthFailure(res, record as Record<string, unknown>);
+  }
+  if (!record.data) throw new Error("Direction assist failed: empty response");
+  return record.data;
+}
+
+export async function submitDetectionFeedback(payload: {
+  detection_mode: DetectionMode;
+  corrected_head_side: "left" | "right";
+  predicted_head_side?: string | null;
+  predicted_facing?: string | null;
+  predicted_head_bbox?: Record<string, unknown> | null;
+  corrected_head_bbox?: Record<string, unknown> | null;
+  local_model?: string | null;
+  vision_model?: string | null;
+  annotation_json?: Record<string, unknown>;
+  file_data?: string;
+}): Promise<{ id: string; created_at: string }> {
+  if (!readSession()?.access_token) {
+    throw new Error("You are not signed in. Please log in and try again.");
+  }
+  const { res, body } = await apiJson("/v1/cow-estimations/detection-feedback", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const record = body as { error?: string; data?: { id: string; created_at: string } };
+  if (!res.ok) handleAuthFailure(res, record as Record<string, unknown>);
+  if (!record.data) throw new Error("Feedback save failed");
+  return record.data;
+}
+
+export async function fetchCowDetectionFeedbackStats(): Promise<{ total: number }> {
+  const { res, body } = await apiJson("/v1/cow-estimations/detection-feedback/stats");
+  const record = body as { error?: string; data?: { total: number } };
+  if (!res.ok) throw new Error(record.error || "Failed to load stats");
+  return record.data ?? { total: 0 };
+}
+
+export async function downloadCowDetectionFeedbackExport(): Promise<void> {
+  const token = readSession()?.access_token;
+  if (!token) throw new Error("Sign in required");
+  const resp = await fetch(`${API_BASE}/v1/cow-estimations/detection-feedback/export?format=yolo`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error("Export failed");
+  const data = await resp.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cow_detection_feedback_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function fetchCowEstimations(): Promise<CowEstimationRow[]> {
