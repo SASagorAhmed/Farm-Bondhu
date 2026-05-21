@@ -388,8 +388,75 @@ export function headSideFromMask(mask: CowBodyMask, bbox: BBox): "head_left" | "
   return distLeft < distRight ? "head_left" : "head_right";
 }
 
-/** Leg columns from mask at lower body (hoof band). */
-export function legColumnsFromMask(
+function smoothMaskProfile(profile: number[], radius: number): number[] {
+  const out = profile.slice();
+  for (let i = 0; i < profile.length; i++) {
+    let sum = 0;
+    let n = 0;
+    for (let d = -radius; d <= radius; d++) {
+      const j = i + d;
+      if (j >= 0 && j < profile.length) {
+        sum += profile[j];
+        n++;
+      }
+    }
+    out[i] = n > 0 ? sum / n : 0;
+  }
+  return out;
+}
+
+function legColumnsFromMaskProjection(
+  mask: CowBodyMask,
+  bbox: BBox
+): { x1: number; x2: number; y: number } | null {
+  const x0 = Math.max(0, Math.floor(bbox.x + bbox.width * 0.05));
+  const xEnd = Math.min(mask.width - 1, Math.ceil(bbox.x + bbox.width * 0.95));
+  const yStart = Math.floor(bbox.y + bbox.height * 0.55);
+  const yEnd = Math.floor(bbox.y + bbox.height * 0.95);
+  if (xEnd <= x0 || yEnd <= yStart) return null;
+
+  const profileLen = xEnd - x0 + 1;
+  const profile = new Array(profileLen).fill(0);
+  for (let y = yStart; y <= yEnd; y++) {
+    const off = y * mask.width;
+    for (let x = x0; x <= xEnd; x++) {
+      if (mask.data[off + x]) profile[x - x0]++;
+    }
+  }
+
+  const maxVal = Math.max(...profile, 0);
+  if (maxVal <= 0) return null;
+
+  const smoothed = smoothMaskProfile(profile, 2);
+  const minSep = Math.max(8, Math.floor(bbox.width * 0.1));
+  const floor = maxVal * 0.22;
+  const peaks: Array<{ xi: number; score: number }> = [];
+
+  for (let i = 1; i < smoothed.length - 1; i++) {
+    if (smoothed[i] < floor) continue;
+    if (smoothed[i] >= smoothed[i - 1] && smoothed[i] >= smoothed[i + 1]) {
+      peaks.push({ xi: i, score: smoothed[i] });
+    }
+  }
+  peaks.sort((a, b) => b.score - a.score);
+
+  const chosen: Array<{ xi: number; score: number }> = [];
+  for (const p of peaks) {
+    if (chosen.every((c) => Math.abs(c.xi - p.xi) >= minSep)) {
+      chosen.push(p);
+      if (chosen.length >= 2) break;
+    }
+  }
+  if (chosen.length < 2) return null;
+
+  const x1 = x0 + Math.min(chosen[0].xi, chosen[1].xi);
+  const x2 = x0 + Math.max(chosen[0].xi, chosen[1].xi);
+  if (x2 - x1 < minSep) return null;
+  const y = yStart + (yEnd - yStart) * 0.65;
+  return { x1, x2, y };
+}
+
+function legColumnsFromMaskEdges(
   mask: CowBodyMask,
   bbox: BBox
 ): { x1: number; x2: number; y: number } | null {
@@ -418,6 +485,41 @@ export function legColumnsFromMask(
   if (x2 - x1 < bbox.width * 0.1) return null;
   const y = yStart + (yEnd - yStart) * 0.65;
   return { x1, x2, y };
+}
+
+/** Leg columns from mask at lower body (hoof band). */
+export function legColumnsFromMask(
+  mask: CowBodyMask,
+  bbox: BBox
+): { x1: number; x2: number; y: number } | null {
+  return legColumnsFromMaskProjection(mask, bbox) ?? legColumnsFromMaskEdges(mask, bbox);
+}
+
+/** Withers row: widest torso in upper chest band (12–28% bbox height). */
+export function withersFromMask(
+  mask: CowBodyMask,
+  bbox: BBox
+): { y: number; centerX: number } | null {
+  const y0 = Math.floor(bbox.y + bbox.height * 0.12);
+  const y1 = Math.floor(bbox.y + bbox.height * 0.28);
+  let bestY = -1;
+  let bestW = 0;
+  let bestCx = bbox.x + bbox.width / 2;
+
+  for (let y = y0; y <= y1; y++) {
+    const ext = maskRowExtent(mask, y);
+    if (!ext) continue;
+    const w = ext.right - ext.left;
+    if (w < bbox.width * 0.2) continue;
+    if (w > bestW) {
+      bestW = w;
+      bestY = y;
+      bestCx = (ext.left + ext.right) / 2;
+    }
+  }
+
+  if (bestY < 0) return null;
+  return { y: bestY, centerX: bestCx };
 }
 
 /** Length ends from mask at body length row. */
