@@ -28,3 +28,7 @@ Thumbs.db
 
 # Local backup of old nested repo (optional; remove folder when no longer needed)
 frontend-git-history.backup/
+
+# Cattle ML dataset (see cattledataset/README.md)
+cattledataset/data/
+cattledataset/yolo_seg/
