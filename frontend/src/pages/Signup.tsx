@@ -132,7 +132,7 @@ export default function Signup() {
       setRegistered(true);
       toast({ title: "Welcome!", description: "Your account is ready." });
       const dest =
-        role === "vet" ? "/vet/profile" : role === "doctor" ? "/medibondhu/doctor/profile-setup" : "/";
+        role === "vet" ? "/vet/profile" : role === "doctor" ? "/medibondhu/profile" : "/";
       const navState =
         role === "doctor"
           ? {
