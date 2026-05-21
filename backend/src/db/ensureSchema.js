@@ -162,6 +162,26 @@ export async function ensureSchema(sql) {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.cow_weight_estimations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      farm_id uuid,
+      animal_id uuid,
+      image_url text,
+      chest_width_cm numeric NOT NULL,
+      body_length_cm numeric NOT NULL,
+      estimated_live_weight_kg numeric NOT NULL,
+      edible_meat_kg numeric NOT NULL,
+      breakdown jsonb NOT NULL DEFAULT '{}'::jsonb,
+      detection_mode text NOT NULL DEFAULT 'plan_b',
+      input_method text NOT NULL DEFAULT 'ai_assisted',
+      annotation_json jsonb,
+      confidence numeric,
+      actual_weight_kg numeric,
+      model_version text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.feed_records (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid NOT NULL,
@@ -497,6 +517,24 @@ export async function ensureSchema(sql) {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_doctor_withdrawals (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      doctor_user_id uuid NOT NULL,
+      request_amount numeric NOT NULL,
+      gross_earnings numeric NOT NULL DEFAULT 0,
+      platform_fee numeric NOT NULL DEFAULT 0,
+      net_earnings numeric NOT NULL DEFAULT 0,
+      available_balance numeric NOT NULL DEFAULT 0,
+      status text NOT NULL DEFAULT 'pending',
+      note text,
+      review_note text,
+      reviewed_by uuid,
+      reviewed_at timestamptz,
+      paid_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.admin_team (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid,
@@ -674,6 +712,11 @@ export async function ensureSchema(sql) {
     "medical_reg_number text",
     "registration_body text",
     `verification_documents jsonb NOT NULL DEFAULT '[]'::jsonb`,
+  ]);
+
+  await addColumns(sql, "medibondhu_appointments", [
+    "talk_started_at timestamptz",
+    "talk_ended_at timestamptz",
   ]);
 
   await addColumns(sql, "community_posts", [
@@ -1072,6 +1115,23 @@ export async function ensureSchema(sql) {
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
 
+  await addColumns(sql, "medibondhu_doctor_withdrawals", [
+    "doctor_user_id uuid NOT NULL",
+    "request_amount numeric NOT NULL",
+    "gross_earnings numeric NOT NULL DEFAULT 0",
+    "platform_fee numeric NOT NULL DEFAULT 0",
+    "net_earnings numeric NOT NULL DEFAULT 0",
+    "available_balance numeric NOT NULL DEFAULT 0",
+    "status text NOT NULL DEFAULT 'pending'",
+    "note text",
+    "review_note text",
+    "reviewed_by uuid",
+    "reviewed_at timestamptz",
+    "paid_at timestamptz",
+    "created_at timestamptz NOT NULL DEFAULT now()",
+    "updated_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
   await runOptional(
     sql,
     "prescriptions language check",
@@ -1093,6 +1153,22 @@ export async function ensureSchema(sql) {
     "vet_withdrawals request_amount check",
     `ALTER TABLE public.vet_withdrawals
      ADD CONSTRAINT vet_withdrawals_request_amount_check
+     CHECK (request_amount > 0)`
+  );
+
+  await runOptional(
+    sql,
+    "medibondhu_doctor_withdrawals status check",
+    `ALTER TABLE public.medibondhu_doctor_withdrawals
+     ADD CONSTRAINT medibondhu_doctor_withdrawals_status_check
+     CHECK (status IN ('pending', 'approved', 'rejected', 'paid'))`
+  );
+
+  await runOptional(
+    sql,
+    "medibondhu_doctor_withdrawals request_amount check",
+    `ALTER TABLE public.medibondhu_doctor_withdrawals
+     ADD CONSTRAINT medibondhu_doctor_withdrawals_request_amount_check
      CHECK (request_amount > 0)`
   );
 
@@ -1193,6 +1269,7 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_sale_records_user_date ON public.sale_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_mortality_records_user_date ON public.mortality_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_animals_farm_id ON public.animals (farm_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_cow_weight_estimations_user ON public.cow_weight_estimations (user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_community_posts_status ON public.community_posts (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_buyer ON public.orders (buyer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_seller ON public.orders (seller_id)`,
@@ -1212,6 +1289,8 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_e_prescriptions_patient ON public.e_prescriptions (patient_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_vet ON public.vet_withdrawals (vet_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_status ON public.vet_withdrawals (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctor_withdrawals_doctor ON public.medibondhu_doctor_withdrawals (doctor_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctor_withdrawals_status ON public.medibondhu_doctor_withdrawals (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_specialties_active ON public.medibondhu_specialties (is_active, sort_order)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_specialty ON public.medibondhu_doctors (specialty_id, approval_status)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_user ON public.medibondhu_doctors (user_id)`,
