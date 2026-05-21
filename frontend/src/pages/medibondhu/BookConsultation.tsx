@@ -38,6 +38,8 @@ export default function BookConsultation() {
   const { data: slots = [], isLoading } = useQuery({
     queryKey: queryKeys().medibondhuHumanSlots(doctorId, date),
     enabled: Boolean(doctorId && date),
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
       const { res, body } = await mediHumanJson<{ data?: Slot[] }>(`/doctors/${doctorId}/slots?date=${encodeURIComponent(date)}`);
       if (!res.ok) throw new Error(String((body as { error?: string }).error || res.status));
@@ -147,8 +149,11 @@ export default function BookConsultation() {
               <div className="text-sm text-muted-foreground mt-3 rounded-xl border border-dashed border-border p-4 bg-muted/20 space-y-2">
                 <p className="font-medium text-foreground">No open times on this Bangladesh calendar date</p>
                 <p>
-                  The doctor may not have published a window yet, or every listed window here is booked. Pick another date, browse another MediBondhu doctor, or ask
-                  the practice to add more availability.
+                  Slots are shown only if they are unbooked and the end time has not passed yet in Bangladesh time. If a window already ended, it is automatically
+                  hidden.
+                </p>
+                <p>
+                  Try another date, check another MediBondhu doctor, or ask the practice to publish more availability.
                 </p>
               </div>
             )}
