@@ -2,11 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Scan, Ruler, History, ArrowRight } from "lucide-react";
+import { Scan, History, ArrowRight } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { preloadCowModels } from "@/lib/cowWeight/yoloDetect";
 import { fetchCowEstimations } from "@/lib/cowWeight/api";
 import type { CowEstimationRow } from "@/lib/cowWeight/types";
+
+function historyModeLabel(row: CowEstimationRow, t: (k: string) => string): string {
+  if (row.detection_mode === "plan_c") return t("cowWeight.historyLegacyRef");
+  return t("cowWeight.historyPlanB");
+}
 
 export default function CowWeightHub() {
   const { t } = useLanguage();
@@ -30,43 +35,23 @@ export default function CowWeightHub() {
         {t("cowWeight.disclaimer")}
       </p>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="hover:border-primary/40 transition-colors">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Scan className="h-5 w-5 text-primary" />
-              {t("cowWeight.planBTitle")}
-            </CardTitle>
-            <CardDescription>{t("cowWeight.planBDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
-              <Link to="/dashboard/cow-weight/upload?mode=plan_b">
-                {t("cowWeight.startUpload")}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:border-primary/40 transition-colors border-primary/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Ruler className="h-5 w-5 text-primary" />
-              {t("cowWeight.planCTitle")}
-            </CardTitle>
-            <CardDescription>{t("cowWeight.planCDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full" variant="default">
-              <Link to="/dashboard/cow-weight/upload?mode=plan_c">
-                {t("cowWeight.startUpload")}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="hover:border-primary/40 transition-colors border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Scan className="h-5 w-5 text-primary" />
+            {t("cowWeight.planBTitle")}
+          </CardTitle>
+          <CardDescription>{t("cowWeight.planBDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild className="w-full">
+            <Link to="/dashboard/cow-weight/upload">
+              {t("cowWeight.startUpload")}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {history.length > 0 && (
         <Card>
@@ -85,7 +70,7 @@ export default function CowWeightHub() {
                 className="flex justify-between items-center text-sm border rounded-lg px-3 py-2 hover:bg-muted/50"
               >
                 <span>
-                  {new Date(row.created_at).toLocaleDateString()} · {row.detection_mode === "plan_c" ? "Plan C" : "Plan B"}
+                  {new Date(row.created_at).toLocaleDateString()} · {historyModeLabel(row, t)}
                 </span>
                 <span className="font-semibold">{row.estimated_live_weight_kg} kg</span>
               </Link>

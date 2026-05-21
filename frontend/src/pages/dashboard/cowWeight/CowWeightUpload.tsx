@@ -1,31 +1,34 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Camera, ImagePlus, ArrowLeft } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import type { DetectionMode } from "@/lib/cowWeight/types";
 import { fileToDataUrl } from "@/lib/cowWeight/imageUtils";
+import { parseExifFromFile } from "@/lib/cowWeight/imageExif";
 
-function parseMode(raw: string | null): DetectionMode {
-  return raw === "plan_c" ? "plan_c" : "plan_b";
-}
+const MODE = "plan_b" as const;
 
 export default function CowWeightUpload() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const mode = parseMode(params.get("mode"));
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (params.get("mode") === "plan_c") {
+      navigate("/dashboard/cow-weight/upload", { replace: true });
+    }
+  }, [params, navigate]);
+
   const onFile = async (file: File | undefined) => {
     if (!file || !file.type.startsWith("image/")) return;
-    const dataUrl = await fileToDataUrl(file);
-    navigate("/dashboard/cow-weight/analyze", { state: { mode, dataUrl } });
+    const [dataUrl, exif] = await Promise.all([fileToDataUrl(file), parseExifFromFile(file)]);
+    navigate("/dashboard/cow-weight/analyze", { state: { mode: MODE, dataUrl, exif } });
   };
 
-  const tips = mode === "plan_c" ? t("cowWeight.tipsPlanC") : t("cowWeight.tipsPlanB");
+  const tips = t("cowWeight.tipsUpload");
 
   return (
     <div className="space-y-6 max-w-lg">
@@ -38,9 +41,7 @@ export default function CowWeightUpload() {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            {mode === "plan_c" ? t("cowWeight.planCTitle") : t("cowWeight.planBTitle")}
-          </CardTitle>
+          <CardTitle>{t("cowWeight.planBTitle")}</CardTitle>
           <CardDescription>{t("cowWeight.uploadSubtitle")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
