@@ -63,7 +63,7 @@ export default function MediWaitingRoom() {
     gcTime: moduleCachePolicy.vet.gcTime,
     refetchInterval: (q) => {
       const st = String((q.state.data as ApptBrief | null | undefined)?.status || "").toLowerCase();
-      return st === "pending" || !st ? 3000 : false;
+      return st === "pending" || st === "confirmed" || !st ? 3000 : false;
     },
     refetchOnWindowFocus: true,
     queryFn: fetchAppt,
