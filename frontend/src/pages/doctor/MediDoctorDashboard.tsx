@@ -10,6 +10,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserRound, Calendar, ClipboardList, FilePlus2, Video } from "lucide-react";
 import { MediSectionTitle, MediStatusBadge, MB } from "@/components/medibondhu/MediChrome";
+import { queryKeys } from "@/lib/queryClient";
 
 type Appt = {
   id: string;
@@ -70,6 +71,7 @@ export default function MediDoctorDashboard() {
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+      await qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorEarnings(user?.id) });
       toast.success("Appointment updated");
     },
     onError: (e: Error) => toast.error(e.message || "Failed"),
