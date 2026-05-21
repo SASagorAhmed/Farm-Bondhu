@@ -88,7 +88,8 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     if (tab.value === "all" || tab.value === "unread") return true;
     if (tab.value === "marketplace") return true;
     if (tab.value === "farm") return hasRole("farmer") || hasCapability("can_manage_farm");
-    if (tab.value === "medibondhu" || tab.value === "vetbondhu") return hasRole("vet") || hasCapability("can_book_vet");
+    if (tab.value === "medibondhu") return hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human") || hasCapability("can_book_human");
+    if (tab.value === "vetbondhu") return hasRole("vet") || hasCapability("can_book_vet");
     if (tab.value === "learning") return hasCapability("can_access_learning") || hasRole("farmer");
     if (tab.value === "admin") return hasRole("admin");
     return false;
