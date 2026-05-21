@@ -6,15 +6,72 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { readSession, API_BASE } from "@/api/client";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+export type ChatModelOption = { id: string; label: string };
+
+const CHAT_MODEL_STORAGE_KEY = "farmbondhu_chat_model";
+
+const FALLBACK_CHAT_MODELS: ChatModelOption[] = [
+  { id: "google/gemini-2.0-flash-001", label: "gemini-2.0-flash-001" },
+];
+
+async function fetchChatModels(): Promise<{
+  models: ChatModelOption[];
+  defaultModel: string;
+}> {
+  const token = readSession()?.access_token;
+  if (!token) {
+    return { models: FALLBACK_CHAT_MODELS, defaultModel: FALLBACK_CHAT_MODELS[0].id };
+  }
+  try {
+    const resp = await fetch(`${API_BASE}/v1/ai/chat-models`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) throw new Error("chat-models failed");
+    const body = (await resp.json()) as {
+      data?: { models?: ChatModelOption[]; defaultModel?: string };
+    };
+    const models = body.data?.models?.length ? body.data.models : FALLBACK_CHAT_MODELS;
+    const defaultModel = body.data?.defaultModel || models[0].id;
+    return { models, defaultModel };
+  } catch {
+    return { models: FALLBACK_CHAT_MODELS, defaultModel: FALLBACK_CHAT_MODELS[0].id };
+  }
+}
+
+function loadStoredModelId(): string | null {
+  try {
+    return localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredModelId(id: string) {
+  try {
+    localStorage.setItem(CHAT_MODEL_STORAGE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function streamChat({
   messages,
+  model,
   onDelta,
   onDone,
 }: {
   messages: Msg[];
+  model: string;
   onDelta: (t: string) => void;
   onDone: () => void;
 }) {
@@ -28,7 +85,7 @@ async function streamChat({
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, model }),
   });
 
   if (!resp.ok) {
@@ -80,7 +137,26 @@ export default function FarmChatbot() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chatModels, setChatModels] = useState<ChatModelOption[]>(FALLBACK_CHAT_MODELS);
+  const [selectedModel, setSelectedModel] = useState(FALLBACK_CHAT_MODELS[0].id);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const { models, defaultModel } = await fetchChatModels();
+      if (cancelled) return;
+      setChatModels(models);
+      const stored = loadStoredModelId();
+      const pick =
+        stored && models.some((m) => m.id === stored) ? stored : defaultModel;
+      setSelectedModel(pick);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -109,6 +185,7 @@ export default function FarmChatbot() {
     try {
       await streamChat({
         messages: [...messages, userMsg],
+        model: selectedModel,
         onDelta: upsert,
         onDone: () => setLoading(false),
       });
@@ -235,7 +312,26 @@ export default function FarmChatbot() {
             </div>
 
             {/* Input */}
-            <div className="border-t border-border p-3 shrink-0">
+            <div className="border-t border-border p-3 shrink-0 space-y-2">
+              <Select
+                value={selectedModel}
+                onValueChange={(v) => {
+                  setSelectedModel(v);
+                  saveStoredModelId(v);
+                }}
+                disabled={loading}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="AI model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {chatModels.map((m) => (
+                    <SelectItem key={m.id} value={m.id} className="text-xs">
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <form
                 onSubmit={(e) => { e.preventDefault(); send(input); }}
                 className="flex items-center gap-2"
