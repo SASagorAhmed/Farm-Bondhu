@@ -12,8 +12,8 @@ Update this file at the **start** and **end** of every cow-weight task.
 | Field | Value |
 |-------|-------|
 | **Status** | `phase_1_done` |
-| **Current phase** | 1 — AI Plan B + C (shipped) |
-| **Last updated** | 2026-05-20 (body-first head direction: tail → head, torso thirds) |
+| **Current phase** | 1 — single photo estimate flow (shipped) |
+| **Last updated** | 2026-05-20 (Plan B only hub; optional 1m stick merged into Step 4) |
 | **Owner** | — |
 
 ---
@@ -22,6 +22,13 @@ Update this file at the **start** and **end** of every cow-weight task.
 
 | Date | Author | Summary |
 |------|--------|---------|
+| 2026-05-20 | Agent | Single flow: hub one CTA; `plan_b` only for new saves; optional 1m stick auto-detect + Step 4 calibrate (legacy `plan_c` rows unchanged) |
+| 2026-05-20 | Agent | Strict weight: Detect `lines` canonical for all steps; removed Step1→2 `proposeLinesFromBBox` on Next; [`strictweight.md`](../../frontend/src/lib/cowWeight/strictweight.md) |
+| 2026-05-20 | Agent | Live summary UI: estimated kg + camera distance (pinhole blend, EXIF lens); `cowWeightResearch.ts`; persist standoff in `annotation_json` |
+| 2026-05-20 | Agent | Full vision assist: `assist-direction` returns head + front/hind legs + top/lower chest + `standoffDistanceM`; UI **Front**/**Hind** labels; Plan B distance badge/warnings; `keypointMerge` + `standoffEstimate` |
+| 2026-05-20 | Agent | Fresh detect: Re-analyze button; vision verify every scan; head box on L2; feedback table + export; see `cow_detection_training.md` |
+| 2026-05-20 | Agent | Farm chat multi-model: `OPENROUTER_CHAT_MODELS` allowlist, `GET /v1/ai/chat-models`, optional `model` on `farm-chat`; vision assist unchanged on `OPENROUTER_VISION_MODEL` |
+| 2026-05-20 | Agent | Hybrid head: browser mask primary; `POST /v1/cow-estimations/assist-direction` (OpenRouter vision) only when Step 1 **Not detected**; orange **Head** box from mask heuristic or API bbox; env `OPENROUTER_API_KEY`, optional `OPENROUTER_VISION_MODEL`, `COW_DIRECTION_ASSIST_ENABLED=false` to disable |
 | 2026-05-20 | Agent | Head direction: tail-first from full body (`tailSideFromMaskTorsoThirds`, hind/length-row thirds, outward length-end mass); head = opposite(tail); no leg-vote refine or `head_left` fallback; re-analyze after deploy |
 | 2026-05-18 | Agent | Seg ONNX setup: `npm run cow:models:seg` exports `yolov8n-seg.onnx` to `public/models/` (gitignored); required for exact ML curved border (`yolov8n-seg-onnx`) |
 | 2026-05-18 | Agent | Body outline fix: Moore contour trace + largest CC + ribbon fallback (`buildBodyOutline`); removed atan2 star polygon; Step 1 outline label (AI vs estimated) |
@@ -53,8 +60,8 @@ Use this section to verify weight detection after code or model changes.
 
 | Step | Route | Expected result |
 |------|-------|-----------------|
-| Hub | `/dashboard/cow-weight` | Choose Plan B or C; `preloadCowModels()` on hub mount |
-| Upload | `upload?mode=plan_b\|plan_c` | Pick side-view photo |
+| Hub | `/dashboard/cow-weight` | One “Estimate from photo” CTA; `preloadCowModels()` on hub mount |
+| Upload | `upload` | Pick side-view photo (optional 1m stick beside cow) |
 | Analyze | `analyze` | `analyzeCowImage` → auto-navigate to `scan` with `analysis` |
 | Scan 1–6 | `scan` | Primary wizard: bbox, keypoints, adjust lines, save |
 | Confirm | `confirm` | Legacy/alternate confirm UI (main path uses `scan`) |
@@ -84,6 +91,33 @@ Use this section to verify weight detection after code or model changes.
 
 - **Head left** — cow's head is toward the left of the image (smaller X).
 - **Head right** — cow's head is toward the right of the image (larger X).
+
+**Hybrid direction (local + OpenRouter fallback):**
+
+| Layer | When | Result |
+|-------|------|--------|
+| Browser mask | Always on analyze | `detectCowBodyDirection` + confidence gate → badge or **Not detected** |
+| Mask head box | Local direction confident | Orange dashed **Head** box from `headBboxFromMaskHeuristic` |
+| Cloud vision | `directionIssueKey` or `headSide === unknown` on scan Step 1 | `POST /v1/cow-estimations/assist-direction` → head side + normalized bbox if confidence ≥ 0.45 |
+| Farmer | Assist fails or low confidence | Step 1 **Head left / Head right** toggle (required before Next) |
+
+**Manual test matrix:**
+
+| Photo | Expected Step 1 |
+|-------|-----------------|
+| Holstein patchy coat | **Not detected** or correct side; not wrong confident **Head right** |
+| Black cow, head visually left | **Head left** or **Not detected** → assist or manual |
+| `OPENROUTER_API_KEY` unset | **Not detected** + manual toggle only |
+| API off (`COW_DIRECTION_ASSIST_ENABLED=false`) | Same as unset key |
+
+**OpenRouter (shared key, different models):**
+
+| Use | Env | Route |
+|-----|-----|-------|
+| Farm text chat | `OPENROUTER_CHAT_MODELS`, `OPENROUTER_MODEL` | `GET /v1/ai/chat-models`, `POST /v1/ai/farm-chat` (streaming) |
+| Cow photo assist | `OPENROUTER_VISION_MODEL` (vision-capable) | `POST /v1/cow-estimations/assist-direction` |
+
+Chat model picker does **not** affect cow weight vision — do not point assist at text-only free models.
 
 **Segmentation + keypoints (`cowMask.ts`, `yoloSegDetect.ts`):**
 
@@ -271,6 +305,18 @@ flowchart TD
 ### Why not LLM-only?
 
 Do **not** use `aiFarmChat` for numeric weight. Use formula + measured cm or dedicated CV/ML.
+
+### References (runtime constants)
+
+Implemented in [`frontend/src/lib/cowWeight/cowWeightResearch.ts`](../../frontend/src/lib/cowWeight/cowWeightResearch.ts):
+
+| Constant | Value | Notes |
+|----------|-------|--------|
+| Withers height (pinhole) | 145 cm | Adult dairy side-view prior |
+| Optimal camera distance | 3.0–4.5 m | UI “good range” band |
+| Live weight formula divisor | 660 | Qurbani/regional practice; override `COW_WEIGHT_FORMULA_DIVISOR` |
+| Pinhole distance | `(withers_m) × image_h / bbox_h` | Blended 40% with heuristic/vision |
+| Offline calibration | `cattledataset/eval_formula_sample.py` | Divisor sweep vs BMGF filename weights when keypoints exported |
 
 ---
 
