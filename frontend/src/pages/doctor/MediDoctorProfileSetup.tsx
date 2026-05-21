@@ -61,7 +61,12 @@ type DoctorPrefill = {
   consultation_fee?: number;
 };
 
-export default function MediDoctorProfileSetup() {
+type MediDoctorProfileSetupProps = {
+  embedded?: boolean;
+  hideDisplayNameField?: boolean;
+};
+
+export default function MediDoctorProfileSetup({ embedded = false, hideDisplayNameField = false }: MediDoctorProfileSetupProps = {}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const location = useLocation();
@@ -90,8 +95,11 @@ export default function MediDoctorProfileSetup() {
   });
 
   useEffect(() => {
+    if (hideDisplayNameField && user?.name) {
+      setFullName(String(user.name));
+    }
     if (me) {
-      setFullName(String(me.full_name || ""));
+      setFullName(String(me.full_name || user?.name || ""));
       setQualification(String(me.qualification || ""));
       setMedicalRegNumber(String(me.medical_reg_number || ""));
       setRegistrationBody(String(me.registration_body || ""));
@@ -199,27 +207,29 @@ export default function MediDoctorProfileSetup() {
   const status = me?.approval_status ? String(me.approval_status) : null;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Professional profile</p>
-          <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground mt-1 flex items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0" style={{ backgroundColor: `${MB}18` }}>
-              <UserRound className="h-5 w-5" style={{ color: MB }} />
-            </span>
-            MediBondhu doctor verification
-          </h1>
-          <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-            Complete identity, regulatory details, and required documents so administrators can approve your practice on MediBondhu.
-          </p>
-        </div>
-        {status && (
-          <Badge variant="outline" className="rounded-full px-3 py-1 gap-1 w-fit capitalize shrink-0">
-            <BadgeCheck className="h-3.5 w-3.5" />
-            {status}
-          </Badge>
-        )}
-      </header>
+    <div className={embedded ? "space-y-6" : "max-w-2xl mx-auto space-y-6"}>
+      {!embedded && (
+        <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Professional profile</p>
+            <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground mt-1 flex items-center gap-2">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0" style={{ backgroundColor: `${MB}18` }}>
+                <UserRound className="h-5 w-5" style={{ color: MB }} />
+              </span>
+              MediBondhu doctor verification
+            </h1>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Complete identity, regulatory details, and required documents so administrators can approve your practice on MediBondhu.
+            </p>
+          </div>
+          {status && (
+            <Badge variant="outline" className="rounded-full px-3 py-1 gap-1 w-fit capitalize shrink-0">
+              <BadgeCheck className="h-3.5 w-3.5" />
+              {status}
+            </Badge>
+          )}
+        </header>
+      )}
 
       <Card className="rounded-2xl overflow-hidden border-border shadow-sm">
         <div className="h-1 w-full shrink-0" style={{ backgroundColor: MB }} />
@@ -228,10 +238,12 @@ export default function MediDoctorProfileSetup() {
           <CardDescription>How you introduce yourself on MediBondhu.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="dpi-name">Full name (as displayed)</Label>
-            <Input id="dpi-name" className="rounded-xl" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Dr. …" />
-          </div>
+          {!hideDisplayNameField && (
+            <div className="space-y-2">
+              <Label htmlFor="dpi-name">Full name (as displayed)</Label>
+              <Input id="dpi-name" className="rounded-xl" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Dr. …" />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="dpi-qual">Degrees & qualifications</Label>
             <Input id="dpi-qual" className="rounded-xl" value={qualification} onChange={(e) => setQualification(e.target.value)} placeholder="MBBS, FCPS (Medicine), etc." />
