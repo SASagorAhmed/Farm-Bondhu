@@ -2,15 +2,22 @@ import type { BBox, CowKeypoints, CowLines, LegCenters, Point2D } from "./types"
 import {
   attachBodyDirectionToKeypoints,
   cowBodyDirectionFromFacing,
+  cowBodyDirectionFromHeadSide,
   detectCowBodyDirection,
+  orderLengthKeypointsForFacing,
   resolveFacingFromBodyDirection,
   type CowBodyDirection,
   type CowFacing,
 } from "./cowDirection";
 import {
+  headBboxFromHeadPoint,
+  resolveHeadBboxFromVision,
+} from "./headBbox";
+import {
   legColumnsFromMask,
   lengthEndsFromMask,
   maskRowExtent,
+  withersFromMask,
   type CowBodyMask,
 } from "./cowMask";
 
@@ -33,9 +40,9 @@ const LOWER_CHEST_EDGE_PEAK_FRAC = 0.85;
 const LEG_CHEST_CEILING_MARGIN = 0.03;
 const LOWER_CHEST_FALLBACK_FRAC = 0.58;
 const TOP_CHEST_Y_START = 0.06;
-const TOP_CHEST_Y_END = 0.32;
+const TOP_CHEST_Y_END = 0.28;
 const TOP_CHEST_FALLBACK_FRAC = 0.14;
-const TOP_CHEST_EDGE_PEAK_FRAC = 0.85;
+const TOP_CHEST_EDGE_PEAK_FRAC = 0.9;
 const MIN_CHEST_SPAN_FRAC = 0.08;
 const LENGTH_Y_FRAC = 0.32;
 const LENGTH_START_FRAC = 0.14;
@@ -265,6 +272,88 @@ function assignLegsByFacing(
   return { leg1: right, leg2: left };
 }
 
+/**
+ * Map vision/local semantic front+hind hooves to leg1/leg2 using facing.
+ * Swaps when model places "front" on the tail side of the photo.
+ */
+export function assignLegsFromSemanticPoints(
+  facing: CowFacing,
+  frontPt: Point2D,
+  hindPt: Point2D
+): { leg1: Point2D; leg2: Point2D } {
+  let front = frontPt;
+  let hind = hindPt;
+  if (facing === "head_left" && front.x > hind.x) {
+    const tmp = front;
+    front = hind;
+    hind = tmp;
+  } else if (facing === "head_right" && front.x < hind.x) {
+    const tmp = front;
+    front = hind;
+    hind = tmp;
+  }
+  return assignLegsByFacing(facing, front, hind);
+}
+
+/** Infer missing hoof column on tail side when only one leg column was found. */
+export function completeLegPairFromFacing(
+  facing: CowFacing,
+  colA: Point2D,
+  colB: Point2D | null,
+  bbox: BBox,
+  tailL1: Point2D,
+  legY: number
+): { colA: Point2D; colB: Point2D; inferred: boolean } {
+  if (colB) return { colA, colB, inferred: false };
+
+  const known = colA;
+  const midX = bbox.x + bbox.width * 0.5;
+  const onHeadSide =
+    facing === "head_left"
+      ? known.x < midX + bbox.width * 0.08
+      : known.x > midX - bbox.width * 0.08;
+
+  let otherX: number;
+  if (facing === "head_left") {
+    otherX = onHeadSide
+      ? Math.max(tailL1.x, bbox.x + bbox.width * LENGTH_END_FRAC * 0.98)
+      : Math.min(tailL1.x, bbox.x + bbox.width * LENGTH_START_FRAC * 1.02);
+  } else {
+    otherX = onHeadSide
+      ? Math.min(tailL1.x, bbox.x + bbox.width * LENGTH_START_FRAC * 1.02)
+      : Math.max(tailL1.x, bbox.x + bbox.width * LENGTH_END_FRAC * 0.98);
+  }
+
+  return { colA: known, colB: pt(otherX, legY), inferred: true };
+}
+
+/** Vision/local: hind hoof when API returns front only. */
+export function synthesizeHindLegPoint(
+  facing: CowFacing,
+  frontPt: Point2D,
+  bbox: BBox,
+  tailL1: Point2D,
+  legY: number
+): Point2D {
+  return completeLegPairFromFacing(facing, frontPt, null, bbox, tailL1, legY).colB;
+}
+
+function legPairSeparation(x1: number, x2: number): number {
+  return Math.abs(x1 - x2);
+}
+
+function photoLegsBetter(
+  photo: { x1: number; x2: number },
+  maskSep: number,
+  bboxWidth: number
+): boolean {
+  const photoSep = legPairSeparation(photo.x1, photo.x2);
+  const minSep = bboxWidth * MIN_LEG_SEP_FRAC;
+  if (photoSep < minSep) return false;
+  if (maskSep < minSep) return true;
+  return photoSep > maskSep * 1.15;
+}
+
 /** Body-based head direction from mask + tail (no face/nose luminance). */
 function resolveBodyHeadDirection(
   data: Uint8ClampedArray,
@@ -286,7 +375,72 @@ function resolveBodyHeadDirection(
     { lengthY }
   );
   const facing = resolveFacingFromBodyDirection(dir);
-  return { facing, bodyDirection: dir };
+  let headBbox = dir.headBbox ?? null;
+  if (!headBbox && facing && bodyMask && maskIsUsable(bodyMask, bbox)) {
+    const ordered = orderLengthKeypointsForFacing(
+      lengthEnds.l1,
+      lengthEnds.l2,
+      facing
+    );
+    headBbox = headBboxFromHeadPoint(bodyMask, bbox, ordered.l2);
+  }
+  return {
+    facing,
+    bodyDirection: { ...dir, headBbox },
+  };
+}
+
+/** Apply OpenRouter vision assist when local direction was uncertain. */
+export function mergeDirectionAssistIntoKeypoints(
+  kp: CowKeypoints,
+  headSide: "left" | "right",
+  headBboxNorm: { x: number; y: number; width: number; height: number } | null,
+  imageWidth: number,
+  imageHeight: number,
+  confidence: number,
+  cowBbox?: BBox,
+  bodyMask?: CowBodyMask
+): { keypoints: CowKeypoints; headBbox: BBox | null } {
+  const facing: CowFacing = headSide === "left" ? "head_left" : "head_right";
+  const reassigned = reassignKeypointsForHeadSide(kp, facing);
+  const headPoint = reassigned.l2;
+  const headBbox =
+    cowBbox != null
+      ? resolveHeadBboxFromVision(
+          headBboxNorm,
+          imageWidth,
+          imageHeight,
+          cowBbox,
+          headPoint,
+          headSide,
+          bodyMask,
+          confidence
+        )
+      : headBboxNorm
+        ? resolveHeadBboxFromVision(
+            headBboxNorm,
+            imageWidth,
+            imageHeight,
+            {
+              x: 0,
+              y: 0,
+              width: imageWidth,
+              height: imageHeight,
+              confidence: 1,
+            },
+            headPoint,
+            headSide,
+            bodyMask,
+            confidence
+          )
+        : null;
+  const bodyDirection: CowBodyDirection = {
+    ...cowBodyDirectionFromHeadSide(headSide, "vision"),
+    headBbox,
+    directionIssueKey: null,
+  };
+  const keypoints = attachBodyDirectionToKeypoints(reassigned, facing, bodyDirection);
+  return { keypoints, headBbox };
 }
 
 function maskPixelCountInBBox(mask: CowBodyMask, bbox: BBox): number {
@@ -823,11 +977,20 @@ function detectLengthEnds(
   };
 }
 
+export interface DetectCowKeypointsOptions {
+  /** Cloud-confirmed head direction — runs existing left/right leg paths from the start. */
+  forcedFacing?: CowFacing | null;
+  directionSource?: "vision" | "local";
+  visionHeadBbox?: BBox | null;
+}
+
 export function detectCowKeypoints(
   canvas: HTMLCanvasElement,
   bbox: BBox,
-  bodyMask?: CowBodyMask
+  bodyMask?: CowBodyMask,
+  options?: DetectCowKeypointsOptions
 ): CowKeypoints {
+  const forcedFacing = options?.forcedFacing ?? null;
   const { x, y, width, height } = bbox;
   const legMidY = y + height * ((LEG_ROI_Y_START + LEG_ROI_Y_END) / 2);
   const lengthY = y + height * LENGTH_Y_FRAC;
@@ -847,40 +1010,12 @@ export function detectCowKeypoints(
     const h = canvas.height;
     const data = ctx.getImageData(0, 0, w, h).data;
 
-    /** Neutral seed for leg column search only — not used for head direction. */
-    const legColumnSeed: CowFacing = "head_right";
     const useMask = bodyMask && maskIsUsable(bodyMask, bbox);
 
     let geomColA: Point2D | null = null;
     let geomColB: Point2D | null = null;
-
-    if (useMask) {
-      const maskLegs = legColumnsFromMask(bodyMask, bbox);
-      if (maskLegs) {
-        legsDetected = true;
-        geomColA = pt(maskLegs.x1, maskLegs.y);
-        geomColB = pt(maskLegs.x2, maskLegs.y);
-        chestCenterX = (maskLegs.x1 + maskLegs.x2) / 2;
-      }
-    }
-
-    if (!geomColA) {
-      const photoLegsSeed = detectLegColumnsFromPhoto(data, w, h, bbox, legColumnSeed);
-      if (photoLegsSeed) {
-        legsDetected = true;
-        geomColA = pt(photoLegsSeed.x1, photoLegsSeed.y1);
-        geomColB = pt(photoLegsSeed.x2, photoLegsSeed.y2);
-        chestCenterX = (photoLegsSeed.x1 + photoLegsSeed.x2) / 2;
-      } else {
-        const edgeLegs = detectLegPair(data, w, bbox);
-        if (edgeLegs) {
-          legsDetected = true;
-          geomColA = pt(edgeLegs.x1, legMidY);
-          geomColB = pt(edgeLegs.x2, legMidY);
-          chestCenterX = (edgeLegs.x1 + edgeLegs.x2) / 2;
-        }
-      }
-    }
+    let legsInferred = false;
+    let maskLegSep = 0;
 
     const lowerRoiSamples: number[] = [];
     const yLo = Math.floor(y + height * LOWER_CHEST_Y_START);
@@ -896,17 +1031,21 @@ export function detectCowKeypoints(
     const lower = detectLowerChestY(data, w, bbox, chestCenterX, cowThreshold, detectedLegMidY);
     lowerChestDetected = lower.detected;
 
-    const top = detectTopChestY(data, w, bbox, chestCenterX, lower.y, cowThreshold);
-    topChestDetected = top.detected;
-
+    let topY = topChestFallbackY(bbox);
     if (useMask) {
-      const topRow = maskRowExtent(bodyMask, top.y);
-      const lowRow = maskRowExtent(bodyMask, lower.y);
-      if (topRow) chestCenterX = (topRow.left + topRow.right) / 2;
-      if (lowRow && topRow) {
+      const withers = withersFromMask(bodyMask, bbox);
+      if (withers) {
+        topY = withers.y;
+        chestCenterX = withers.centerX;
         topChestDetected = true;
-        lowerChestDetected = true;
       }
+    }
+    const top = detectTopChestY(data, w, bbox, chestCenterX, lower.y, cowThreshold);
+    if (top.detected) {
+      topY = top.y;
+      topChestDetected = true;
+    } else if (!topChestDetected) {
+      topY = top.y;
     }
 
     let lengthEnds = detectLengthEnds(data, w, bbox, lengthY);
@@ -927,15 +1066,71 @@ export function detectCowKeypoints(
       useMask ? bodyMask : undefined,
       lengthY
     );
-    const legFacing: CowFacing = resolved.facing ?? "head_right";
+
+    if (forcedFacing) {
+      const ordered = orderLengthKeypointsForFacing(lengthEnds.l1, lengthEnds.l2, forcedFacing);
+      lengthEnds = { l1: ordered.l1, l2: ordered.l2, detected: lengthEnds.detected };
+    }
+
+    const legFacing: CowFacing = forcedFacing ?? resolved.facing ?? "head_right";
     facing = legFacing;
 
-    const photoLegsFacing = detectLegColumnsFromPhoto(data, w, h, bbox, legFacing);
-    if (photoLegsFacing) {
+    if (useMask) {
+      const maskLegs = legColumnsFromMask(bodyMask, bbox);
+      if (maskLegs) {
+        maskLegSep = legPairSeparation(maskLegs.x1, maskLegs.x2);
+        if (maskLegSep >= width * MIN_LEG_SEP_FRAC) {
+          legsDetected = true;
+          geomColA = pt(maskLegs.x1, maskLegs.y);
+          geomColB = pt(maskLegs.x2, maskLegs.y);
+          chestCenterX = (maskLegs.x1 + maskLegs.x2) / 2;
+        } else if (maskLegSep > 0) {
+          geomColA = pt(maskLegs.x1, maskLegs.y);
+        }
+      }
+    }
+
+    if (!geomColB) {
+      const photoSeed = detectLegColumnsFromPhoto(data, w, h, bbox, legFacing);
+      if (photoSeed) {
+        const photoSep = legPairSeparation(photoSeed.x1, photoSeed.x2);
+        if (photoSep >= width * MIN_LEG_SEP_FRAC && photoLegsBetter(photoSeed, maskLegSep, width)) {
+          legsDetected = true;
+          geomColA = pt(photoSeed.x1, photoSeed.y1);
+          geomColB = pt(photoSeed.x2, photoSeed.y2);
+          chestCenterX = (photoSeed.x1 + photoSeed.x2) / 2;
+        } else if (!geomColA && photoSep > width * 0.06) {
+          geomColA = pt(photoSeed.x1, photoSeed.y1);
+        }
+      }
+    }
+
+    if (!geomColB) {
+      const edgeLegs = detectLegPair(data, w, bbox);
+      if (edgeLegs && legPairSeparation(edgeLegs.x1, edgeLegs.x2) >= width * MIN_LEG_SEP_FRAC) {
+        legsDetected = true;
+        geomColA = pt(edgeLegs.x1, legMidY);
+        geomColB = pt(edgeLegs.x2, legMidY);
+        chestCenterX = (edgeLegs.x1 + edgeLegs.x2) / 2;
+      } else if (!geomColA && edgeLegs) {
+        geomColA = pt(edgeLegs.x1, legMidY);
+      }
+    }
+
+    if (geomColA && !geomColB && legFacing) {
+      const completed = completeLegPairFromFacing(
+        legFacing,
+        geomColA,
+        null,
+        bbox,
+        lengthEnds.l1,
+        legMidY
+      );
+      geomColA = completed.colA;
+      geomColB = completed.colB;
       legsDetected = true;
-      geomColA = pt(photoLegsFacing.x1, photoLegsFacing.y1);
-      geomColB = pt(photoLegsFacing.x2, photoLegsFacing.y2);
-      chestCenterX = (photoLegsFacing.x1 + photoLegsFacing.x2) / 2;
+      legsInferred = completed.inferred;
+      chestCenterX = (geomColA.x + geomColB.x) / 2;
     }
 
     if (geomColA && geomColB) {
@@ -944,11 +1139,40 @@ export function detectCowKeypoints(
       leg2 = assigned.leg2;
     }
 
-    const topChest = pt(chestCenterX, top.y);
-    const lowerChest = pt(chestCenterX, lower.y);
+    let topChest = pt(chestCenterX, topY);
+    let lowerChest = pt(chestCenterX, lower.y);
+    if (useMask) {
+      const topRow = maskRowExtent(bodyMask, topChest.y);
+      const lowRow = maskRowExtent(bodyMask, lowerChest.y);
+      if (topRow) topChest = pt((topRow.left + topRow.right) / 2, topChest.y);
+      if (lowRow) lowerChest = pt((lowRow.left + lowRow.right) / 2, lowerChest.y);
+      if (topRow || lowRow) {
+        chestCenterX = (topChest.x + lowerChest.x) / 2;
+      }
+    }
+    if (topChest.y >= lowerChest.y) {
+      const gap = Math.max(height * MIN_CHEST_SPAN_FRAC, 8);
+      topChest = pt(chestCenterX, lower.y - gap);
+      lowerChestDetected = true;
+      topChestDetected = true;
+    }
 
-    /** Only set facing when direction logic is confident — never from a weak tail-only guess. */
-    const attachFacing: CowFacing | null = resolved.facing;
+    const attachFacing: CowFacing | null = forcedFacing ?? resolved.facing;
+
+    if (!attachFacing) {
+      legsDetected = false;
+    }
+
+    const bodyDirection: CowBodyDirection | undefined = forcedFacing
+      ? {
+          ...cowBodyDirectionFromHeadSide(
+            forcedFacing === "head_left" ? "left" : "right",
+            options?.directionSource === "vision" ? "vision" : "unknown"
+          ),
+          headBbox: options?.visionHeadBbox ?? resolved.bodyDirection?.headBbox ?? null,
+          directionIssueKey: null,
+        }
+      : resolved.bodyDirection;
 
     return attachBodyDirectionToKeypoints(
       {
@@ -961,13 +1185,14 @@ export function detectCowKeypoints(
         chestCenterX,
         detected: {
           legs: legsDetected,
+          legsInferred: legsInferred || undefined,
           lowerChest: lowerChestDetected,
           topChest: topChestDetected,
           length: lengthDetected,
         },
       },
       attachFacing,
-      resolved.bodyDirection
+      bodyDirection
     );
   }
 
