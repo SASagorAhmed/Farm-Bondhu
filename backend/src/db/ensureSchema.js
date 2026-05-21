@@ -182,6 +182,23 @@ export async function ensureSchema(sql) {
       created_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.cow_detection_feedback (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      estimation_id uuid,
+      image_url text,
+      detection_mode text NOT NULL DEFAULT 'plan_b',
+      predicted_head_side text,
+      predicted_facing text,
+      predicted_head_bbox jsonb,
+      corrected_head_side text NOT NULL,
+      corrected_head_bbox jsonb,
+      local_model text,
+      vision_model text,
+      annotation_json jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.feed_records (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid NOT NULL,
@@ -1270,6 +1287,7 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_mortality_records_user_date ON public.mortality_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_animals_farm_id ON public.animals (farm_id)`,
     `CREATE INDEX IF NOT EXISTS idx_cow_weight_estimations_user ON public.cow_weight_estimations (user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_cow_detection_feedback_user ON public.cow_detection_feedback (user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_community_posts_status ON public.community_posts (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_buyer ON public.orders (buyer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_seller ON public.orders (seller_id)`,
