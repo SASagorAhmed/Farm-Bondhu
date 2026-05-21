@@ -20,7 +20,14 @@ import {
 export type ImageSide = "left" | "right" | "unknown";
 export type CowDirectionLabel = "normal" | "reverse" | "unknown";
 export type CowFacing = "head_left" | "head_right";
-export type DirectionSource = "length" | "tail" | "head_band" | "legs" | "mask_legacy" | "unknown";
+export type DirectionSource =
+  | "length"
+  | "tail"
+  | "head_band"
+  | "legs"
+  | "mask_legacy"
+  | "vision"
+  | "unknown";
 
 export interface CowBodyDirection {
   headSide: ImageSide;
@@ -31,6 +38,8 @@ export interface CowBodyDirection {
   source?: DirectionSource;
   /** i18n key when headSide is unknown — explains why auto-detect failed. */
   directionIssueKey?: string | null;
+  /** Approximate head region in image coordinates (mask heuristic or vision API). */
+  headBbox?: BBox | null;
 }
 
 const BAND_MARGIN_FRAC = 0.03;
@@ -602,9 +611,17 @@ function isHeadDetectionConfident(
   endMass: { leftHead: number; rightHead: number } | null
 ): boolean {
   if (side === "unknown") return false;
+  const endHead = asImageSide(signals.endHeadMass);
+  if (
+    endMass &&
+    endHead !== "unknown" &&
+    endHead !== side &&
+    headEndDominanceRatio(endMass) >= END_HEAD_ONLY_RATIO
+  ) {
+    return false;
+  }
   if (asImageSide(signals.headWidthRow) === side) return true;
 
-  const endHead = asImageSide(signals.endHeadMass);
   if (
     endMass &&
     endHead === side &&
@@ -696,6 +713,15 @@ function resolveHeadSidePrimary(
       : thirds !== "unknown" && centroid !== "unknown" && thirds === centroid
         ? thirds
         : "unknown";
+
+  if (
+    endHead !== "unknown" &&
+    endRatio >= END_HEAD_ONLY_RATIO &&
+    bandAgree !== "unknown" &&
+    endHead !== bandAgree
+  ) {
+    return { side: endHead, source: "length" };
+  }
 
   if (bandAgree !== "unknown") {
     if (lengthCue.side === "unknown" || lengthCue.side === bandAgree) {
@@ -1119,11 +1145,13 @@ export function directionSummaryI18nKeys(dir: CowBodyDirection | undefined): {
         ? "cowWeight.scan.directionReverse"
         : null;
   const sourceHint =
-    dir.source === "tail"
-      ? "cowWeight.scan.directionFromTail"
-      : dir.direction === "unknown"
-        ? "cowWeight.scan.directionUnknownHint"
-        : null;
+    dir.source === "vision"
+      ? "cowWeight.scan.directionFromVision"
+      : dir.source === "tail"
+        ? "cowWeight.scan.directionFromTail"
+        : dir.direction === "unknown"
+          ? "cowWeight.scan.directionUnknownHint"
+          : null;
   return { head, tail, direction, sourceHint, issue: null };
 }
 

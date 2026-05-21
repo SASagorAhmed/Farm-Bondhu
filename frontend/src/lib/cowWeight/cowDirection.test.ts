@@ -171,6 +171,22 @@ describe("detectCowBodyDirection", () => {
     expect(dir.directionIssueKey).toBeTruthy();
     expect(resolveFacingFromBodyDirection(dir)).toBeNull();
   });
+
+  it("black cow: strong left end-mass beats misleading headThirds right", () => {
+    const mask = createEmptyMask(1200, 800);
+    const lengthY = 50 + 400 * 0.32;
+    fillMaskRect(mask, b, 0.08, 0.92, 0.05, 0.95);
+    fillMaskBand(mask, b, 0.68, 0.92, 0.82, 0.2);
+    fillMaskBand(mask, b, 0.05, 0.22, 0.86, 0.1);
+    fillMaskBand(mask, b, 0.28, 0.5, 0.14, 0.12);
+    const dir = detectCowBodyDirection(null, 0, 0, b, {
+      l1: { x: 1231, y: lengthY },
+      l2: { x: 427, y: lengthY },
+      detected: true,
+    }, mask, null, { lengthY });
+    expect(dir.headSide).toBe("left");
+    expect(resolveFacingFromBodyDirection(dir)).toBe("head_left");
+  });
 });
 
 describe("tailSideFromLengthEnds", () => {
