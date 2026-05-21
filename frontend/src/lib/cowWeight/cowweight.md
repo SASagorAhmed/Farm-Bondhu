@@ -40,14 +40,14 @@ Those dimensions are converted to centimeters, then passed through a **Qurbani-s
 
 Results are **estimates only**. They are not a substitute for a physical scale or professional assessment, and are not legal/market certification for Qurbani or livestock sale pricing. Farmers and buyers should verify weight on a scale before financial decisions.
 
-### Detection modes (shipped)
+### Scale (single flow, `plan_b`)
 
-| Mode | ID | Scale source | Accuracy |
-|------|-----|--------------|----------|
-| **Plan B** | `plan_b` | Assumed cow height ~150 cm from bbox | Lower confidence (~0.55 cap) |
-| **Plan C** | `plan_c` | 1 m reference stick (auto-detect or manual tap) | Higher confidence when reference is valid |
+| Scale | When | Source |
+|-------|------|--------|
+| **Default** | No 1m stick in photo | Bbox assumed height ~150 cm + standoff hint |
+| **Reference** | Stick auto-detected or user taps R1/R2 on Step 4 | `100 cm / reference_line_px` |
 
-Both modes use the same AI detection and keypoint pipeline; Plan C adds real-world scale via a reference object in the photo.
+New saves use `detection_mode: plan_b` only. Legacy DB rows may still show `plan_c`.
 
 ---
 
@@ -55,7 +55,7 @@ Both modes use the same AI detection and keypoint pipeline; Plan C adds real-wor
 
 ```mermaid
 flowchart TB
-  hub[Hub: choose Plan B or C]
+  hub[Hub: upload photo]
   upload[Upload photo]
   analyze[analyzeCowImage]
   yolo[YOLO ONNX or COCO-SSD]
@@ -93,7 +93,7 @@ Router: [`CowWeightEstimator.tsx`](../../pages/dashboard/cowWeight/CowWeightEsti
 
 | Route | Component | Role |
 |-------|-----------|------|
-| `/dashboard/cow-weight` | `CowWeightHub` | Choose Plan B or Plan C |
+| `/dashboard/cow-weight` | `CowWeightHub` | Start estimate (single flow) |
 | `upload` | `CowWeightUpload` | Select image file |
 | `analyze` | `CowWeightAnalyze` | Run `analyzeCowFromFile`, navigate to scan |
 | `scan` | `CowWeightScan` | **6-step wizard** (main UX) |
@@ -111,7 +111,7 @@ Implemented in [`CowWeightScan.tsx`](../../pages/dashboard/cowWeight/CowWeightSc
 | 1 | Detect | Review green bbox, Leg1/Leg2, C1/C2, L1/L2, facing badge; retake if wrong |
 | 2 | Chest | Drag C1 (top chest) and C2 (lower chest); vertical chest width line |
 | 3 | Length | Drag L1 and L2; horizontal body length line |
-| 4 | Scale | **Plan B:** informational step. **Plan C:** auto reference or tap R1/R2 on 1 m stick |
+| 4 | Scale | Bbox/standoff default; optional 1m stick (auto or tap R1/R2) |
 | 5 | Measure | Review px, cm, estimated weight and meat |
 | 6 | Review | Confirm; POST to API; navigate to result |
 
@@ -123,7 +123,7 @@ On step 1 → 2, chest lines are re-proposed from keypoints via `proposeLinesFro
 
 ### Entry point
 
-[`analyzeCow.ts`](analyzeCow.ts) — `analyzeCowImage(dataUrl, mode)`:
+[`analyzeCow.ts`](analyzeCow.ts) — `analyzeCowImage(dataUrl)` (always tries optional reference detect):
 
 ```typescript
 // Simplified flow
@@ -591,6 +591,8 @@ flowchart TB
 | Save 503 | DB table missing | `cd backend && npm run db:ensure` |
 | Save without image | Cloudinary not configured | Configure Cloudinary env vars or save without image |
 | Weight seems wrong (Plan B) | Bbox height scale assumption | Use Plan C with 1 m reference |
+| Live weight jumps at Step 2 | Old bug: Next overwrote `lines` from keypoints | Fixed — see [`strictweight.md`](strictweight.md) |
+| Detect kg ≠ yellow C1–C2 | Weight uses `lines`, markers use keypoints | Adjust green C1/C2 on Chest step |
 | Session expired on save | Auth token | Sign in again |
 
 ### Developer checks
@@ -605,6 +607,8 @@ flowchart TB
 
 | Document | Purpose |
 |----------|---------|
+| [`strictweight.md`](strictweight.md) | Detect canonical live weight; why Chest jumped; use `lines` for all steps |
+| [`cloudai.md`](cloudai.md) | OpenRouter cloud assist: API, workflow, what touches head vs YOLO markers |
 | [`docs/ai/cow_weight_detection.md`](../../../../docs/ai/cow_weight_detection.md) | Living tracker: status, changelog, phases, API checklist |
 | [`aboutproject.md`](../../../../aboutproject.md) | FarmBondhu project overview |
 | [`frontend/public/models/README.md`](../../public/models/README.md) | ONNX model install |
