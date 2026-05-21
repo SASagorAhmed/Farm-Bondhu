@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Warehouse, PawPrint, Wheat, HeartPulse, BarChart3, Wallet,
-  Skull, DollarSign, LogOut, Menu, PanelLeftClose,
+  Skull, DollarSign, Scale, LogOut, Menu, PanelLeftClose,
   UserCircle, Shield, Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ export default function FarmSidebar() {
     { title: t("sidebar.dashboard"), url: "/dashboard", icon: LayoutDashboard, iconColor: ICON_COLORS.dashboard },
     { title: t("sidebar.farms"), url: "/dashboard/farms", icon: Warehouse, iconColor: ICON_COLORS.warehouse },
     { title: t("sidebar.animals"), url: "/dashboard/animals", icon: PawPrint, iconColor: ICON_COLORS.animals },
+    { title: t("sidebar.cowWeight"), url: "/dashboard/cow-weight", icon: Scale, iconColor: ICON_COLORS.analytics },
     { title: t("sidebar.feedManagement"), url: "/dashboard/feed", icon: Wheat, iconColor: ICON_COLORS.wheat },
     { title: t("sidebar.healthRecords"), url: "/dashboard/health", icon: HeartPulse, iconColor: ICON_COLORS.heartPulse },
     { title: t("sidebar.production"), url: "/dashboard/production", icon: BarChart3, iconColor: ICON_COLORS.analytics },
