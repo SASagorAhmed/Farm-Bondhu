@@ -16,6 +16,9 @@ FORMULA_DIVISOR = 660
 
 # Placeholder: without keypoints we cannot get real chest/length cm from images here.
 # This script reports parsed filename weights and documents the eval gap.
+#
+# When keypoints are exported from the browser pipeline, sweep FORMULA_DIVISOR (660 default)
+# and compare MAE vs filename scale weights — see frontend/src/lib/cowWeight/cowWeightResearch.ts.
 
 WEIGHT_RE = re.compile(
     r"^.+_(?:s|r)_.+_(\d+(?:\.\d+)?)_(?:M|F)\.(?:jpg|jpeg|png)$",
