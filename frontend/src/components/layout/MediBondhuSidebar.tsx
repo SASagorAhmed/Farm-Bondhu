@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarCheck, FileText, LogOut, Menu, PanelLeftClose, Search, LayoutGrid, Stethoscope, UserCircle,
-  Shield, Settings, ClipboardList, CalendarDays,
+  Shield, Settings, ClipboardList, CalendarDays, Users, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -31,15 +31,17 @@ const MEDIBONDHU_ITEMS: NavItem[] = [
 ];
 
 const DOCTOR_ITEMS: NavItem[] = [
-  { title: "Inbox & queue", url: "/medibondhu/doctor/dashboard", icon: ClipboardList, iconColor: MB },
-  { title: "Schedule slots", url: "/medibondhu/doctor/schedule", icon: CalendarDays, iconColor: MB },
-  { title: "Issued prescriptions", url: "/medibondhu/doctor/prescriptions", icon: FileText, iconColor: MB },
-  { title: "Practice profile", url: "/medibondhu/doctor/profile-setup", icon: UserCircle, iconColor: MB },
+  { title: "Dashboard", url: "/medibondhu/doctor/dashboard", icon: ClipboardList, iconColor: MB },
+  { title: "Consultations", url: "/medibondhu/doctor/consultations", icon: CalendarCheck, iconColor: MB },
+  { title: "Patients", url: "/medibondhu/doctor/patients", icon: Users, iconColor: MB },
+  { title: "Prescriptions", url: "/medibondhu/doctor/prescriptions", icon: FileText, iconColor: MB },
+  { title: "Availability", url: "/medibondhu/doctor/schedule", icon: CalendarDays, iconColor: MB },
+  { title: "Earnings", url: "/medibondhu/doctor/earnings", icon: Wallet, iconColor: MB },
 ];
 
 const MEDI_BOTTOM: NavItem[] = [
-  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
   { title: "Profile", url: "/medibondhu/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
   { title: "Settings", url: "/medibondhu/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -55,10 +57,8 @@ export default function MediBondhuSidebar() {
     hasCapability("can_practice_human") || hasRole("admin");
   /** Show doctor section for doctors (pending or approved) and admins. */
   const showDoctorNav = hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human");
-  const doctorNavItems =
-    hasRole("doctor") && !canUseFullDoctorWorkspace
-      ? DOCTOR_ITEMS.filter((it) => it.url === "/medibondhu/doctor/profile-setup")
-      : DOCTOR_ITEMS;
+  const showPatientCareNav = !showDoctorNav;
+  const doctorNavItems = hasRole("doctor") && !canUseFullDoctorWorkspace ? [] : DOCTOR_ITEMS;
   const profilePath = isVetPortalUser ? "/vet/profile" : "/medibondhu/profile";
   const mediBottom = MEDI_BOTTOM.map((item) =>
     item.url === "/medibondhu/profile" ? { ...item, url: profilePath } : item
@@ -101,7 +101,12 @@ export default function MediBondhuSidebar() {
             <>
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-4 w-4" style={{ color: MB }} />
-                <span className="text-sm font-semibold tracking-tight" style={{ color: MB }}>MediBondhu</span>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-sm font-semibold tracking-tight" style={{ color: MB }}>MediBondhu</span>
+                  {showDoctorNav && (
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Doctor panel</span>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
@@ -124,16 +129,18 @@ export default function MediBondhuSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <div className="px-2 py-2">
-          {!collapsed && (
-            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Patient care
-            </p>
-          )}
-          <SidebarMenu>
-            {MEDIBONDHU_ITEMS.map(renderItem)}
-          </SidebarMenu>
-        </div>
+        {showPatientCareNav && (
+          <div className="px-2 py-2">
+            {!collapsed && (
+              <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Patient care
+              </p>
+            )}
+            <SidebarMenu>
+              {MEDIBONDHU_ITEMS.map(renderItem)}
+            </SidebarMenu>
+          </div>
+        )}
 
         {showDoctorNav && (
           <div className="px-2 py-1">
