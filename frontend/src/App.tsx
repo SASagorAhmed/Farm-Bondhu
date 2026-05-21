@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, type ReactNode } from "react";
-import { BrowserRouter, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -42,6 +42,7 @@ import Production from "./pages/dashboard/Production";
 import Finances from "./pages/dashboard/Finances";
 import Mortality from "./pages/dashboard/Mortality";
 import Sales from "./pages/dashboard/Sales";
+import CowWeightEstimator from "./pages/dashboard/cowWeight/CowWeightEstimator";
 import Notifications from "./pages/dashboard/Notifications";
 
 // Marketplace pages
@@ -78,6 +79,9 @@ import MediDoctorSchedule from "./pages/doctor/MediDoctorSchedule";
 import MediDoctorPrescriptions from "./pages/doctor/MediDoctorPrescriptions";
 import MediDoctorPrescriptionNew from "./pages/doctor/MediDoctorPrescriptionNew";
 import MediDoctorProfileSetup from "./pages/doctor/MediDoctorProfileSetup";
+import MediDoctorConsultations from "./pages/doctor/MediDoctorConsultations";
+import MediDoctorPatients from "./pages/doctor/MediDoctorPatients";
+import MediDoctorEarnings from "./pages/doctor/MediDoctorEarnings";
 
 import VetBondhuSpecialities from "./pages/vetbondhu/Specialities";
 import VetBondhuDirectory from "./pages/vetbondhu/VetDirectory";
@@ -310,6 +314,7 @@ const App = () => (
                   <Route index element={<Overview />} />
                   <Route path="farms" element={<Farms />} />
                   <Route path="animals" element={<Animals />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                   <Route path="feed" element={<Feed />} />
                   <Route path="health" element={<Health />} />
                   <Route path="production" element={<Production />} />
@@ -440,10 +445,34 @@ const App = () => (
                     }
                   />
                   <Route
+                    path="doctor/consultations"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorConsultations />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/patients"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorPatients />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="doctor/prescriptions"
                     element={
                       <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
                         <MediDoctorPrescriptions />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/earnings"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorEarnings />
                       </ProtectedRoute>
                     }
                   />
@@ -455,7 +484,7 @@ const App = () => (
                       </ProtectedRoute>
                     }
                   />
-                  <Route path="doctor/profile-setup" element={<MediDoctorProfileSetup />} />
+                  <Route path="doctor/profile-setup" element={<Navigate to="/medibondhu/profile" replace />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["medibondhu", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
