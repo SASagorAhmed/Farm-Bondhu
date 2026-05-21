@@ -67,6 +67,8 @@ export function queryKeys() {
     medibondhuHumanDoctorSchedule: (userId?: string, from?: string, to?: string) =>
       ["medibondhu-human-doctor-slots", userId || "anon", from || "", to || ""] as const,
     medibondhuHumanDoctorProfile: (userId?: string) => ["medibondhu-human-doctor-profile", userId || "anon"] as const,
+    medibondhuHumanDoctorEarnings: (userId?: string) => ["medibondhu-human-doctor-earnings", userId || "anon"] as const,
+    medibondhuHumanAdminDoctorWithdrawals: (status?: string) => ["medibondhu-human-admin-doctor-withdrawals", status || "all"] as const,
   };
 }
 

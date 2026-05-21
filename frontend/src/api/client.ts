@@ -49,7 +49,7 @@ function authHeaders(method: string, hasBody: boolean): HeadersInit {
   return h;
 }
 
-async function apiJson(path: string, init: RequestInit = {}) {
+export async function apiJson(path: string, init: RequestInit = {}) {
   let res: Response;
   let text: string;
   const method = String(init.method || "GET").toUpperCase();
@@ -1256,12 +1256,12 @@ export const api = {
     onAuthStateChange(callback: (event: string, session: AppSession | null) => void) {
       const run = () => {
         const s = readSession();
-        callback("INITIAL_SESSION", s as unknown);
+        callback("INITIAL_SESSION", s);
       };
       queueMicrotask(run);
       const fn = () => {
         const s = readSession();
-        callback("SIGNED_IN", s as unknown);
+        callback("SIGNED_IN", s);
       };
       window.addEventListener("farmbondhu:auth", fn);
       return {
