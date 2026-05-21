@@ -258,7 +258,7 @@ export default function AccessCenter() {
       }
       toast({
         title: "Preference saved",
-        description: checked ? "You will land on MediBondhu after sign-in." : "You will land on your farm dashboard after sign-in.",
+        description: checked ? "You will land on MediBondhu after sign-in." : "You will land on your dashboard after sign-in.",
       });
       await refreshProfile();
     } finally {
@@ -416,14 +416,14 @@ export default function AccessCenter() {
                   {hasCapEnabled && (
                     <div className="space-y-2">
                       <p className="text-xs text-green-600 dark:text-green-400 text-center font-medium">✓ You have full access to this module.</p>
-                      {card.capability === "can_book_human" && hasRole("farmer") && (
+                      {card.capability === "can_book_human" && (
                         <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/60 p-3 text-left">
                           <div className="space-y-0.5 pr-2 min-w-0">
                             <Label htmlFor={`medi-landing-${card.type}`} className="text-sm font-medium cursor-pointer">
                               Open MediBondhu after sign-in
                             </Label>
                             <p className="text-xs text-muted-foreground">
-                              When off, you start on your farm dashboard. This does not turn off MediBondhu access.
+                              When off, you start on your dashboard. This does not turn off MediBondhu access.
                             </p>
                           </div>
                           <Switch

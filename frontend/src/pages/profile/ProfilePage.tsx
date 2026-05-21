@@ -11,6 +11,7 @@ import { UserCircle, Mail, Phone, MapPin, Pencil, X, Save, ArrowLeft } from "luc
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import RoleChangeRequest from "@/components/profile/RoleChangeRequest";
+import MediDoctorProfileSetup from "@/pages/doctor/MediDoctorProfileSetup";
 
 const ROLE_COLORS: Record<string, string> = {
   buyer: "bg-blue-100 text-blue-800",
@@ -22,7 +23,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function ProfilePage() {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, hasRole, hasCapability } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -31,6 +32,7 @@ export default function ProfilePage() {
     phone: user?.phone || "",
     location: user?.location || "",
   });
+  const showDoctorClinicalProfile = hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human");
 
   const handleEdit = () => {
     setForm({
@@ -188,6 +190,14 @@ export default function ProfilePage() {
 
       {/* Role Change Request */}
       {user?.primaryRole !== "admin" && <RoleChangeRequest />}
+
+      {showDoctorClinicalProfile && (
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-foreground">Clinical Profile & Verification</h2>
+          <p className="text-sm text-muted-foreground">Your doctor workspace profile is merged here. Keep practice and verification details up to date.</p>
+          <MediDoctorProfileSetup embedded hideDisplayNameField />
+        </div>
+      )}
     </div>
   );
 }
