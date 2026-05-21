@@ -12,6 +12,7 @@
     "start": "node src/server.js",
     "gen-auth-secret": "node scripts/generate-auth-secret.js",
     "seed:official-admin": "node scripts/seed-official-super-admin.js",
+    "cow:export-feedback": "node scripts/export-cow-detection-feedback.js",
     "lint": "node -e \"console.log('add eslint when needed')\""
   },
   "engines": {
