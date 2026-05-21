@@ -122,6 +122,7 @@ import AdminOrders from "./pages/admin/AdminOrders";
 import AdminCommunity from "./pages/admin/AdminCommunity";
 import VetApprovals from "./pages/admin/VetApprovals";
 import AdminMediBondhuHuman from "./pages/admin/AdminMediBondhuHuman";
+import AdminCowDetectionExport from "./pages/admin/AdminCowDetectionExport";
 
 // Community pages
 import CommunityLayout from "@/components/layout/CommunityLayout";
@@ -547,6 +548,7 @@ const App = () => (
                   <Route path="farms" element={<AdminFarms />} />
                   <Route path="orders" element={<AdminOrders />} />
                   <Route path="community" element={<AdminCommunity />} />
+                  <Route path="cow-detection-export" element={<AdminCowDetectionExport />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications />} />
                   <Route path="settings" element={<Settings />} />
