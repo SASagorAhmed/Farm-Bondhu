@@ -2,9 +2,9 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth, type User, UserRole } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 
-const MEDI_DOCTOR_PROFILE_SETUP = "/medibondhu/doctor/profile-setup";
+const MEDI_DOCTOR_PROFILE_SETUP = "/medibondhu/profile";
 
-/** Pending human doctors (no `can_practice_human` yet) stay on profile setup, not other doctor workspace routes. */
+/** Pending human doctors (no `can_practice_human` yet) can only use merged profile inside MediBondhu. */
 export function shouldRedirectPendingDoctorToMediProfileSetup(
   pathname: string,
   hasRole: (r: UserRole) => boolean,
@@ -12,7 +12,7 @@ export function shouldRedirectPendingDoctorToMediProfileSetup(
 ): boolean {
   if (!hasRole("doctor") || hasRole("admin")) return false;
   if (hasCapability("can_practice_human")) return false;
-  if (!pathname.startsWith("/medibondhu/doctor/")) return false;
+  if (!pathname.startsWith("/medibondhu")) return false;
   return pathname !== MEDI_DOCTOR_PROFILE_SETUP;
 }
 
@@ -92,15 +92,19 @@ export function getDefaultRoute(role: UserRole): string {
     case "farmer": return "/dashboard";
     case "vendor": return "/seller/dashboard";
     case "vet": return "/vet/dashboard";
-    case "doctor": return "/medibondhu/doctor/profile-setup";
+    case "doctor": return "/medibondhu/doctor/dashboard";
     case "admin": return "/admin";
     default: return "/dashboard";
   }
 }
 
-/** Post-login landing: respects farmer “open MediBondhu after sign-in”; otherwise {@link getDefaultRoute}. */
+/** Post-login landing: respects MediBondhu landing preference; OFF always starts from dashboard. */
 export function getPostLoginPath(user: Pick<User, "primaryRole" | "farmerOpenMedibondhu">): string {
-  if (user.primaryRole === "farmer" && user.farmerOpenMedibondhu !== false) {
+  if (user.farmerOpenMedibondhu === false) {
+    return "/dashboard";
+  }
+  const mediLandingRoles = new Set<UserRole>(["farmer", "buyer", "vendor"]);
+  if (mediLandingRoles.has(user.primaryRole) && user.farmerOpenMedibondhu !== false) {
     return "/medibondhu";
   }
   return getDefaultRoute(user.primaryRole);
