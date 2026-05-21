@@ -1,3 +1,4 @@
+import { isStandoffInOptimalBand, standoffHeightMultiplier } from "./cowWeightResearch";
 import type { BBox, CowLines } from "./types";
 import { lineLengthPx } from "./imageUtils";
 
@@ -31,6 +32,18 @@ export function dimensionsFromLines(
   };
 }
 
+/** Adjust assumed standing height when camera standoff is outside optimal band (±8% max). */
+export function assumedHeightCmForStandoff(
+  baseCm = ASSUMED_COW_HEIGHT_CM,
+  standoffM?: number | null
+): { heightCm: number; adjusted: boolean } {
+  if (standoffM == null || standoffM <= 0 || isStandoffInOptimalBand(standoffM)) {
+    return { heightCm: baseCm, adjusted: false };
+  }
+  const mult = standoffHeightMultiplier(standoffM);
+  return { heightCm: Math.round(baseCm * mult * 100) / 100, adjusted: mult !== 1 };
+}
+
 /** Plan B: vertical chest depth scaled by bbox height. */
 export function cmPerPixelFromBBoxHeight(
   bboxHeightPx: number,
@@ -54,14 +67,17 @@ export function cmPerPixelFromBBoxWidth(
 /** Plan B axis-aware: chest uses height scale, length uses width scale. */
 export function dimensionsFromLinesPlanB(
   lines: CowLines,
-  bbox: BBox
+  bbox: BBox,
+  standoffM?: number | null
 ): {
   chest_width_cm: number;
   body_length_cm: number;
   chestCmPerPixel: number;
   lengthCmPerPixel: number;
+  scaleAdjustedForDistance: boolean;
 } {
-  const chestCmPerPixel = cmPerPixelFromBBoxHeight(bbox.height);
+  const { heightCm, adjusted } = assumedHeightCmForStandoff(ASSUMED_COW_HEIGHT_CM, standoffM);
+  const chestCmPerPixel = cmPerPixelFromBBoxHeight(bbox.height, heightCm);
   const lengthCmPerPixel = cmPerPixelFromBBoxWidth(bbox.width);
   const chestPx = lineLengthPx(lines.chest);
   const lengthPx = lineLengthPx(lines.length);
@@ -70,6 +86,7 @@ export function dimensionsFromLinesPlanB(
     body_length_cm: Math.round(lengthPx * lengthCmPerPixel * 100) / 100,
     chestCmPerPixel,
     lengthCmPerPixel,
+    scaleAdjustedForDistance: adjusted,
   };
 }
 

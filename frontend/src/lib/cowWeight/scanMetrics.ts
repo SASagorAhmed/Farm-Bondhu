@@ -57,7 +57,8 @@ export function previewWeightKg(chestWidthCm: number, bodyLengthCm: number): num
 export function computeScanMetrics(
   mode: DetectionMode,
   lines: CowLines,
-  analysis: CowAnalysisResult
+  analysis: CowAnalysisResult,
+  standoffM?: number | null
 ): ScanMetrics {
   const chestPixels = round2(lineLengthPx(lines.chest));
   const lengthPixels = round2(lineLengthPx(lines.length));
@@ -69,21 +70,23 @@ export function computeScanMetrics(
   let scaleMethod: ScanMetrics["scaleMethod"] = "bbox_assumed_150cm";
   let chest_width_cm: number;
   let body_length_cm: number;
+  let scaleAdjustedForDistance = false;
 
-  if (mode === "plan_c" && lines.reference) {
+  if (lines.reference) {
     cmPerPixel = cmPerPixelFromReference(lines.reference);
     scaleMethod = "reference_100cm";
     const dims = dimensionsFromLines(lines, cmPerPixel);
     chest_width_cm = dims.chest_width_cm;
     body_length_cm = dims.body_length_cm;
   } else {
-    const planB = dimensionsFromLinesPlanB(lines, analysis.bbox);
+    const planB = dimensionsFromLinesPlanB(lines, analysis.bbox, standoffM);
     chest_width_cm = planB.chest_width_cm;
     body_length_cm = planB.body_length_cm;
     chestCmPerPixel = planB.chestCmPerPixel;
     lengthCmPerPixel = planB.lengthCmPerPixel;
     cmPerPixel = chestCmPerPixel;
     scaleMethod = "bbox_assumed_150cm";
+    scaleAdjustedForDistance = planB.scaleAdjustedForDistance;
 
     if (import.meta.env.DEV) {
       console.debug("[cow-weight] Plan B scale", {
@@ -104,7 +107,7 @@ export function computeScanMetrics(
   const edibleMeatKg = round2(estimatedLiveWeightKg * 0.55);
 
   let confidence = analysis.confidence;
-  if (mode === "plan_b" && scaleMethod === "bbox_assumed_150cm") {
+  if (scaleMethod === "bbox_assumed_150cm") {
     confidence = Math.min(confidence, 0.55);
   }
 
@@ -121,6 +124,7 @@ export function computeScanMetrics(
     edibleMeatKg,
     confidence,
     scaleMethod,
+    scaleAdjustedForDistance: scaleAdjustedForDistance || undefined,
   };
 }
 
@@ -148,8 +152,8 @@ export function stepShowsLength(step: number) {
   return step === 3 || step >= 5;
 }
 
-export function stepShowsReference(step: number, mode: DetectionMode) {
-  return mode === "plan_c" && (step === 4 || step >= 5);
+export function stepShowsReference(step: number, hasReference: boolean) {
+  return hasReference && (step === 4 || step >= 5);
 }
 
 export function stepAllowsDrag(step: number) {
