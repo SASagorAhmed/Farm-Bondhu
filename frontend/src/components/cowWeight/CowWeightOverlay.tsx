@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { CowBodyDirection } from "@/lib/cowWeight/cowDirection";
 import type { BBox, CowKeypoints, CowLines, LineSegment, Point2D, ScanStepId } from "@/lib/cowWeight/types";
 import { stepShowsBbox, stepShowsChest, stepShowsLength, stepShowsReference, stepAllowsDrag } from "@/lib/cowWeight/scanMetrics";
@@ -10,6 +11,10 @@ type DragTarget =
   | { kind: "chest"; end: "a" | "b" }
   | { kind: "length"; end: "a" | "b" }
   | { kind: "reference"; end: "a" | "b" }
+  | { kind: "leg1" }
+  | { kind: "leg2" }
+  | { kind: "topChest" }
+  | { kind: "lowerChest" }
   | null;
 
 const MAX_DISPLAY_HEIGHT = 600;
@@ -45,11 +50,14 @@ interface CowWeightOverlayProps {
   onLinesChange: (lines: CowLines) => void;
   onReferenceTapMode?: boolean;
   onReferenceTap?: (a: Point2D, b: Point2D) => void;
+  onKeypointsChange?: (keypoints: CowKeypoints) => void;
   keypoints?: CowKeypoints | null;
   /** Step 1: "Cow faces left" / "Cow faces right" (top-right on photo). */
   orientationLabel?: string | null;
   /** Step 1: resolved body direction for head arrow. */
   headDirection?: CowBodyDirection | null;
+  /** Step 1: head region box (vision assist or mask heuristic). */
+  headBbox?: BBox | null;
   /** Segmentation / heuristic body outline (image coordinates). */
   bodyOutline?: Point2D[] | null;
   /** Short label for outline source (Step 1). */
@@ -70,6 +78,8 @@ const BODY_OUTLINE_FILL = "rgba(220, 38, 38, 0.38)";
 const BODY_OUTLINE_STROKE = "#ef4444";
 const LEG_GUIDE_COLOR = "#eab308";
 const KEYPOINT_PREVIEW_CHEST = "#0a6b74";
+const HEAD_BOX_STROKE = "#f97316";
+const HEAD_BOX_FILL = "rgba(249, 115, 22, 0.12)";
 
 export default function CowWeightOverlay({
   imageUrl,
@@ -84,12 +94,15 @@ export default function CowWeightOverlay({
   onLinesChange,
   onReferenceTapMode,
   onReferenceTap,
+  onKeypointsChange,
   keypoints,
   orientationLabel,
   headDirection,
+  headBbox,
   bodyOutline,
   outlineSourceLabel,
 }: CowWeightOverlayProps) {
+  const { t } = useLanguage();
   const wrapRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -99,7 +112,9 @@ export default function CowWeightOverlay({
     computeDisplaySize(400, imageWidth, imageHeight)
   );
 
-  const canDrag = editable && stepAllowsDrag(activeStep) && !onReferenceTapMode;
+  const canDragLines = editable && stepAllowsDrag(activeStep) && !onReferenceTapMode;
+  const canDragStep1Kp =
+    editable && activeStep === 1 && !onReferenceTapMode && !!onKeypointsChange;
 
   const bx = bbox.x;
   const by = bbox.y;
@@ -166,9 +181,28 @@ export default function CowWeightOverlay({
     [imageWidth, imageHeight, scaleX, scaleY]
   );
 
+  const step1Kp = useMemo(
+    () => resolveStep1Keypoints(keypoints, lines, bbox),
+    [keypoints, lines, bbox]
+  );
+
   const pickHandle = (p: Point2D): DragTarget => {
-    if (!canDrag) return null;
     const hits: Array<{ t: DragTarget; d: number }> = [];
+    const addPt = (t: DragTarget, pt: Point2D) => {
+      hits.push({ t, d: Math.hypot(pt.x - p.x, pt.y - p.y) });
+    };
+    if (canDragStep1Kp) {
+      const kp = step1Kp;
+      addPt({ kind: "leg1" }, kp.leg1);
+      addPt({ kind: "leg2" }, kp.leg2);
+      addPt({ kind: "topChest" }, kp.topChest);
+      addPt({ kind: "lowerChest" }, kp.lowerChest);
+    }
+    if (!canDragLines) {
+      hits.sort((a, b) => a.d - b.d);
+      if (hits.length && hits[0].d < hitRadius) return hits[0].t;
+      return null;
+    }
     const add = (kind: "chest" | "length" | "reference", line: LineSegment, end: "a" | "b") => {
       const pt = end === "a" ? line.a : line.b;
       hits.push({ t: { kind, end }, d: Math.hypot(pt.x - p.x, pt.y - p.y) });
@@ -181,7 +215,7 @@ export default function CowWeightOverlay({
       add("length", lines.length, "a");
       add("length", lines.length, "b");
     }
-    if (lines.reference && showReference && stepShowsReference(activeStep, mode)) {
+    if (lines.reference && showReference && stepShowsReference(activeStep, true)) {
       add("reference", lines.reference, "a");
       add("reference", lines.reference, "b");
     }
@@ -192,6 +226,26 @@ export default function CowWeightOverlay({
 
   const updateLine = (target: DragTarget, p: Point2D) => {
     if (!target) return;
+    if (
+      target.kind === "leg1" ||
+      target.kind === "leg2" ||
+      target.kind === "topChest" ||
+      target.kind === "lowerChest"
+    ) {
+      if (!onKeypointsChange) return;
+      const base = step1Kp;
+      const next: CowKeypoints = {
+        ...base,
+        detected: { ...base.detected },
+      };
+      if (target.kind === "leg1") next.leg1 = p;
+      else if (target.kind === "leg2") next.leg2 = p;
+      else if (target.kind === "topChest") next.topChest = p;
+      else if (target.kind === "lowerChest") next.lowerChest = p;
+      next.chestCenterX = (next.topChest.x + next.lowerChest.x) / 2;
+      onKeypointsChange(next);
+      return;
+    }
     const next = { ...lines, chest: { ...lines.chest }, length: { ...lines.length } };
     if (target.kind === "chest") next.chest[target.end] = p;
     else if (target.kind === "length") next.length[target.end] = p;
@@ -258,9 +312,9 @@ export default function CowWeightOverlay({
           y2={b.y}
           stroke={color}
           strokeWidth={lineStrokeW}
-          strokeDasharray={canDrag ? undefined : "6 4"}
+          strokeDasharray={canDragLines ? undefined : "6 4"}
         />
-        {canDrag && (
+        {canDragLines && (
           <>
             <circle cx={a.x} cy={a.y} r={hr} fill={color} stroke="#fff" strokeWidth={Math.max(2, hr * 0.2)} />
             <circle cx={b.x} cy={b.y} r={hr} fill={color} stroke="#fff" strokeWidth={Math.max(2, hr * 0.2)} />
@@ -276,11 +330,6 @@ export default function CowWeightOverlay({
   const frameH = displaySize.h > 0 ? displaySize.h : undefined;
   const bboxClipId = useId().replace(/:/g, "");
   const headArrowMarkerId = useId().replace(/:/g, "");
-
-  const step1Kp = useMemo(
-    () => resolveStep1Keypoints(keypoints, lines, bbox),
-    [keypoints, lines, bbox]
-  );
 
   const bodyOutlinePath = useMemo(() => {
     if (!bodyOutline || bodyOutline.length < 3) return null;
@@ -447,10 +496,20 @@ export default function CowWeightOverlay({
               ?
             </text>
           )}
-          {drawLabeledPoint(kp.leg1, "Leg1", LEG_GUIDE_COLOR, false)}
-          {drawLabeledPoint(kp.leg2, "Leg2", LEG_GUIDE_COLOR, false)}
-          {drawLabeledPoint(kp.topChest, "C1", KEYPOINT_PREVIEW_CHEST, false)}
-          {drawLabeledPoint(kp.lowerChest, "C2", KEYPOINT_PREVIEW_CHEST, false)}
+          {drawLabeledPoint(
+            kp.leg1,
+            t("cowWeight.scan.frontLegShort"),
+            LEG_GUIDE_COLOR,
+            canDragStep1Kp
+          )}
+          {drawLabeledPoint(
+            kp.leg2,
+            t("cowWeight.scan.hindLegShort"),
+            LEG_GUIDE_COLOR,
+            canDragStep1Kp
+          )}
+          {drawLabeledPoint(kp.topChest, "C1", KEYPOINT_PREVIEW_CHEST, canDragStep1Kp)}
+          {drawLabeledPoint(kp.lowerChest, "C2", KEYPOINT_PREVIEW_CHEST, canDragStep1Kp)}
           {drawLabeledPoint(kp.l1, "L1", LENGTH_COLOR, false)}
           {drawLabeledPoint(kp.l2, "L2", LENGTH_COLOR, false)}
         </g>
@@ -510,6 +569,33 @@ export default function CowWeightOverlay({
             />
           )}
 
+          {activeStep === 1 && headBbox && headBbox.width > 0 && headBbox.height > 0 && (
+            <g pointerEvents="none">
+              <rect
+                x={headBbox.x}
+                y={headBbox.y}
+                width={headBbox.width}
+                height={headBbox.height}
+                fill={HEAD_BOX_FILL}
+                stroke={HEAD_BOX_STROKE}
+                strokeWidth={3}
+                strokeDasharray="10 6"
+              />
+              <text
+                x={headBbox.x + 6}
+                y={headBbox.y + Math.max(20, headBbox.height * 0.2)}
+                fill={HEAD_BOX_STROKE}
+                fontSize={Math.max(16, labelFontSize * 0.55)}
+                fontWeight="700"
+                stroke="#fff"
+                strokeWidth={textStrokeW * 0.6}
+                paintOrder="stroke"
+              >
+                {t("cowWeight.scan.headBoxLabel")}
+              </text>
+            </g>
+          )}
+
           {renderStep1Keypoints()}
 
           {stepShowsChest(activeStep) && (
@@ -528,7 +614,7 @@ export default function CowWeightOverlay({
             </>
           )}
 
-          {showReference && lines.reference && stepShowsReference(activeStep, mode) && (
+          {showReference && lines.reference && stepShowsReference(activeStep, true) && (
             <>
               {drawLine(lines.reference, REF_COLOR, "ref")}
               {drawLabeledPoint(lines.reference.a, "R1", REF_COLOR, activeStep === 4)}
@@ -536,7 +622,7 @@ export default function CowWeightOverlay({
             </>
           )}
 
-          {activeStep === 4 && mode === "plan_b" && (
+          {activeStep === 4 && !lines.reference && (
             <line
               x1={bx + bw * 0.05}
               y1={by}
