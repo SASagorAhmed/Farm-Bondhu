@@ -23,6 +23,11 @@ export default function CowWeightResult() {
   }
 
   const b = row.breakdown;
+  const ann = row.annotation_json as {
+    standoffMeters?: number | null;
+    focalLengthMm?: number | null;
+    previewAtSave?: { liveKg?: number };
+  } | null | undefined;
 
   return (
     <div className="space-y-6 max-w-lg">
@@ -55,6 +60,16 @@ export default function CowWeightResult() {
           <p className="text-xs text-muted-foreground">
             {t("cowWeight.dimensions")}: {row.chest_width_cm} × {row.body_length_cm} cm
           </p>
+          {ann?.standoffMeters != null && ann.standoffMeters > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t("cowWeight.result.cameraDistance")}: ~{ann.standoffMeters} m
+            </p>
+          )}
+          {ann?.focalLengthMm != null && ann.focalLengthMm > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t("cowWeight.result.lensExif")}: {Math.round(ann.focalLengthMm)} mm
+            </p>
+          )}
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
             {t("cowWeight.disclaimer")}
           </p>

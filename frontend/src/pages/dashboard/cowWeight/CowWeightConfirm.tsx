@@ -8,7 +8,7 @@ import CowWeightOverlay from "@/components/cowWeight/CowWeightOverlay";
 import type { CowWeightConfirmState, CowWeightResultState } from "@/lib/cowWeight/navigation";
 import type { CowLines, Point2D } from "@/lib/cowWeight/types";
 import { clampLinesToBBox } from "@/lib/cowWeight/proposeLines";
-import { resolveDimensions, saveCowEstimation } from "@/lib/cowWeight/api";
+import { COW_WEIGHT_DETECTION_MODE, resolveDimensions, saveCowEstimation } from "@/lib/cowWeight/api";
 import { compressDataUrl } from "@/lib/cowWeight/imageUtils";
 import { toast } from "sonner";
 
@@ -37,8 +37,8 @@ export default function CowWeightConfirm() {
     );
   }
 
-  const { mode, dataUrl, analysis } = state;
-  const needsRefTap = mode === "plan_c" && !analysis.cmPerPixel && !lines.reference;
+  const { dataUrl, analysis } = state;
+  const hasReference = !!lines.reference;
 
   const overlayImageUrl = analysis.displayImageUrl ?? dataUrl;
 
@@ -55,7 +55,7 @@ export default function CowWeightConfirm() {
     saveInFlight.current = true;
     setSaving(true);
     try {
-      const dims = resolveDimensions(mode, lines, analysis);
+      const dims = resolveDimensions(lines, analysis);
       let filePayload: string | undefined;
       try {
         filePayload = await compressDataUrl(dataUrl);
@@ -63,7 +63,7 @@ export default function CowWeightConfirm() {
         filePayload = dataUrl;
       }
       const row = await saveCowEstimation({
-        detection_mode: mode,
+        detection_mode: COW_WEIGHT_DETECTION_MODE,
         chest_width_cm: dims.chest_width_cm,
         body_length_cm: dims.body_length_cm,
         confidence: dims.confidence,
@@ -74,9 +74,10 @@ export default function CowWeightConfirm() {
           model: analysis.model,
           imageWidth: analysis.imageWidth,
           imageHeight: analysis.imageHeight,
+          scaleMethod: dims.scaleMethod,
         },
       });
-      const next: CowWeightResultState = { estimation: row, mode };
+      const next: CowWeightResultState = { estimation: row, mode: COW_WEIGHT_DETECTION_MODE };
       navigate("/dashboard/cow-weight/result", { state: next });
     } catch (e) {
       const msg = e instanceof Error ? e.message : t("cowWeight.saveFailed");
@@ -93,7 +94,7 @@ export default function CowWeightConfirm() {
   return (
     <div className="space-y-4 max-w-2xl">
       <Button variant="ghost" size="sm" asChild>
-        <Link to={`/dashboard/cow-weight/upload?mode=${mode}`}>
+        <Link to="/dashboard/cow-weight/upload">
           <ArrowLeft className="h-4 w-4 mr-1" />
           {t("cowWeight.retake")}
         </Link>
@@ -110,7 +111,7 @@ export default function CowWeightConfirm() {
           <div className="flex flex-wrap gap-3 text-xs">
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-[#0a6b74]" /> {t("cowWeight.legendChest")}</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-[#c92a2a]" /> {t("cowWeight.legendLength")}</span>
-            {mode === "plan_c" && (
+            {hasReference && (
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-[#f59f00]" /> {t("cowWeight.legendReference")}</span>
             )}
           </div>
@@ -121,26 +122,30 @@ export default function CowWeightConfirm() {
             imageHeight={analysis.imageHeight}
             bbox={analysis.bbox}
             lines={lines}
-            mode={mode}
+            mode="plan_b"
             activeStep={6}
-            showReference={mode === "plan_c"}
+            showReference={hasReference}
             onLinesChange={(next) => setLines(clampLinesToBBox(next, analysis.bbox))}
             onReferenceTapMode={refTapMode}
             onReferenceTap={onReferenceTap}
             bodyOutline={analysis.bodyOutline}
           />
 
-          {needsRefTap && !refTapMode && (
+          {!hasReference && !refTapMode && (
             <Button type="button" variant="outline" className="w-full" onClick={() => setRefTapMode(true)}>
               {t("cowWeight.tapReference")}
             </Button>
           )}
 
-          {mode === "plan_b" && analysis.confidence < 0.55 && (
+          {!hasReference && analysis.confidence < 0.55 && (
             <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">{t("cowWeight.lowConfidenceB")}</p>
           )}
 
-          <Button className="w-full" disabled={saving || (mode === "plan_c" && needsRefTap && !lines.reference)} onClick={() => void onConfirm()}>
+          <Button
+            className="w-full"
+            disabled={saving || (refTapMode && !lines.reference)}
+            onClick={() => void onConfirm()}
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
             {t("cowWeight.confirmEstimate")}
           </Button>
