@@ -41,6 +41,7 @@ function getNotificationPath(pathname: string): string {
   if (pathname.startsWith("/marketplace")) return "/marketplace/notifications";
   if (pathname.startsWith("/buyer")) return "/buyer/notifications";
   if (pathname.startsWith("/seller")) return "/seller/notifications";
+  if (pathname.startsWith("/community")) return "/community/notifications";
   if (pathname.startsWith("/vet")) return "/vet/notifications";
   if (pathname.startsWith("/vetbondhu")) return "/vetbondhu/notifications";
   if (pathname.startsWith("/medibondhu")) return "/medibondhu/notifications";
