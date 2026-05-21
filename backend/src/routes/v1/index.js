@@ -18,6 +18,7 @@ import publicRoutes from "./public.js";
 import medibondhuRoutes from "./medibondhu.js";
 import vetbondhuRoutes from "./vetbondhu.js";
 import communityRoutes from "./community.js";
+import cowEstimationRoutes from "./cowEstimation.js";
 
 const router = Router();
 
@@ -40,5 +41,6 @@ router.use("/public", publicRoutes);
 router.use("/medibondhu", medibondhuRoutes);
 router.use("/vetbondhu", vetbondhuRoutes);
 router.use("/community", communityRoutes);
+router.use("/cow-estimations", cowEstimationRoutes);
 
 export default router;
