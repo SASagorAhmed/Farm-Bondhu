@@ -17,7 +17,20 @@ import {
   MEDI_BONDHU_TZ,
 } from "@/lib/mediDhakaTime";
 
-type SlotRow = { id: string; slot_date: string; slot_start: string; slot_end: string; booked: boolean };
+type SlotRow = {
+  id: string;
+  slot_date: string;
+  slot_start: string;
+  slot_end: string;
+  booked: boolean;
+  appointment_id?: string | null;
+  consultation_type?: string | null;
+  appointment_status?: string | null;
+  patient_user_id?: string | null;
+  patient_name?: string | null;
+  patient_email?: string | null;
+  consultation_minutes?: number | null;
+};
 
 export default function MediDoctorSchedule() {
   const { user } = useAuth();
@@ -45,16 +58,37 @@ export default function MediDoctorSchedule() {
       const slot_date = day;
       const { slot_start, slot_end } = dhakaSlotRangeToUtcISO(slot_date, start, end);
       if (!(Date.parse(slot_end) > Date.parse(slot_start))) throw new Error("End time must be after start time");
-      const { res, body } = await mediHumanJson(`/doctor/time-slots/bulk`, {
+      if (Date.parse(slot_end) <= Date.now()) {
+        throw new Error("This slot already ended in Bangladesh time. Pick a future end time.");
+      }
+      const { res, body } = await mediHumanJson<{ data?: { inserted_count?: number; requested_count?: number; duplicates_skipped?: number; past_skipped?: number } }>(`/doctor/time-slots/bulk`, {
         method: "POST",
         body: JSON.stringify({
           slots: [{ slot_date, slot_start, slot_end }],
         }),
       });
       if (!res.ok) throw new Error(String((body as { error?: string }).error || res.status));
+      return {
+        insertedCount: Number(body.data?.inserted_count || 0),
+        requestedCount: Number(body.data?.requested_count || 1),
+        duplicatesSkipped: Number(body.data?.duplicates_skipped || 0),
+        pastSkipped: Number(body.data?.past_skipped || 0),
+      };
     },
-    onSuccess: async () => {
-      toast.success("Slot added");
+    onSuccess: async ({ insertedCount, requestedCount, duplicatesSkipped, pastSkipped }) => {
+      if (insertedCount > 0) {
+        toast.success(insertedCount === 1 ? "Slot added" : `${insertedCount} slots added`);
+      } else {
+        if (pastSkipped > 0) {
+          toast.warning("No new slot added. This slot already ended, so it is hidden from patients.");
+        } else {
+          const duplicateHint =
+            duplicatesSkipped > 0 || requestedCount > 0
+              ? "This time slot already exists or was skipped as duplicate."
+              : "No valid slots were inserted.";
+          toast.warning(`No new slot added. ${duplicateHint}`);
+        }
+      }
       await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-slots"] });
     },
     onError: (e: Error) => toast.error(e.message || "Failed"),
@@ -142,11 +176,21 @@ export default function MediDoctorSchedule() {
           <CardDescription>
             Start/end are interpreted as Bangladesh local time. Patients see unbooked slots until each window ends (Bangladesh time), matching your MediBondhu profile.
           </CardDescription>
+          <p className="text-xs text-muted-foreground">
+            Note: if another slot already exists at the same start time, it is skipped as a duplicate.
+          </p>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <Label htmlFor="slot-day">Date</Label>
-            <input id="slot-day" type="date" className="max-w-xs w-full rounded-xl border border-input px-3 py-2.5 text-sm bg-background shadow-sm" value={day} onChange={(e) => setDay(e.target.value)} />
+            <input
+              id="slot-day"
+              type="date"
+              className="max-w-xs w-full rounded-xl border border-input px-3 py-2.5 text-sm bg-background shadow-sm"
+              value={day}
+              min={formatDateYMDInDhaka()}
+              onChange={(e) => setDay(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="slot-start">Start (Bangladesh)</Label>
@@ -172,6 +216,12 @@ export default function MediDoctorSchedule() {
               const now = Date.now();
               const startMs = new Date(s.slot_start).getTime();
               const endMs = new Date(s.slot_end).getTime();
+              const appointmentStatus = String(s.appointment_status || "").toLowerCase();
+              const appointmentLabel = appointmentStatus ? appointmentStatus.replace("_", " ") : "booked";
+              const isPastBooked = Boolean(s.booked) && Number.isFinite(endMs) && endMs <= now;
+              const isCompleted = appointmentStatus === "completed";
+              const isCancelled = appointmentStatus === "cancelled";
+              const isRejected = appointmentStatus === "rejected";
               const inWindow = !s.booked && Number.isFinite(startMs) && Number.isFinite(endMs) && startMs <= now && endMs > now;
               const isFutureOpen = !s.booked && Number.isFinite(startMs) && startMs > now && endMs > now;
               const isPastUnbooked = !s.booked && Number.isFinite(endMs) && endMs <= now;
@@ -196,7 +246,19 @@ export default function MediDoctorSchedule() {
                       })}
                     </Badge>
                     {s.booked ? (
-                      <Badge className="rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-100 border-amber-500/30">Booked</Badge>
+                      isCompleted ? (
+                        <Badge className="rounded-md bg-emerald-500/15 text-emerald-900 dark:text-emerald-100 border-emerald-500/30">Completed</Badge>
+                      ) : isCancelled || isRejected ? (
+                        <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
+                          {appointmentLabel}
+                        </Badge>
+                      ) : isPastBooked ? (
+                        <Badge variant="outline" className="rounded-md font-normal text-xs">
+                          Ended
+                        </Badge>
+                      ) : (
+                        <Badge className="rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-100 border-amber-500/30">Booked</Badge>
+                      )
                     ) : inWindow ? (
                       <Badge className="rounded-md font-normal" style={{ backgroundColor: `${MB}22`, color: MB, borderColor: `${MB}55` }}>
                         In progress · open
@@ -208,15 +270,38 @@ export default function MediDoctorSchedule() {
                     ) : isFutureOpen ? (
                       <Badge variant="secondary" className="rounded-md font-normal">Open</Badge>
                     ) : null}
+                    {s.booked && (
+                      <>
+                        <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
+                          {String(s.consultation_type || "online").toLowerCase() === "offline" ? "Offline" : "Online"}
+                        </Badge>
+                        {!isCompleted && !isCancelled && !isRejected && (
+                          <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
+                            {isPastBooked ? "ended" : appointmentLabel}
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="rounded-md font-normal text-xs">
+                          {Number.isFinite(Number(s.consultation_minutes)) ? `${Number(s.consultation_minutes)} min` : "Duration pending"}
+                        </Badge>
+                      </>
+                    )}
                   </div>
+                  {s.booked && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Patient: {s.patient_name || s.patient_email || "Booked patient"}
+                      {s.patient_email ? ` (${s.patient_email})` : ""}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground font-mono mt-1 truncate max-w-full">{s.id}</p>
                 </div>
-                {!s.booked ? (
+                {!s.booked && isFutureOpen ? (
                   <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive rounded-lg gap-1" disabled={del.isPending} onClick={() => del.mutate(s.id)}>
                     <Trash2 className="h-4 w-4" /> Remove
                   </Button>
+                ) : !s.booked ? (
+                  <span className="text-xs text-muted-foreground">Past or active slot</span>
                 ) : (
-                  <span className="text-xs text-muted-foreground">Locked while booked</span>
+                  <span className="text-xs text-muted-foreground">Booked slot (read-only)</span>
                 )}
               </div>
             );
