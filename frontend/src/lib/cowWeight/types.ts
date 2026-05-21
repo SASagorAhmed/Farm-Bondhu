@@ -1,6 +1,7 @@
+/** New scans use plan_b only; plan_c is legacy in saved rows. */
 export type DetectionMode = "plan_b" | "plan_c";
 
-/** Wizard steps 1–6 (step 4 content differs by plan_b vs plan_c). */
+/** Wizard steps 1–6 (step 4: bbox scale + optional 1m reference). */
 export type ScanStepId = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type PointLabelId = "C1" | "C2" | "L1" | "L2" | "R1" | "R2";
@@ -19,6 +20,8 @@ export interface ScanMetrics {
   edibleMeatKg: number;
   confidence: number;
   scaleMethod: "bbox_assumed_150cm" | "reference_100cm";
+  /** Plan B: assumed cow height adjusted for camera standoff. */
+  scaleAdjustedForDistance?: boolean;
 }
 
 export interface Point2D {
@@ -62,6 +65,8 @@ export interface CowKeypoints {
   chestCenterX: number;
   detected: {
     legs: boolean;
+    /** Hind (or front) column was inferred from tail side when only one hoof peak found. */
+    legsInferred?: boolean;
     lowerChest: boolean;
     topChest?: boolean;
     length: boolean;
@@ -88,6 +93,17 @@ export interface CowAnalysisResult {
   displayImageUrl?: string;
   /** Curved body outline (segmentation or heuristic), image coordinates */
   bodyOutline?: Point2D[];
+  /** Head region box (mask heuristic or vision assist), image coordinates */
+  headBbox?: BBox | null;
+  /** Plan B: estimated camera-to-cow distance (meters) */
+  standoffMeters?: number | null;
+  standoffSource?: "vision" | "heuristic" | null;
+  standoffMethod?: "vision" | "pinhole" | "heuristic" | "blended" | null;
+  standoffWarningKey?: string | null;
+  focalLengthMm?: number | null;
+  /** Set after cloud assist on Analyze or Scan — skip duplicate API when present. */
+  directionVerifySource?: "vision" | "local" | "none";
+  visionAssistApplied?: boolean;
 }
 
 export interface CowEstimationBreakdown {
@@ -109,4 +125,5 @@ export interface CowEstimationRow {
   confidence?: number | null;
   image_url?: string | null;
   created_at: string;
+  annotation_json?: Record<string, unknown> | null;
 }
