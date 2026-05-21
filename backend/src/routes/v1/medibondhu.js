@@ -37,6 +37,15 @@ function readOffset(v) {
   return Math.max(Math.trunc(n), 0);
 }
 
+function toTextOrNull(value) {
+  const text = value == null ? "" : String(value).trim();
+  return text ? text : null;
+}
+
+function toMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
 /** @param {unknown} u */
 function isUuid(u) {
   return typeof u === "string" && /^[0-9a-f-]{36}$/i.test(u);
@@ -86,6 +95,82 @@ async function isDoctorApprovedUser(userId) {
     limit 1
   `;
   return row?.id ? String(row.id) : null;
+}
+
+async function computeDoctorEarningsSummary(doctorUserId) {
+  const [grossRow] = await sql`
+    select
+      coalesce(sum(coalesce(d.consultation_fee, 0)), 0) as gross_earnings,
+      count(*)::int as consultation_count
+    from medibondhu_appointments a
+    join medibondhu_doctors d on d.id = a.doctor_id
+    where d.user_id = ${doctorUserId}
+      and a.status = 'completed'
+  `;
+  const [monthlyRow] = await sql`
+    select
+      coalesce(sum(coalesce(d.consultation_fee, 0)), 0) as monthly_gross
+    from medibondhu_appointments a
+    join medibondhu_doctors d on d.id = a.doctor_id
+    where d.user_id = ${doctorUserId}
+      and a.status = 'completed'
+      and date_trunc('month', a.updated_at) = date_trunc('month', now())
+  `;
+  let withdrawRow = null;
+  try {
+    [withdrawRow] = await sql`
+      select
+        coalesce(sum(case when status in ('approved', 'paid') then request_amount else 0 end), 0) as withdrawn_total,
+        coalesce(sum(case when status = 'pending' then request_amount else 0 end), 0) as pending_withdraw_total
+      from medibondhu_doctor_withdrawals
+      where doctor_user_id = ${doctorUserId}
+    `;
+  } catch (e) {
+    const code = /** @type {{ code?: string }} */ (e)?.code;
+    if (code !== "42P01") throw e;
+    withdrawRow = { withdrawn_total: 0, pending_withdraw_total: 0 };
+  }
+  const gross = toMoney(grossRow?.gross_earnings || 0);
+  const monthlyGross = toMoney(monthlyRow?.monthly_gross || 0);
+  const platformFee = toMoney(gross * 0.15);
+  const net = toMoney(gross - platformFee);
+  const withdrawnTotal = toMoney(withdrawRow?.withdrawn_total || 0);
+  const pendingWithdrawTotal = toMoney(withdrawRow?.pending_withdraw_total || 0);
+  const availableBalance = toMoney(Math.max(0, net - withdrawnTotal - pendingWithdrawTotal));
+
+  return {
+    gross_earnings: gross,
+    consultation_count: Number(grossRow?.consultation_count || 0),
+    monthly_gross: monthlyGross,
+    platform_fee_rate: 0.15,
+    platform_fee: platformFee,
+    net_earnings: net,
+    withdrawn_total: withdrawnTotal,
+    pending_withdraw_total: pendingWithdrawTotal,
+    available_balance: availableBalance,
+  };
+}
+
+async function createDoctorWithdrawalReviewNotification(doctorUserId, requestId, status, reviewNote) {
+  const title = status === "approved" ? "Doctor withdrawal approved" : "Doctor withdrawal rejected";
+  const message = reviewNote
+    ? `Your doctor withdrawal request has been ${status}. Reason: ${reviewNote}`
+    : `Your doctor withdrawal request has been ${status}.`;
+  await sql`
+    insert into notifications ${sql({
+      user_id: doctorUserId,
+      title,
+      message,
+      type: "medibondhu_doctor_withdrawal_review",
+      link: "/medibondhu/doctor/earnings",
+      created_at: new Date().toISOString(),
+    })}
+  `;
+}
+
+async function hasMediDoctorWithdrawalsTable() {
+  const [row] = await sql`select to_regclass('public.medibondhu_doctor_withdrawals') as table_name`;
+  return Boolean(row?.table_name);
 }
 
 /** Calendar YYYY-MM-DD in Asia/Dhaka for an instant — must match MediBondhu patient booking date picker. */
@@ -325,8 +410,8 @@ router.post(
             status: initialStatus,
             payment_status: "unpaid",
             chief_complaint: complain,
-            updated_at: new Date().toISOString(),
-          })}
+        updated_at: new Date().toISOString(),
+      })}
           returning *
         `;
         await tx`
@@ -660,11 +745,41 @@ router.patch(
       return res.status(400).json({ error: "Cannot complete this appointment" });
     }
 
-    const [updated] = await sql`
-      update medibondhu_appointments set status = ${st}, updated_at = now()
-      where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
-      returning *
-    `;
+    let updated;
+    try {
+      [updated] = await sql`
+        update medibondhu_appointments
+        set
+          status = ${st},
+          talk_started_at = case
+            when ${st} = 'in_progress' and talk_started_at is null then now()
+            else talk_started_at
+          end,
+          talk_ended_at = case
+            when ${st} = 'completed' then coalesce(talk_ended_at, now())
+            else talk_ended_at
+          end,
+          updated_at = now()
+        where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
+        returning *
+      `;
+    } catch (e) {
+      const code = /** @type {{ code?: string; message?: string }} */ (e)?.code;
+      const msg = e instanceof Error ? e.message : String(e);
+      const missingTalkColumns =
+        code === "42703" &&
+        (msg.includes("talk_started_at") || msg.includes("talk_ended_at"));
+      if (!missingTalkColumns) throw e;
+
+      [updated] = await sql`
+        update medibondhu_appointments
+        set
+          status = ${st},
+          updated_at = now()
+        where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
+        returning *
+      `;
+    }
     if (!updated) return res.status(404).json({ error: "Not updated" });
 
     if (st === "rejected" && row.slot_id) {
@@ -969,13 +1084,80 @@ router.get(
     const fromD = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : defaultFrom;
     const toD = /^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? toRaw : defaultTo;
 
-    const rows = await sql`
-      select * from medibondhu_doctor_time_slots
-      where doctor_id = ${doctorPk}::uuid
-        and ((slot_start at time zone 'Asia/Dhaka')::date between ${fromD}::date and ${toD}::date)
-      order by slot_start asc
-      limit 500
-    `;
+    let rows;
+    try {
+      rows = await sql`
+        select
+          ts.*,
+          ap.id as appointment_id,
+          ap.consultation_type,
+          ap.status as appointment_status,
+          ap.patient_user_id,
+          ap.talk_started_at,
+          ap.talk_ended_at,
+          p.name as patient_name,
+          p.email as patient_email,
+          case
+            when ap.id is null then null
+            when ap.talk_started_at is not null then greatest(
+              0,
+              floor(extract(epoch from (coalesce(ap.talk_ended_at, now()) - ap.talk_started_at)) / 60)::int
+            )
+            else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
+          end as consultation_minutes
+        from medibondhu_doctor_time_slots ts
+        left join lateral (
+          select a.*
+          from medibondhu_appointments a
+          where a.slot_id = ts.id
+          order by a.created_at desc
+          limit 1
+        ) ap on true
+        left join profiles p on p.id = ap.patient_user_id
+        where ts.doctor_id = ${doctorPk}::uuid
+          and ((ts.slot_start at time zone 'Asia/Dhaka')::date between ${fromD}::date and ${toD}::date)
+        order by ts.slot_start asc
+        limit 500
+      `;
+    } catch (e) {
+      const code = /** @type {{ code?: string; message?: string }} */ (e)?.code;
+      const msg = e instanceof Error ? e.message : String(e);
+      const missingTalkColumns =
+        code === "42703" &&
+        (msg.includes("talk_started_at") || msg.includes("talk_ended_at"));
+      if (!missingTalkColumns) throw e;
+
+      // Backward compatible fallback for environments where schema migration has not run yet.
+      rows = await sql`
+        select
+          ts.*,
+          ap.id as appointment_id,
+          ap.consultation_type,
+          ap.status as appointment_status,
+          ap.patient_user_id,
+          null::timestamptz as talk_started_at,
+          null::timestamptz as talk_ended_at,
+          p.name as patient_name,
+          p.email as patient_email,
+          case
+            when ap.id is null then null
+            else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
+          end as consultation_minutes
+        from medibondhu_doctor_time_slots ts
+        left join lateral (
+          select a.*
+          from medibondhu_appointments a
+          where a.slot_id = ts.id
+          order by a.created_at desc
+          limit 1
+        ) ap on true
+        left join profiles p on p.id = ap.patient_user_id
+        where ts.doctor_id = ${doctorPk}::uuid
+          and ((ts.slot_start at time zone 'Asia/Dhaka')::date between ${fromD}::date and ${toD}::date)
+        order by ts.slot_start asc
+        limit 500
+      `;
+    }
     res.json({ data: rows });
   })
 );
@@ -991,6 +1173,8 @@ router.post(
     const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
     if (!slots.length || slots.length > 200) return res.status(400).json({ error: "slots[] required (max 200)" });
 
+    const nowMs = Date.now();
+    let pastSkipped = 0;
     const rows = slots
       .map((s) => {
         const ss = typeof s.slot_start === "string" ? s.slot_start : "";
@@ -998,6 +1182,10 @@ router.post(
         const ds = Date.parse(ss);
         const de = Date.parse(se);
         if (!Number.isFinite(ds) || !Number.isFinite(de) || de <= ds) return null;
+        if (de <= nowMs) {
+          pastSkipped += 1;
+          return null;
+        }
         const slot_start = new Date(ds).toISOString();
         const slot_end = new Date(de).toISOString();
         const slot_date = slotDateYmdBangladeshFromUtcMs(ds);
@@ -1011,14 +1199,32 @@ router.post(
       })
       .filter(Boolean);
 
-    if (!rows.length) return res.status(400).json({ error: "Invalid slot rows" });
+    if (!rows.length) {
+      return res.status(201).json({
+        data: {
+          inserted_count: 0,
+          requested_count: slots.length,
+          duplicates_skipped: 0,
+          past_skipped: pastSkipped,
+        },
+      });
+    }
 
     const inserted = await sql`
       insert into medibondhu_doctor_time_slots ${sql(rows)}
       on conflict (doctor_id, slot_start) do nothing
       returning id
     `;
-    res.status(201).json({ data: { inserted_count: inserted.length } });
+    const insertedCount = inserted.length;
+    const requestedCount = rows.length;
+    res.status(201).json({
+      data: {
+        inserted_count: insertedCount,
+        requested_count: slots.length,
+        duplicates_skipped: Math.max(0, requestedCount - insertedCount),
+        past_skipped: pastSkipped,
+      },
+    });
   })
 );
 
@@ -1138,10 +1344,10 @@ router.post(
           advice: advice == null ? null : String(advice).slice(0, 4000),
           follow_up_date: follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date)) ? String(follow_up_date) : null,
           status: "issued",
-          updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
         })}
-        returning *
-      `;
+      returning *
+    `;
       const row = ins[0];
       if (!row?.id) throw new Error("PRESCRIPTION_INSERT_FAILED");
 
@@ -1161,6 +1367,299 @@ router.post(
     });
 
     res.status(201).json({ data: prRow });
+  })
+);
+
+router.get(
+  "/doctor-earnings/summary",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const admin = await isAdminReq(req);
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk && !admin) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+
+    const actorUserId = doctorPk ? uid : String(req.query.doctor_user_id || "");
+    if (!isUuid(actorUserId)) return res.status(400).json({ error: "doctor_user_id required for admin view" });
+
+    const summary = await computeDoctorEarningsSummary(actorUserId);
+    const historyLimit = Math.min(Math.max(Number(req.query.history_limit) || 30, 1), 100);
+    const historyRows = await sql`
+      select
+        a.id,
+        coalesce(pp.name, pp.email, 'Patient') as patient_name,
+        coalesce(d.consultation_fee, 0) as fee,
+        a.created_at,
+        a.updated_at as completed_at
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join profiles pp on pp.id = a.patient_user_id
+      where d.user_id = ${actorUserId}
+        and a.status = 'completed'
+      order by a.updated_at desc
+      limit ${historyLimit}
+    `;
+    res.json({
+      data: {
+        ...summary,
+        history: historyRows.map((r) => ({
+          id: r.id,
+          patient_name: toTextOrNull(r.patient_name) || "Patient",
+          fee: toMoney(r.fee || 0),
+          created_at: r.created_at,
+          completed_at: r.completed_at,
+          animal_type: null,
+        })),
+      },
+    });
+  })
+);
+
+router.get(
+  "/doctor-withdrawals",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    try {
+      const rows = await sql`
+        select
+          id,
+          request_amount,
+          gross_earnings,
+          platform_fee,
+          net_earnings,
+          available_balance,
+          status,
+          note,
+          review_note,
+          reviewed_by,
+          reviewed_at,
+          paid_at,
+          created_at,
+          updated_at
+        from medibondhu_doctor_withdrawals
+        where doctor_user_id = ${uid}
+        order by created_at desc
+        limit 200
+      `;
+      res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
+    } catch (e) {
+      const code = /** @type {{ code?: string }} */ (e)?.code;
+      if (code !== "42P01") throw e;
+      res.json({
+        data: [],
+        note: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+  })
+);
+
+router.post(
+  "/doctor-withdrawals",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    const requestAmount = Number(req.body?.request_amount);
+    const note = toTextOrNull(req.body?.note);
+    if (!Number.isFinite(requestAmount) || requestAmount <= 0) {
+      res.status(400).json({ error: "request_amount must be a positive number" });
+      return;
+    }
+    const amount = toMoney(requestAmount);
+    const summary = await computeDoctorEarningsSummary(uid);
+    if (amount > summary.available_balance) {
+      res.status(400).json({ error: "Requested amount exceeds available balance" });
+      return;
+    }
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+    const [created] = await sql`
+      insert into medibondhu_doctor_withdrawals ${sql({
+        doctor_user_id: uid,
+        request_amount: amount,
+        gross_earnings: summary.gross_earnings,
+        platform_fee: summary.platform_fee,
+        net_earnings: summary.net_earnings,
+        available_balance: summary.available_balance,
+        status: "pending",
+        note,
+        review_note: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })}
+      returning *
+    `;
+    res.status(201).json({ data: created });
+  })
+);
+
+router.get(
+  "/admin/doctor-withdrawals",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+    const status = toTextOrNull(req.query.status);
+    const rows = await sql`
+      select
+        dw.*,
+        p.name as doctor_name,
+        p.email as doctor_email
+      from medibondhu_doctor_withdrawals dw
+      left join profiles p on p.id = dw.doctor_user_id
+      where (${status ? sql`dw.status = ${status}` : sql`true`})
+      order by dw.created_at desc
+      limit 300
+    `;
+    res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
+  })
+);
+
+router.get(
+  "/admin/doctor-withdrawals/:id/details",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+    const [request] = await sql`
+      select dw.*, p.name as doctor_name, p.email as doctor_email, p.phone as doctor_phone, p.location as doctor_location
+      from medibondhu_doctor_withdrawals dw
+      left join profiles p on p.id = dw.doctor_user_id
+      where dw.id = ${req.params.id}
+      limit 1
+    `;
+    if (!request) return res.status(404).json({ error: "Withdrawal request not found" });
+
+    const summary = await computeDoctorEarningsSummary(request.doctor_user_id);
+    const consultations = await sql`
+      select
+        a.id,
+        coalesce(pp.name, pp.email, 'Patient') as patient_name,
+        coalesce(d.consultation_fee, 0) as fee,
+        a.created_at,
+        a.updated_at as completed_at
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join profiles pp on pp.id = a.patient_user_id
+      where d.user_id = ${request.doctor_user_id}
+        and a.status = 'completed'
+      order by a.updated_at desc
+      limit 120
+    `;
+    const [doctorProfile] = await sql`
+      select
+        d.id,
+        d.user_id,
+        d.full_name,
+        d.medical_reg_number,
+        d.registration_body,
+        d.approval_status,
+        d.chamber_address,
+        d.consultation_fee,
+        d.qualification,
+        d.experience_years,
+        p.email,
+        p.phone,
+        p.location
+      from medibondhu_doctors d
+      left join profiles p on p.id = d.user_id
+      where d.user_id = ${request.doctor_user_id}
+      order by d.updated_at desc
+      limit 1
+    `;
+    const requestHistory = await sql`
+      select id, request_amount, status, note, review_note, created_at, reviewed_at
+      from medibondhu_doctor_withdrawals
+      where doctor_user_id = ${request.doctor_user_id}
+      order by created_at desc
+      limit 30
+    `;
+    res.json({
+      data: {
+        request,
+        summary,
+        consultations: consultations.map((c) => ({ ...c, fee: toMoney(c.fee || 0) })),
+        doctor_profile: doctorProfile || null,
+        request_history: requestHistory.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })),
+      },
+    });
+  })
+);
+
+router.post(
+  "/admin/doctor-withdrawals/:id/approve",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+    const [current] = await sql`select * from medibondhu_doctor_withdrawals where id = ${req.params.id} limit 1`;
+    if (!current) return res.status(404).json({ error: "Withdrawal request not found" });
+    if (String(current.status) !== "pending") return res.status(409).json({ error: "Only pending requests can be approved" });
+    const note = toTextOrNull(req.body?.note) || toTextOrNull(current.note);
+    const [updated] = await sql`
+      update medibondhu_doctor_withdrawals
+      set ${sql({
+        status: "approved",
+        review_note: note,
+        reviewed_by: req.userId,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })}
+      where id = ${req.params.id}
+      returning *
+    `;
+    await createDoctorWithdrawalReviewNotification(updated.doctor_user_id, updated.id, "approved", updated.review_note);
+    res.json({ data: updated });
+  })
+);
+
+router.post(
+  "/admin/doctor-withdrawals/:id/reject",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
+    const [current] = await sql`select * from medibondhu_doctor_withdrawals where id = ${req.params.id} limit 1`;
+    if (!current) return res.status(404).json({ error: "Withdrawal request not found" });
+    if (String(current.status) !== "pending") return res.status(409).json({ error: "Only pending requests can be rejected" });
+    const note = toTextOrNull(req.body?.note) || "Rejected by admin";
+    const [updated] = await sql`
+      update medibondhu_doctor_withdrawals
+      set ${sql({
+        status: "rejected",
+        review_note: note,
+        reviewed_by: req.userId,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })}
+      where id = ${req.params.id}
+      returning *
+    `;
+    await createDoctorWithdrawalReviewNotification(updated.doctor_user_id, updated.id, "rejected", updated.review_note);
+    res.json({ data: updated });
   })
 );
 
