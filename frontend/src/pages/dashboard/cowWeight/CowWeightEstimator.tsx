@@ -5,6 +5,7 @@ import CowWeightAnalyze from "./CowWeightAnalyze";
 import CowWeightConfirm from "./CowWeightConfirm";
 import CowWeightScan from "./CowWeightScan";
 import CowWeightResult from "./CowWeightResult";
+import CowWeightManual from "./CowWeightManual";
 
 export default function CowWeightEstimator() {
   return (
@@ -15,6 +16,7 @@ export default function CowWeightEstimator() {
       <Route path="scan" element={<CowWeightScan />} />
       <Route path="confirm" element={<CowWeightConfirm />} />
       <Route path="result" element={<CowWeightResult />} />
+      <Route path="manual" element={<CowWeightManual />} />
     </Routes>
   );
 }
