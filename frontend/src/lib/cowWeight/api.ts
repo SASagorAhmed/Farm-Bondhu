@@ -3,8 +3,9 @@ import type { CowAnalysisResult, CowEstimationRow, DetectionMode } from "./types
 
 /** New scans always use plan_b; plan_c is legacy DB value only. */
 export const COW_WEIGHT_DETECTION_MODE: DetectionMode = "plan_b";
-import { dimensionsFromLines, dimensionsFromLinesPlanB } from "./pixelsToCm";
+import { dimensionsFromLines, dimensionsFromLinesPlanD } from "./pixelsToCm";
 import { cmPerPixelFromReference } from "./referenceScale";
+import { computePlanDScale, cmPerPixelFromReferencePlanD } from "./distanceScale";
 import type { CowLines } from "./types";
 
 function authErrorMessage(body: Record<string, unknown>, res: Response): string {
@@ -30,11 +31,26 @@ export function resolveDimensions(
   chest_width_cm: number;
   body_length_cm: number;
   confidence: number;
-  scaleMethod: "reference_100cm" | "bbox_assumed_150cm";
+  scaleMethod: "reference_100cm" | "plan_d_pinhole" | "plan_d_pinhole_stick";
 } {
   const refLine = referenceTap || lines.reference;
+  const planD =
+    analysis.planD ??
+    computePlanDScale({
+      bbox: analysis.bbox,
+      lines,
+      imageWidthPx: analysis.imageWidth,
+      imageHeightPx: analysis.imageHeight,
+      focalLengthMm: analysis.focalLengthMm,
+      standoffMeters: analysis.standoffMeters,
+    });
+
   if (refLine) {
-    const cmPerPixel = cmPerPixelFromReference(refLine);
+    const refPx = Math.hypot(refLine.b.x - refLine.a.x, refLine.b.y - refLine.a.y);
+    let cmPerPixel = cmPerPixelFromReferencePlanD(refPx, planD, true);
+    if (!cmPerPixel || cmPerPixel <= 0) {
+      cmPerPixel = cmPerPixelFromReference(refLine);
+    }
     if (!cmPerPixel || cmPerPixel <= 0) {
       throw new Error("Could not scale from reference. Tap the top and bottom of your 1m stick.");
     }
@@ -42,12 +58,12 @@ export function resolveDimensions(
     return { ...dims, confidence: analysis.confidence, scaleMethod: "reference_100cm" };
   }
 
-  const planB = dimensionsFromLinesPlanB(lines, analysis.bbox, analysis.standoffMeters);
+  const dims = dimensionsFromLinesPlanD(lines, planD.r1, planD.r2);
   return {
-    chest_width_cm: planB.chest_width_cm,
-    body_length_cm: planB.body_length_cm,
-    confidence: Math.min(analysis.confidence, 0.5),
-    scaleMethod: "bbox_assumed_150cm",
+    chest_width_cm: dims.chest_width_cm,
+    body_length_cm: dims.body_length_cm,
+    confidence: Math.min(analysis.confidence, 0.55 + planD.geometryConfidence * 0.35),
+    scaleMethod: "plan_d_pinhole",
   };
 }
 
@@ -56,9 +72,11 @@ export async function saveCowEstimation(payload: {
   chest_width_cm: number;
   body_length_cm: number;
   confidence: number;
+  input_method?: "ai_assisted" | "manual" | "annotated" | "ml";
   annotation_json: Record<string, unknown>;
   file_data?: string;
   image_url?: string;
+  cow_name?: string;
   farm_id?: string;
   animal_id?: string;
 }): Promise<CowEstimationRow> {
@@ -70,7 +88,7 @@ export async function saveCowEstimation(payload: {
     method: "POST",
     body: JSON.stringify({
       ...payload,
-      input_method: "ai_assisted",
+      input_method: payload.input_method ?? "ai_assisted",
       model_version: "browser-v1",
     }),
   });

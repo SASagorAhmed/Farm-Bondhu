@@ -1,9 +1,13 @@
 import type { CowAnalysisResult } from "./types";
 import { loadImageFromDataUrl } from "./imageUtils";
 import { clampLinesToBBox, proposeLinesFromBBox } from "./proposeLines";
-import { detectCowKeypoints, legCentersFromKeypoints } from "./cowKeypoints";
+import {
+  detectCowKeypoints,
+  legCentersFromKeypoints,
+} from "./cowKeypoints";
 import type { CowFacing } from "./cowDirection";
 import { detectReferenceLine, cmPerPixelFromReference } from "./referenceScale";
+import { computePlanDScale } from "./distanceScale";
 import { detectCowInImage } from "./yoloDetect";
 import {
   buildBodyOutlineFromCanvas,
@@ -109,6 +113,7 @@ export function buildAnalysisFromGeometry(
 ): CowAnalysisResult {
   const { displayCanvas, bbox, bodyMask, bodyOutline } = geometry;
 
+  // Direction-native detect path: once head direction is confirmed, run that facing directly.
   const keypoints = detectCowKeypoints(displayCanvas, bbox, bodyMask ?? undefined, {
     forcedFacing: direction?.forcedFacing ?? null,
     directionSource: direction?.assistApplied ? "vision" : "local",
@@ -116,7 +121,11 @@ export function buildAnalysisFromGeometry(
   });
 
   const legCenters = legCentersFromKeypoints(keypoints);
-  const lines = clampLinesToBBox(proposeLinesFromBBox(bbox, keypoints), bbox);
+  const lines = clampLinesToBBox(
+    proposeLinesFromBBox(bbox, keypoints),
+    bbox,
+    keypoints.detected?.facing ?? null
+  );
 
   let cmPerPixel: number | undefined;
   let confidence = bbox.confidence;
@@ -131,6 +140,16 @@ export function buildAnalysisFromGeometry(
 
   const headBbox =
     direction?.headBbox ?? keypoints.detected?.bodyDirection?.headBbox ?? null;
+
+  const planD = computePlanDScale({
+    bbox,
+    lines,
+    imageWidthPx: geometry.imageWidth,
+    imageHeightPx: geometry.imageHeight,
+    focalLengthMm: direction?.focalLengthMm,
+    standoffMeters: direction?.standoffMeters,
+    visionUsed: direction?.standoffSource === "vision",
+  });
 
   return {
     bbox,
@@ -151,12 +170,13 @@ export function buildAnalysisFromGeometry(
     standoffMethod: direction?.standoffMethod ?? null,
     standoffWarningKey: direction?.standoffWarningKey ?? null,
     focalLengthMm: direction?.focalLengthMm ?? null,
+    planD,
     directionVerifySource: direction?.verifySource,
     visionAssistApplied: direction?.assistApplied ?? false,
   };
 }
 
-/** Cloud direction, then YOLO/mask keypoints once (no post-merge chest/legs). */
+/** Cloud direction, then one local keypoint pass + semantic facing (stable leg pixels). */
 export async function analyzeCowImageWithCloudDirection(
   dataUrl: string,
   exif?: PhotoExifMeta | null
