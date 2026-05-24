@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ArrowLeft, Send, Share2, MapPin, Star, Package, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
@@ -245,12 +246,12 @@ export default function ChatDetail() {
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
         <Card className="rounded-b-none border-b-0 overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+          <div className="h-1" style={{ background: marketplaceGradient() }} />
           <div className="flex items-center gap-3 p-3">
             <Button variant="ghost" size="icon" onClick={() => navigate(isBuyer ? "/marketplace/inbox" : "/seller/dashboard")}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div className="h-9 w-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: ICON_COLORS.marketplace }}>
+            <div className="h-9 w-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>
               {convo.other_name.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -347,7 +348,7 @@ export default function ChatDetail() {
       <Card className="rounded-t-none border-t overflow-hidden">
         <form className="flex items-center gap-2 p-3" onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
           <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setShareOpen(true)} title="Share Product">
-            <Share2 className="h-4 w-4" style={{ color: ICON_COLORS.marketplace }} />
+            <Share2 className="h-4 w-4" style={{ color: MARKETPLACE_THEME.primary }} />
           </Button>
           <Input
             id="chatMessageInput"
@@ -358,7 +359,7 @@ export default function ChatDetail() {
             disabled={sending}
             className="flex-1"
           />
-          <Button type="submit" size="icon" disabled={sending || !newMsg.trim()} style={{ backgroundColor: ICON_COLORS.marketplace }} className="text-white shrink-0">
+          <Button type="submit" size="icon" disabled={sending || !newMsg.trim()} style={{ backgroundColor: MARKETPLACE_THEME.primary }} className="text-white shrink-0">
             <Send className="h-4 w-4" />
           </Button>
         </form>
@@ -369,7 +370,7 @@ export default function ChatDetail() {
         <DialogContent className="sm:max-w-md max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
-              <Share2 className="h-5 w-5" style={{ color: ICON_COLORS.marketplace }} />
+              <Share2 className="h-5 w-5" style={{ color: MARKETPLACE_THEME.primary }} />
               Share Product
             </DialogTitle>
             <DialogDescription>Search products and tap one to share with the buyer.</DialogDescription>

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Heart, ShoppingBag, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
 import { ICON_COLORS } from "@/lib/iconColors";
 
 export default function Wishlist() {
@@ -32,7 +33,7 @@ export default function Wishlist() {
           <p className="text-sm text-muted-foreground max-w-sm mb-6">
             Wishlist feature is coming soon! You'll be able to save your favorite products and get notified about price drops.
           </p>
-          <Button onClick={() => navigate("/marketplace")} style={{ backgroundColor: ICON_COLORS.cart }}>
+          <Button onClick={() => navigate("/marketplace")} style={{ backgroundColor: MARKETPLACE_THEME.primary }}>
             <ShoppingBag className="h-4 w-4 mr-2" /> Browse Products
           </Button>
         </CardContent>

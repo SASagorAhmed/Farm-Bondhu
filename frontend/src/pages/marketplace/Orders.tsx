@@ -7,12 +7,13 @@ import { ClipboardList, Package, Truck, CheckCircle, XCircle, Clock, RotateCcw, 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
 
 const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
   pending: { color: ICON_COLORS.finance, icon: <Clock className="h-3.5 w-3.5" /> },
-  confirmed: { color: ICON_COLORS.marketplace, icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  packed: { color: ICON_COLORS.marketplace, icon: <Package className="h-3.5 w-3.5" /> },
-  shipped: { color: ICON_COLORS.marketplace, icon: <Truck className="h-3.5 w-3.5" /> },
+  confirmed: { color: MARKETPLACE_THEME.primary, icon: <CheckCircle className="h-3.5 w-3.5" /> },
+  packed: { color: MARKETPLACE_THEME.primary, icon: <Package className="h-3.5 w-3.5" /> },
+  shipped: { color: MARKETPLACE_THEME.primary, icon: <Truck className="h-3.5 w-3.5" /> },
   out_for_delivery: { color: ICON_COLORS.farm, icon: <Truck className="h-3.5 w-3.5" /> },
   delivered: { color: ICON_COLORS.farm, icon: <CheckCircle className="h-3.5 w-3.5" /> },
   cancelled: { color: ICON_COLORS.health, icon: <XCircle className="h-3.5 w-3.5" /> },
@@ -30,10 +31,10 @@ export default function Orders() {
   if (orders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <ClipboardList className="h-16 w-16" style={{ color: `${ICON_COLORS.marketplace}40` }} />
+        <ClipboardList className="h-16 w-16" style={{ color: `${MARKETPLACE_THEME.primary}40` }} />
         <h2 className="text-xl font-display font-bold text-foreground">No orders yet</h2>
         <p className="text-muted-foreground">Browse the marketplace to place your first order</p>
-        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }}>Browse Marketplace</Button>
+        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>Browse Marketplace</Button>
       </div>
     );
   }
@@ -77,11 +78,11 @@ export default function Orders() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Seller: {order.sellerName}</span>
-                        <span className="font-bold" style={{ color: ICON_COLORS.marketplace }}>৳{order.total.toLocaleString()}</span>
+                        <span className="font-bold" style={{ color: MARKETPLACE_THEME.primary }}>৳{order.total.toLocaleString()}</span>
                       </div>
                     </div>
                     <Button variant="ghost" size="icon" className="shrink-0">
-                      <Eye className="h-4 w-4" style={{ color: ICON_COLORS.marketplace }} />
+                      <Eye className="h-4 w-4" style={{ color: MARKETPLACE_THEME.primary }} />
                     </Button>
                   </div>
                 </CardContent>

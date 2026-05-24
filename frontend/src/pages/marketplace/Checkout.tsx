@@ -13,6 +13,8 @@ import { ArrowLeft, MapPin, CreditCard, Banknote, Smartphone, ShieldCheck, Truck
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, computeShippingFee, formatBdt, marketplaceGradient } from "@/lib/marketplaceTheme";
+import PaymentMethodStrip from "@/components/marketplace/PaymentMethodStrip";
 
 const paymentMethods = [
   { id: "cash_on_delivery", label: "Cash on Delivery", icon: Banknote, desc: "Pay when you receive the product" },
@@ -38,16 +40,15 @@ export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
   const [placing, setPlacing] = useState(false);
 
-  const hasFreeDelivery = items.some(i => i.product.freeDelivery);
-  const shippingFee = hasFreeDelivery ? 0 : 60;
+  const shippingFee = computeShippingFee(items);
   const grandTotal = total + shippingFee;
 
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <ShieldCheck className="h-16 w-16" style={{ color: `${ICON_COLORS.marketplace}40` }} />
+        <ShieldCheck className="h-16 w-16" style={{ color: `${MARKETPLACE_THEME.primary}40` }} />
         <h2 className="text-xl font-display font-bold text-foreground">No items to checkout</h2>
-        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }}>Browse Marketplace</Button>
+        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>Browse Marketplace</Button>
       </div>
     );
   }
@@ -91,10 +92,10 @@ export default function Checkout() {
           {/* Delivery Address */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <Card className="shadow-card overflow-hidden">
-              <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.farm})` }} />
+              <div className="h-1" style={{ background: marketplaceGradient() }} />
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 font-display">
-                  <MapPin className="h-5 w-5" style={{ color: ICON_COLORS.marketplace }} />
+                  <MapPin className="h-5 w-5" style={{ color: MARKETPLACE_THEME.primary }} />
                   Delivery Address
                 </CardTitle>
               </CardHeader>
@@ -134,7 +135,7 @@ export default function Checkout() {
           {/* Payment Method */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card className="shadow-card overflow-hidden">
-              <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.finance}, ${ICON_COLORS.marketplace})` }} />
+              <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.finance}, ${MARKETPLACE_THEME.primary})` }} />
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 font-display">
                   <CreditCard className="h-5 w-5" style={{ color: ICON_COLORS.finance }} />
@@ -144,9 +145,9 @@ export default function Checkout() {
               <CardContent>
                 <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-3">
                   {paymentMethods.map(pm => (
-                    <label key={pm.id} className={`flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-all ${paymentMethod === pm.id ? "border-2 bg-accent/30" : "border-border hover:bg-accent/10"}`} style={paymentMethod === pm.id ? { borderColor: ICON_COLORS.marketplace } : undefined}>
+                    <label key={pm.id} className={`flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-all ${paymentMethod === pm.id ? "border-2 bg-accent/30" : "border-border hover:bg-accent/10"}`} style={paymentMethod === pm.id ? { borderColor: MARKETPLACE_THEME.primary } : undefined}>
                       <RadioGroupItem value={pm.id} />
-                      <pm.icon className="h-5 w-5 shrink-0" style={{ color: paymentMethod === pm.id ? ICON_COLORS.marketplace : undefined }} />
+                      <pm.icon className="h-5 w-5 shrink-0" style={{ color: paymentMethod === pm.id ? MARKETPLACE_THEME.primary : undefined }} />
                       <div>
                         <p className="font-medium text-foreground">{pm.label}</p>
                         <p className="text-xs text-muted-foreground">{pm.desc}</p>
@@ -154,6 +155,7 @@ export default function Checkout() {
                     </label>
                   ))}
                 </RadioGroup>
+                <PaymentMethodStrip compact />
               </CardContent>
             </Card>
           </motion.div>
@@ -163,7 +165,7 @@ export default function Checkout() {
         <div className="space-y-4">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
             <Card className="shadow-card overflow-hidden sticky top-4">
-              <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+              <div className="h-1" style={{ background: marketplaceGradient() }} />
               <CardHeader>
                 <CardTitle className="font-display">Order Summary</CardTitle>
               </CardHeader>
@@ -177,25 +179,25 @@ export default function Checkout() {
                       <p className="text-sm font-medium text-foreground truncate">{item.product.name}</p>
                       <p className="text-xs text-muted-foreground">×{item.quantity}</p>
                     </div>
-                    <p className="text-sm font-medium text-foreground">৳{(item.product.price * item.quantity).toLocaleString()}</p>
+                    <p className="text-sm font-medium text-foreground">{formatBdt(item.product.price * item.quantity)}</p>
                   </div>
                 ))}
 
                 <div className="border-t pt-3 space-y-2 text-sm">
-                  <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>৳{total.toLocaleString()}</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatBdt(total)}</span></div>
                   <div className="flex justify-between text-muted-foreground">
                     <span className="flex items-center gap-1"><Truck className="h-3.5 w-3.5" />Delivery</span>
-                    <span style={{ color: shippingFee === 0 ? ICON_COLORS.farm : undefined }}>{shippingFee === 0 ? "FREE" : `৳${shippingFee}`}</span>
+                    <span style={{ color: shippingFee === 0 ? MARKETPLACE_THEME.trustIcon : undefined }}>{shippingFee === 0 ? "FREE" : formatBdt(shippingFee)}</span>
                   </div>
                   <div className="border-t pt-2 flex justify-between items-center">
                     <span className="font-display font-bold text-lg text-foreground">Total</span>
-                    <span className="font-display font-bold text-2xl" style={{ color: ICON_COLORS.marketplace }}>৳{grandTotal.toLocaleString()}</span>
+                    <span className="font-display font-bold text-2xl" style={{ color: MARKETPLACE_THEME.primary }}>{formatBdt(grandTotal)}</span>
                   </div>
                 </div>
 
                 <Button
                   className="w-full h-12 text-white text-base font-bold"
-                  style={{ backgroundColor: ICON_COLORS.marketplace }}
+                  style={{ backgroundColor: MARKETPLACE_THEME.primary }}
                   onClick={handlePlaceOrder}
                   disabled={placing}
                 >
@@ -207,13 +209,13 @@ export default function Checkout() {
                   ) : (
                     <>
                       <ShieldCheck className="h-4 w-4 mr-2" />
-                      Place Order — ৳{grandTotal.toLocaleString()}
+                      Place Order — {formatBdt(grandTotal)}
                     </>
                   )}
                 </Button>
 
                 <p className="text-xs text-center text-muted-foreground">
-                  By placing this order you agree to Firmbondhu's terms of service
+                  By placing this order you agree to FarmBondhu&apos;s terms of service
                 </p>
               </CardContent>
             </Card>

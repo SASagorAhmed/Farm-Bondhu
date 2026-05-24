@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { MessageCircle, Search, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
 
@@ -157,7 +158,7 @@ export default function BuyerInbox() {
       </div>
 
       <Card className="shadow-card overflow-hidden">
-        <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+        <div className="h-1" style={{ background: marketplaceGradient() }} />
         <CardContent className="p-0">
           {isLoading && !conversations.length && <p className="text-center text-muted-foreground py-12">Loading...</p>}
           {!isLoading && loadError && (
@@ -187,7 +188,7 @@ export default function BuyerInbox() {
                 <img src={c.product_image} alt="" className="h-11 w-11 rounded-lg object-cover bg-accent shrink-0" />
               ) : (
                 <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <MessageCircle className="h-5 w-5" style={{ color: ICON_COLORS.marketplace }} />
+                  <MessageCircle className="h-5 w-5" style={{ color: MARKETPLACE_THEME.primary }} />
                 </div>
               )}
               <div className="flex-1 min-w-0">
@@ -196,7 +197,7 @@ export default function BuyerInbox() {
                   <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(c.last_message_at)}</span>
                 </div>
                 {c.product_name && (
-                  <p className="text-xs truncate" style={{ color: ICON_COLORS.marketplace }}>
+                  <p className="text-xs truncate" style={{ color: MARKETPLACE_THEME.primary }}>
                     {c.product_name} {c.product_price ? `• ৳${c.product_price}` : ""}
                   </p>
                 )}

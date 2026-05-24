@@ -13,6 +13,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import { useQuery } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
 
@@ -78,12 +79,12 @@ export default function ProductDetail() {
       <Button variant="ghost" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4 mr-2" />Back</Button>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+          <div className="h-1" style={{ background: marketplaceGradient() }} />
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="relative h-64 md:h-full bg-accent/30 flex items-center justify-center">
               <img src={product.image} alt={product.name} className="h-32 w-32 object-contain opacity-50" />
               {discount > 0 && <Badge className="absolute top-3 left-3 text-sm font-bold" style={{ backgroundColor: ICON_COLORS.health, color: "white" }}>-{discount}% OFF</Badge>}
-              {product.freeDelivery && <div className="absolute bottom-3 left-3 flex items-center gap-1 px-2 py-1 rounded text-xs font-bold" style={{ backgroundColor: ICON_COLORS.marketplace, color: "white" }}><Truck className="h-3.5 w-3.5" /> FREE DELIVERY</div>}
+              {product.freeDelivery && <div className="absolute bottom-3 left-3 flex items-center gap-1 px-2 py-1 rounded text-xs font-bold" style={{ backgroundColor: MARKETPLACE_THEME.primary, color: "white" }}><Truck className="h-3.5 w-3.5" /> FREE DELIVERY</div>}
             </div>
             <CardContent className="p-6 space-y-4">
               <Badge variant="outline">{product.category}</Badge>
@@ -97,7 +98,7 @@ export default function ProductDetail() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
                 <Store className="h-4 w-4" />Sold by <span className="font-medium text-foreground">{product.seller}</span>
                 {product.seller === "FarmBondhu" && <Badge className="text-[10px] gap-1" style={{ backgroundColor: ICON_COLORS.farm, color: "white" }}><ShieldCheck className="h-3 w-3" />FarmBondhu Official</Badge>}
-                {product.is_verified_seller && product.seller !== "FarmBondhu" && <Badge className="text-[10px] gap-1" style={{ backgroundColor: ICON_COLORS.marketplace, color: "white" }}><CheckCircle className="h-3 w-3" />FarmBondhu Verified</Badge>}
+                {product.is_verified_seller && product.seller !== "FarmBondhu" && <Badge className="text-[10px] gap-1" style={{ backgroundColor: MARKETPLACE_THEME.primary, color: "white" }}><CheckCircle className="h-3 w-3" />FarmBondhu Verified</Badge>}
               </div>
               <div className="flex items-baseline gap-3">
                 <p className="text-3xl font-bold" style={{ color: ICON_COLORS.health }}>৳{product.price}</p>
@@ -110,7 +111,7 @@ export default function ProductDetail() {
                 <Button variant="ghost" size="sm" onClick={() => setQty(qty + 1)}>+</Button>
               </div>
               <div className="flex gap-3 flex-wrap">
-                <Button variant="outline" className="flex-1" style={{ borderColor: ICON_COLORS.marketplace, color: ICON_COLORS.marketplace }} onClick={() => { addItem(product, qty); toast.success(`${product.name} added to cart`); }}><ShoppingCart className="h-4 w-4 mr-2" />Add to Cart</Button>
+                <Button variant="outline" className="flex-1" style={{ borderColor: MARKETPLACE_THEME.primary, color: MARKETPLACE_THEME.primary }} onClick={() => { addItem(product, qty); toast.success(`${product.name} added to cart`); }}><ShoppingCart className="h-4 w-4 mr-2" />Add to Cart</Button>
                 <Button className="flex-1 text-white" style={{ backgroundColor: ICON_COLORS.learning }} onClick={() => { addItem(product, qty); navigate("/checkout"); }}><Zap className="h-4 w-4 mr-2" />Buy Now — ৳{(product.price * qty).toLocaleString()}</Button>
               </div>
 
@@ -217,14 +218,14 @@ export default function ProductDetail() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <Card className="shadow-card p-6">
             <div className="flex items-start gap-4 flex-wrap">
-              <div className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: ICON_COLORS.marketplace }}>
+              <div className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>
                 {shop.shop_name?.charAt(0)?.toUpperCase() || "S"}
               </div>
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-lg font-semibold text-foreground">{shop.shop_name}</h3>
                   {shop.is_verified && (
-                    <Badge className="text-[10px] gap-1" style={{ backgroundColor: ICON_COLORS.marketplace, color: "white" }}>
+                    <Badge className="text-[10px] gap-1" style={{ backgroundColor: MARKETPLACE_THEME.primary, color: "white" }}>
                       <CheckCircle className="h-3 w-3" />Verified
                     </Badge>
                   )}
