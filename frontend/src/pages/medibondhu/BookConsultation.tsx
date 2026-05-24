@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { broadcastMediDoctorInboxNewAppointment } from "@/api/client";
 import { queryKeys } from "@/lib/queryClient";
 import { toast } from "sonner";
 import { ArrowLeft, Calendar as CalIcon, CheckCircle2 } from "lucide-react";
@@ -72,7 +73,7 @@ export default function BookConsultation() {
   const book = useMutation({
     mutationFn: async () => {
       if (!doctorId || !slotId) throw new Error("Choose a time slot to continue");
-      const { res, body } = await mediHumanJson<{ data?: { id?: string } }>(`/appointments`, {
+      const { res, body } = await mediHumanJson<{ data?: { id?: string; doctor_user_id?: string | null } }>(`/appointments`, {
         method: "POST",
         body: JSON.stringify({
           doctor_id: doctorId,
@@ -87,6 +88,8 @@ export default function BookConsultation() {
     onSuccess: (data) => {
       toast.success(ctype === "online" ? "Request sent — wait for your doctor to start the visit" : "Appointment confirmed");
       const apptId = data?.id;
+      const doctorUserId = data?.doctor_user_id ? String(data.doctor_user_id) : "";
+      if (doctorUserId && apptId) broadcastMediDoctorInboxNewAppointment(doctorUserId, apptId);
       if (apptId) void qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
       if (!apptId) navigate("/medibondhu/consultations");
       else if (ctype === "online") navigate(`/medibondhu/waiting/${apptId}`);
@@ -115,8 +118,8 @@ export default function BookConsultation() {
         <CardHeader className="pb-2">
           <CardTitle className="text-lg font-display">1. Pick a date</CardTitle>
           <CardDescription>
-            Dates follow the Bangladesh calendar. Times are Bangladesh time (<span className="font-medium">Asia/Dhaka</span>). Open slots stay available until
-            the listed end time (same timezone), not only before the window starts.
+            Dates follow the Bangladesh calendar. Times are Bangladesh time (<span className="font-medium">Asia/Dhaka</span>). Each window stays bookable until
+            its end time — multiple patients may share the same window.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -149,11 +152,11 @@ export default function BookConsultation() {
               <div className="text-sm text-muted-foreground mt-3 rounded-xl border border-dashed border-border p-4 bg-muted/20 space-y-2">
                 <p className="font-medium text-foreground">No open times on this Bangladesh calendar date</p>
                 <p>
-                  Slots are shown only if they are unbooked and the end time has not passed yet in Bangladesh time. If a window already ended, it is automatically
-                  hidden.
+                  Doctors publish availability windows in Bangladesh time ({MEDI_BONDHU_TZ}). A window stays visible until its end time passes — other patients
+                  booking the same window does not hide it.
                 </p>
                 <p>
-                  Try another date, check another MediBondhu doctor, or ask the practice to publish more availability.
+                  Try another date, pick a doctor who shows “Open times listed”, or ask the practice to add availability in the doctor schedule.
                 </p>
               </div>
             )}

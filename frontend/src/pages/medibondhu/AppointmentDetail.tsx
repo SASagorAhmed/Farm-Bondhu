@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { isMediOnlineVideoReady, isMediPatientWaitingForDoctor, mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { toast } from "sonner";
 import { ArrowLeft, Calendar, Info, Stethoscope, UserRound, Video } from "lucide-react";
@@ -63,12 +63,10 @@ export default function AppointmentDetail() {
 
   const st = String(appt.status || "").toLowerCase();
   const cancellable = st !== "cancelled" && st !== "completed";
-  const waitingEligible =
-    String(appt.consultation_type || "").toLowerCase() === "online" && st === "pending" && !["completed", "cancelled", "rejected"].includes(st);
-  const videoEligible =
-    String(appt.consultation_type || "").toLowerCase() === "online" &&
-    ["confirmed", "in_progress"].includes(st) &&
-    !["completed", "cancelled", "rejected"].includes(st);
+  const online = String(appt.consultation_type || "").toLowerCase() === "online";
+  const terminal = ["completed", "cancelled", "rejected"].includes(st);
+  const waitingEligible = online && !terminal && isMediPatientWaitingForDoctor(st);
+  const videoEligible = online && !terminal && isMediOnlineVideoReady(st);
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">

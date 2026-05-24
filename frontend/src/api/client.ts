@@ -1497,5 +1497,53 @@ export function subscribeVetbondhuVetInboxNewBooking(vetUserId: string | null | 
   };
 }
 
+/** Patient device: wake MediBondhu doctor inbox after a new online appointment. */
+export function broadcastMediDoctorInboxNewAppointment(
+  doctorUserId: string | null | undefined,
+  appointmentId: string,
+): void {
+  const client = getRealtimeClient();
+  if (!client || !doctorUserId) return;
+  const topic = `medibondhu-doctor-inbox-${doctorUserId}`;
+  const channel = client.channel(topic);
+  channel.subscribe((status) => {
+    if (status !== "SUBSCRIBED") return;
+    void channel
+      .send({
+        type: "broadcast",
+        event: "new-appointment",
+        payload: { appointmentId },
+      })
+      .finally(() => {
+        void client.removeChannel(channel);
+      });
+  });
+}
+
+/** Doctor dashboard / consultations: refetch when patient books without waiting for postgres replication. */
+export function subscribeMediDoctorInboxNewAppointment(
+  doctorUserId: string | null | undefined,
+  onEvent: () => void,
+): () => void {
+  const client = getRealtimeClient();
+  if (!client || !doctorUserId) return () => {};
+  const topic = `medibondhu-doctor-inbox-${doctorUserId}`;
+  const channel = client.channel(topic).on("broadcast", { event: "new-appointment" }, () => {
+    onEvent();
+  });
+  channel.subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
+
 /** MediBondhu human module (`/v1/medibondhu/*`) — use {@link mediHumanJson} instead of vet consultation {@link api}. */
-export { MEDI_HUMAN_NS, mediHumanAppointmentChannel, mediHumanJson } from "@/lib/medibondhuHuman";
+export {
+  MEDI_HUMAN_NS,
+  acceptMediOnlineVisit,
+  isMediOnlineVideoReady,
+  isMediPatientWaitingForDoctor,
+  mediHumanAppointmentChannel,
+  mediHumanJson,
+  patchMediAppointmentStatus,
+} from "@/lib/medibondhuHuman";

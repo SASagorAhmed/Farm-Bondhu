@@ -1,12 +1,15 @@
+import { useEffect } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { acceptMediOnlineVisit, mediHumanJson } from "@/lib/medibondhuHuman";
+import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealtime";
+import { subscribeMediDoctorInboxNewAppointment } from "@/api/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserRound, Calendar, ClipboardList, FilePlus2, Video } from "lucide-react";
 import { MediSectionTitle, MediStatusBadge, MB } from "@/components/medibondhu/MediChrome";
@@ -27,13 +30,62 @@ export default function MediDoctorDashboard() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [doctorPk, setDoctorPk] = useState<string | null>(null);
   const pageSize = 20;
+  const feedKey = ["medibondhu-human-doctor-feed", user?.id] as const;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setDoctorPk(null);
+      return;
+    }
+    void mediHumanJson<{ data?: { id?: string } | null }>("/doctor/me").then(({ res, body }) => {
+      if (cancelled || !res.ok) return;
+      const id = body.data?.id;
+      setDoctorPk(id ? String(id) : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const invalidateFeed = () => {
+    void qc.invalidateQueries({ queryKey: feedKey });
+    void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0) });
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const unsubBroadcast = subscribeMediDoctorInboxNewAppointment(user.id, invalidateFeed);
+    const unsubPg = subscribeMediHumanAppointments({
+      channelKey: `medi-doctor-dashboard-${user.id}`,
+      doctorPk,
+      onEvent: () => invalidateFeed(),
+    });
+    return () => {
+      unsubBroadcast();
+      unsubPg();
+    };
+  }, [doctorPk, user?.id]);
 
   const q = useInfiniteQuery({
-    queryKey: ["medibondhu-human-doctor-feed", user?.id],
+    queryKey: feedKey,
     enabled: Boolean(user?.id),
     initialPageParam: 0,
     getNextPageParam: (last) => (typeof last?.page?.nextOffset === "number" ? last.page.nextOffset : undefined),
+    refetchInterval: (query) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      const pages = query.state.data?.pages || [];
+      const all = pages.flatMap((p) => p.appointments || []);
+      const hasWaiting = all.some(
+        (a) =>
+          String(a.consultation_type || "").toLowerCase() === "online" &&
+          ["pending", "confirmed"].includes(String(a.status || "").toLowerCase()),
+      );
+      return hasWaiting ? 1500 : 2000;
+    },
     queryFn: async ({ pageParam }) => {
       const offset = pageParam ?? 0;
       const { res, body } = await mediHumanJson<{
@@ -197,24 +249,21 @@ export default function MediDoctorDashboard() {
                         size="sm"
                         className="rounded-lg gap-1.5 text-white order-first sm:order-none"
                         style={{ backgroundColor: MB }}
-                        disabled={act.isPending}
+                        disabled={act.isPending || joiningId === a.id}
                         onClick={async () => {
+                          setJoiningId(a.id);
                           try {
-                            const raw = String(a.status || "").toLowerCase();
-                            if (raw === "pending" || raw === "confirmed") {
-                              const { res, body } = await mediHumanJson(`/appointments/${a.id}`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ status: "in_progress" }),
-                              });
-                              if (!res.ok) {
-                                toast.error(String((body as { error?: string }).error || res.status));
-                                return;
-                              }
+                            const accepted = await acceptMediOnlineVisit(a.id, { currentStatus: a.status });
+                            if (!accepted.ok) {
+                              toast.error(accepted.error || "Unable to start visit");
+                              return;
                             }
-                            await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+                            invalidateFeed();
                             navigate(`/medibondhu/room/${a.id}`);
                           } catch (e) {
                             toast.error((e as Error).message || "Unable to open room");
+                          } finally {
+                            setJoiningId(null);
                           }
                         }}
                       >

@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, FilePlus2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { acceptMediOnlineVisit, mediHumanJson } from "@/lib/medibondhuHuman";
+import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealtime";
+import { subscribeMediDoctorInboxNewAppointment } from "@/api/client";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { MB, MediSectionTitle, MediStatusBadge } from "@/components/medibondhu/MediChrome";
@@ -25,11 +27,58 @@ export default function MediDoctorConsultations() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [doctorPk, setDoctorPk] = useState<string | null>(null);
   const doctorAppointmentsKey = queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setDoctorPk(null);
+      return;
+    }
+    void mediHumanJson<{ data?: { id?: string } | null }>("/doctor/me").then(({ res, body }) => {
+      if (cancelled || !res.ok) return;
+      const id = body.data?.id;
+      setDoctorPk(id ? String(id) : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const invalidateDoctorLists = () => {
+    void queryClient.invalidateQueries({ queryKey: doctorAppointmentsKey });
+    void queryClient.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const unsubBroadcast = subscribeMediDoctorInboxNewAppointment(user.id, invalidateDoctorLists);
+    const unsubPg = subscribeMediHumanAppointments({
+      channelKey: `medi-doctor-consultations-${user.id}`,
+      doctorPk,
+      onEvent: () => invalidateDoctorLists(),
+    });
+    return () => {
+      unsubBroadcast();
+      unsubPg();
+    };
+  }, [doctorPk, user?.id]);
 
   const { data = [], isLoading } = useQuery({
     queryKey: doctorAppointmentsKey,
     enabled: Boolean(user?.id),
+    refetchInterval: (q) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      const list = q.state.data as Appointment[] | undefined;
+      const hasWaiting = (list || []).some(
+        (a) =>
+          String(a.consultation_type || "").toLowerCase() === "online" &&
+          ["pending", "confirmed"].includes(String(a.status || "").toLowerCase()),
+      );
+      return hasWaiting ? 1500 : false;
+    },
     queryFn: async () => {
       const { res, body } = await mediHumanJson<{ data?: { appointments?: Appointment[] } }>(
         "/appointments/bootstrap?view=doctor&limit=80&offset=0"
@@ -61,6 +110,23 @@ export default function MediDoctorConsultations() {
     },
     onError: (e: Error) => toast.error(e.message || "Failed to update consultation"),
   });
+
+  const handleJoinVideo = async (item: Appointment) => {
+    setJoiningId(item.id);
+    try {
+      const accepted = await acceptMediOnlineVisit(item.id, { currentStatus: item.status });
+      if (!accepted.ok) {
+        toast.error(accepted.error || "Unable to start visit");
+        return;
+      }
+      invalidateDoctorLists();
+      navigate(`/medibondhu/room/${item.id}`);
+    } catch (e) {
+      toast.error((e as Error).message || "Unable to open room");
+    } finally {
+      setJoiningId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -104,8 +170,15 @@ export default function MediDoctorConsultations() {
                   {item.chief_complaint && <p className="text-sm text-muted-foreground">{item.chief_complaint}</p>}
                   <div className="flex flex-wrap gap-2">
                     {canJoin && (
-                      <Button type="button" size="sm" className="rounded-lg text-white gap-1.5" style={{ backgroundColor: MB }} onClick={() => navigate(`/medibondhu/room/${item.id}`)}>
-                        <Video className="h-4 w-4" /> Join
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-lg text-white gap-1.5"
+                        style={{ backgroundColor: MB }}
+                        disabled={joiningId === item.id || setStatus.isPending}
+                        onClick={() => void handleJoinVideo(item)}
+                      >
+                        <Video className="h-4 w-4" /> {joiningId === item.id ? "Joining…" : "Join video"}
                       </Button>
                     )}
                     <Button type="button" size="sm" variant="outline" className="rounded-lg" disabled={done || setStatus.isPending} onClick={() => setStatus.mutate({ id: item.id, status: "completed" })}>

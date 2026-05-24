@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { readSession, API_BASE } from "@/api/client";
-import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { acceptMediOnlineVisit, isMediPatientWaitingForDoctor, mediHumanJson } from "@/lib/medibondhuHuman";
+import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealtime";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -44,6 +45,7 @@ type RoomBootstrap = {
     isPatient: boolean;
     isDoctor: boolean;
     canJoinVideo: boolean;
+    slotWithinWindow?: boolean;
     zegoRoomId: string;
   };
 };
@@ -88,6 +90,12 @@ export default function MediHumanConsultationRoom() {
   const skipLeaveHookRef = useRef(false);
   const finalizeBusyRef = useRef(false);
   const terminalNavHandledRef = useRef(false);
+  const doctorAcceptStartedRef = useRef(false);
+  const roomQueryKey = queryKeys().medibondhuHumanConsultationRoom(appointmentId);
+
+  useEffect(() => {
+    doctorAcceptStartedRef.current = false;
+  }, [appointmentId]);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -159,15 +167,48 @@ export default function MediHumanConsultationRoom() {
 
   const terminalNow = useMemo(() => isTerminal(appt?.status), [appt?.status]);
 
-  /** Online visits stay pending until the doctor accepts; avoid loading the video shell for patients. */
+  /** Online visits stay pending/confirmed until the doctor accepts; patients use the waiting room. */
   useEffect(() => {
-    const st = String(appt?.status || "").toLowerCase();
     const online = String(appt?.consultation_type || "").toLowerCase() === "online";
-    if (!appointmentId || terminalNow || !online || permissionDoctor || st !== "pending") return;
+    if (!appointmentId || terminalNow || !online || permissionDoctor) return;
+    if (!isMediPatientWaitingForDoctor(appt?.status)) return;
     navigate(`/medibondhu/waiting/${appointmentId}`, { replace: true });
   }, [appointmentId, appt?.consultation_type, appt?.status, navigate, permissionDoctor, terminalNow]);
 
-  /** v1 realtime: polling via `refetchInterval` plus invalidations (Medi realtime hook intentionally still a stub). */
+  /** Doctor opening the room accepts the visit (pending/confirmed → in_progress), like VetBondhu join. */
+  useEffect(() => {
+    if (!appointmentId || !permissionDoctor || terminalNow) return;
+    const online = String(appt?.consultation_type || "").toLowerCase() === "online";
+    if (!online || !isMediPatientWaitingForDoctor(appt?.status)) return;
+    if (doctorAcceptStartedRef.current) return;
+    doctorAcceptStartedRef.current = true;
+    void (async () => {
+      const accepted = await acceptMediOnlineVisit(appointmentId, { currentStatus: appt?.status });
+      if (!accepted.ok) {
+        doctorAcceptStartedRef.current = false;
+        const msg = accepted.error || "Unable to start visit";
+        setRoomError(msg);
+        toast.error(msg);
+        return;
+      }
+      setRoomError(null);
+      await qc.invalidateQueries({ queryKey: roomQueryKey });
+      void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+      void qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
+    })();
+  }, [appointmentId, appt?.consultation_type, appt?.status, permissionDoctor, qc, roomQueryKey, terminalNow]);
+
+  useEffect(() => {
+    if (!appointmentId) return;
+    return subscribeMediHumanAppointments({
+      channelKey: `medi-human-room-${appointmentId}`,
+      appointmentId,
+      onEvent: () => {
+        void qc.invalidateQueries({ queryKey: roomQueryKey });
+        void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanWaitingRoom(appointmentId) });
+      },
+    });
+  }, [appointmentId, qc, roomQueryKey]);
 
   useEffect(() => {
     if (!appointmentId) return;
@@ -441,7 +482,19 @@ export default function MediHumanConsultationRoom() {
 
       {!canJoinRoom && !terminalNow && (
         <p className="text-sm rounded-lg border px-3 py-2 bg-muted/30 text-muted-foreground">
-          Waiting for your scheduled slot or the consultation is not active yet.
+          {permissionDoctor && isMediPatientWaitingForDoctor(appt?.status)
+            ? "Starting the visit… Video will connect in a moment."
+            : permissionDoctor
+              ? "Visit is not active yet. Refresh or return to the dashboard and use Join video again."
+              : isMediPatientWaitingForDoctor(appt?.status)
+                ? "Waiting for your doctor to start the visit. You will be connected automatically."
+                : "Video is not available for this appointment right now."}
+          {roomBootstrap?.permissions?.slotWithinWindow === false &&
+            String(appt?.status || "").toLowerCase() === "in_progress" && (
+              <span className="block mt-1 text-xs">
+                Note: You are outside the originally scheduled slot time, but the visit can still proceed.
+              </span>
+            )}
         </p>
       )}
 

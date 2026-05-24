@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import StatCard from "@/components/dashboard/StatCard";
 import { CalendarCheck, ChevronRight, Stethoscope, Video, ClipboardList, CheckCircle } from "lucide-react";
-import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { isMediOnlineVideoReady, isMediPatientWaitingForDoctor, mediHumanJson } from "@/lib/medibondhuHuman";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { MediStatusBadge, MB, MediSectionTitle } from "@/components/medibondhu/MediChrome";
@@ -166,7 +166,8 @@ export default function Consultations() {
                     {a.consultation_type}
                   </Badge>
                   <MediStatusBadge status={a.status} />
-                  {String(a.consultation_type || "").toLowerCase() === "online" && String(a.status || "").toLowerCase() === "pending" && (
+                  {String(a.consultation_type || "").toLowerCase() === "online" &&
+                    isMediPatientWaitingForDoctor(a.status) && (
                     <Button
                       type="button"
                       variant="outline"
@@ -182,7 +183,7 @@ export default function Consultations() {
                     </Button>
                   )}
                   {String(a.consultation_type || "").toLowerCase() === "online" &&
-                    ["confirmed", "in_progress"].includes(String(a.status || "").toLowerCase()) && (
+                    isMediOnlineVideoReady(a.status) && (
                     <Button
                       type="button"
                       variant="outline"

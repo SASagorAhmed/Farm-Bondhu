@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
+import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealtime";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { MB } from "@/components/medibondhu/MediChrome";
@@ -28,6 +29,8 @@ export default function MediWaitingRoom() {
   const { appointmentId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const waitingKey = queryKeys().medibondhuHumanWaitingRoom(appointmentId);
   const [elapsed, setElapsed] = useState(0);
   const [tipIndex, setTipIndex] = useState(0);
   const navigatedRef = useRef(false);
@@ -63,18 +66,31 @@ export default function MediWaitingRoom() {
     gcTime: moduleCachePolicy.vet.gcTime,
     refetchInterval: (q) => {
       const st = String((q.state.data as ApptBrief | null | undefined)?.status || "").toLowerCase();
-      return st === "pending" || st === "confirmed" || !st ? 3000 : false;
+      return st === "pending" || st === "confirmed" || !st ? 1500 : false;
     },
     refetchOnWindowFocus: true,
     queryFn: fetchAppt,
   });
 
   useEffect(() => {
+    if (!user?.id || !appointmentId) return;
+    return subscribeMediHumanAppointments({
+      channelKey: `medi-patient-waiting-${appointmentId}`,
+      appointmentId,
+      onEvent: (_event, row) => {
+        void queryClient.invalidateQueries({ queryKey: waitingKey });
+        const st = String(row.status || "").toLowerCase();
+        if (st === "in_progress" && !navigatedRef.current) goRoom(true);
+      },
+    });
+  }, [appointmentId, goRoom, queryClient, user?.id, waitingKey]);
+
+  useEffect(() => {
     if (!appt || navigatedRef.current) return;
     const st = String(appt.status || "").toLowerCase();
     const mine = user?.id && String(appt.patient_user_id || "") === String(user.id);
     if (!mine) return;
-    if (st === "in_progress") goRoom(false);
+    if (st === "in_progress") goRoom(true);
     if (st === "cancelled" || st === "rejected" || st === "completed") {
       navigatedRef.current = true;
       toast.info(st === "completed" ? "This visit already ended." : "This appointment was closed.");

@@ -39,3 +39,65 @@ export const MEDI_HUMAN_REALTIME_TOPIC_PREFIX = "medibondhu-human-appointments";
 export function mediHumanAppointmentChannel(userId: string) {
   return `${MEDI_HUMAN_REALTIME_TOPIC_PREFIX}:${userId}`;
 }
+
+export type MediAppointmentBrief = {
+  id?: string;
+  status?: string | null;
+  consultation_type?: string | null;
+};
+
+function mediErrorMessage(body: unknown, res: Response, fallback: string): string {
+  if (body && typeof body === "object" && "error" in body && typeof (body as { error: unknown }).error === "string") {
+    return (body as { error: string }).error;
+  }
+  return fallback || String(res.status);
+}
+
+/** PATCH appointment status (doctor or patient cancel flows). */
+export async function patchMediAppointmentStatus(
+  appointmentId: string,
+  status: string,
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  const { res, body } = await mediHumanJson<{ data?: Record<string, unknown>; error?: string }>(
+    `/appointments/${appointmentId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  );
+  if (!res.ok) {
+    return { ok: false, error: mediErrorMessage(body, res, "Failed to update appointment") };
+  }
+  return { ok: true, data: body.data };
+}
+
+/**
+ * Doctor accepts an online teleconsult (pending/confirmed → in_progress).
+ * No-op if already in_progress. Returns current status when skipped.
+ */
+export async function acceptMediOnlineVisit(
+  appointmentId: string,
+  opts?: { currentStatus?: string | null },
+): Promise<{ ok: boolean; status?: string; error?: string }> {
+  const raw = String(opts?.currentStatus || "").toLowerCase();
+  if (raw === "in_progress") {
+    return { ok: true, status: "in_progress" };
+  }
+  if (raw && raw !== "pending" && raw !== "confirmed") {
+    return { ok: false, error: `Cannot start visit from status "${raw}"` };
+  }
+  const result = await patchMediAppointmentStatus(appointmentId, "in_progress");
+  if (!result.ok) return { ok: false, error: result.error };
+  const next = String(result.data?.status || "in_progress").toLowerCase();
+  return { ok: true, status: next };
+}
+
+/** Patient waiting for doctor vs ready to join video room. */
+export function isMediPatientWaitingForDoctor(status?: string | null): boolean {
+  const st = String(status || "").toLowerCase();
+  return st === "pending" || st === "confirmed";
+}
+
+export function isMediOnlineVideoReady(status?: string | null): boolean {
+  return String(status || "").toLowerCase() === "in_progress";
+}
