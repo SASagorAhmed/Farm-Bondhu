@@ -38,6 +38,10 @@ function mapDbError(err) {
   return err;
 }
 
+function defaultCowName(id) {
+  return `Cow #${String(id).slice(0, 8)}`;
+}
+
 async function uploadCowImage(fileData, userId) {
   try {
     const uploaded = await uploadToCloudinary(fileData, "cow-estimation", `cow_${userId}`);
@@ -59,7 +63,7 @@ router.get(
   asyncHandler(async (req, res) => {
     try {
       const rows = await sql`
-        select id, user_id, farm_id, animal_id, image_url, chest_width_cm, body_length_cm,
+        select id, user_id, farm_id, animal_id, image_url, cow_name, chest_width_cm, body_length_cm,
                estimated_live_weight_kg, edible_meat_kg, breakdown, detection_mode, input_method,
                confidence, created_at
         from cow_weight_estimations
@@ -147,6 +151,8 @@ router.post(
       }
     }
 
+    const cowNameInput = toTextOrNull(body.cow_name);
+
     const estimates = estimateFromDimensions(chestWidthCm, bodyLengthCm);
     const confidence = toNum(body.confidence);
     const annotationJson =
@@ -159,6 +165,7 @@ router.post(
       farm_id: farmId,
       animal_id: animalId,
       image_url: imageUrl,
+      cow_name: cowNameInput,
       chest_width_cm: chestWidthCm,
       body_length_cm: bodyLengthCm,
       estimated_live_weight_kg: estimates.estimated_live_weight_kg,
@@ -172,10 +179,20 @@ router.post(
     };
 
     try {
-      const [row] = await sql`
+      const [inserted] = await sql`
         insert into cow_weight_estimations ${sql(rowData)}
         returning *
       `;
+      let row = inserted;
+      if (!toTextOrNull(row.cow_name)) {
+        const [updated] = await sql`
+          update cow_weight_estimations
+          set cow_name = ${defaultCowName(row.id)}
+          where id = ${row.id}
+          returning *
+        `;
+        row = updated;
+      }
       res.status(201).json({ data: row });
     } catch (err) {
       throw mapDbError(err);
