@@ -1,3 +1,23 @@
+/** How camera distance on 150–250 cm grid was chosen. */
+export type CameraDistanceSource = "local" | "cloud" | "blended" | "fallback_average";
+
+/** Frozen Plan D snapshot on analysis (strict Detect policy). */
+export interface PlanDMetricsSnapshot {
+  cameraDistanceCm: number;
+  r1: number;
+  r2: number;
+  bodyHeightCm: number;
+  focalLengthPx: number;
+  geometryConfidence: number;
+  pinholePriorCm: number;
+  localPriorCm: number;
+  cloudPriorCm: number | null;
+  distanceSource: CameraDistanceSource;
+  scaleMethod: "plan_d_pinhole" | "plan_d_pinhole_stick";
+  bodyLengthPriorCm: number;
+  groundY: number;
+}
+
 /** New scans use plan_b only; plan_c is legacy in saved rows. */
 export type DetectionMode = "plan_b" | "plan_c";
 
@@ -19,9 +39,23 @@ export interface ScanMetrics {
   estimatedLiveWeightKg: number;
   edibleMeatKg: number;
   confidence: number;
-  scaleMethod: "bbox_assumed_150cm" | "reference_100cm";
+  scaleMethod: "bbox_assumed_150cm" | "reference_100cm" | "plan_d_pinhole" | "plan_d_pinhole_stick";
   /** Plan B: assumed cow height adjusted for camera standoff. */
   scaleAdjustedForDistance?: boolean;
+  /** Plan D: selected camera distance (cm). */
+  cameraDistanceCm?: number;
+  /** Plan D: vertical cm per pixel at chosen Z. */
+  r1?: number;
+  /** Plan D: horizontal cm per pixel at chosen Z. */
+  r2?: number;
+  /** Plan D: hoof-to-withers height (cm) from bbox × r1. */
+  bodyHeightCm?: number;
+  /** Plan D: pinhole geometry confidence 0–1. */
+  geometryConfidence?: number;
+  /** Plan D: local vs cloud vs blended grid selection. */
+  distanceSource?: CameraDistanceSource;
+  /** Plan D: false → UI shows average 180 cm fallback. */
+  groundDistanceDetected?: boolean;
 }
 
 export interface Point2D {
@@ -101,6 +135,8 @@ export interface CowAnalysisResult {
   standoffMethod?: "vision" | "pinhole" | "heuristic" | "blended" | null;
   standoffWarningKey?: string | null;
   focalLengthMm?: number | null;
+  /** Plan D scale snapshot from detect (frozen with strict weight policy). */
+  planD?: PlanDMetricsSnapshot;
   /** Set after cloud assist on Analyze or Scan — skip duplicate API when present. */
   directionVerifySource?: "vision" | "local" | "none";
   visionAssistApplied?: boolean;
@@ -122,8 +158,10 @@ export interface CowEstimationRow {
   chest_width_cm: number;
   body_length_cm: number;
   detection_mode: DetectionMode;
+  input_method?: "ai_assisted" | "manual" | "annotated" | "ml" | null;
   confidence?: number | null;
   image_url?: string | null;
+  cow_name?: string | null;
   created_at: string;
   annotation_json?: Record<string, unknown> | null;
 }
