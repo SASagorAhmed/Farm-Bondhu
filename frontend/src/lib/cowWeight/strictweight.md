@@ -17,15 +17,17 @@ After upload, the app runs YOLO + keypoints and builds **`lines`** (chest + leng
 chest_pixels  = distance(lines.chest.a, lines.chest.b)   // C1→C2 for weight
 length_pixels = distance(lines.length.a, lines.length.b) // L1→L2 for weight
 
-Plan B (no 1 m stick in photo):
-  chest_cm  = chest_pixels × (150 ÷ bbox_height_px)
-  length_cm = length_pixels × (150 ÷ (bbox_width_px × 0.72))
-  [optional ±8% on assumed height if camera distance outside 3–4.5 m]
+Plan D (default, no 1 m stick):
+  Pick camera_distance_cm from {150,160,…,250} (else 180) via pinhole + bbox position
+  r1 = r2 = camera_distance_cm ÷ focal_length_px  (dynamic, not fixed 100 cm)
+  chest_cm  = chest_pixels × r1   (vertical chest Ch1–Ch2)
+  length_cm = length_pixels × r2  (horizontal C1–C2)
+  Ground line = bottom of green bbox (y2)
 
 live_kg = (chest_cm)² × (length_cm) ÷ 660
 ```
 
-Code: [`scanMetrics.ts`](scanMetrics.ts) `computeScanMetrics` + [`pixelsToCm.ts`](pixelsToCm.ts) `dimensionsFromLinesPlanB`.
+Code: [`scanMetrics.ts`](scanMetrics.ts) `computeScanMetrics` + [`distanceScale.ts`](distanceScale.ts) + [`geometry3d.ts`](geometry3d.ts). Frozen `analysis.planD` at Detect keeps kg stable when standoff changes later.
 
 The UI shows **~** because this is an estimate, not a weigh-scale reading.
 
@@ -33,9 +35,11 @@ The UI shows **~** because this is an estimate, not a weigh-scale reading.
 
 ## 2. Step 1 markers vs weight lines
 
-On **Detect**, the overlay may show **yellow/teal** C1/C2/L1/L2 from **keypoints** (AI + vision). Those are for **direction and guidance**.
+On **Detect**, **Ch1/Ch2** use **`lines.chest`**; **C1/C2** (shoulder → rear) use **`lines.length`** — same as Steps 2–3. Front/Hind come from leg keypoints (hoof columns).
 
-**Live weight always uses `lines`**, which can differ slightly from keypoint positions until you edit chest on Step 2.
+**C1 shoulder** is auto-nudged **20%** toward the head along the length line. **C2 rear** X = tail-side **body end** from the **hind-band mask** (rearmost rump/tail edge); **Y** stays on the length row (same horizontal line as C1). Not the Hind hoof marker (**leg2**).
+
+**Live weight always uses `lines`**. Body length px = shoulder to rump (`lines.length`), not nose-to-tail silhouette.
 
 | What you see | What drives kg on Detect |
 |--------------|-------------------------|

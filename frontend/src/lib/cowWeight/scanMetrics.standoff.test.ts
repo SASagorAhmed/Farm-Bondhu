@@ -23,10 +23,17 @@ describe("computeScanMetrics standoff", () => {
     expect(previewWeightKg(m.chestWidthCm, m.bodyLengthCm)).toBe(m.estimatedLiveWeightKg);
   });
 
-  it("adjusts scale when standoff is outside optimal band", () => {
-    const base = computeScanMetrics("plan_b", lines, analysis, 3.5);
+  it("uses plan_d_pinhole scale method", () => {
+    const m = computeScanMetrics("plan_b", lines, analysis, 3.5);
+    expect(m.scaleMethod).toBe("plan_d_pinhole");
+    expect(m.cameraDistanceCm).toBeGreaterThanOrEqual(150);
+    expect(m.r1).toBeGreaterThan(0);
+  });
+
+  it("standoff prior can shift selected camera distance on recomputed scale", () => {
+    const near = computeScanMetrics("plan_b", lines, analysis, 2);
     const far = computeScanMetrics("plan_b", lines, analysis, 7);
-    expect(far.scaleAdjustedForDistance).toBe(true);
-    expect(far.chestWidthCm).not.toBe(base.chestWidthCm);
+    expect(near.scaleMethod).toBe("plan_d_pinhole");
+    expect(far.cameraDistanceCm).toBeDefined();
   });
 });

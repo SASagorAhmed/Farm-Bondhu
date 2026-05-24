@@ -26,6 +26,10 @@ export const FORMULA_DIVISOR_RESEARCH = 660;
 export const PLAUSIBLE_LIVE_KG_MIN = 250;
 export const PLAUSIBLE_LIVE_KG_MAX = 750;
 
+/** Detect-step UI floor values (display only; does not clamp formula). */
+export const DETECT_MIN_LIVE_WEIGHT_KG = 434.5;
+export const DETECT_MIN_EDIBLE_MEAT_KG = Math.round(434.5 * 0.55 * 10) / 10;
+
 /** Blend pinhole with heuristic/vision when not vision-only. */
 export const PINHOLE_BLEND_WEIGHT = 0.4;
 

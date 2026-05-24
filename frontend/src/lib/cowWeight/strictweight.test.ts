@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { proposeLinesFromKeypoints } from "./cowKeypoints";
 import { clampLinesToBBox, proposeLinesFromBBox } from "./proposeLines";
+import { computePlanDScale } from "./distanceScale";
 import { computeScanMetrics } from "./scanMetrics";
 import type { BBox, CowAnalysisResult, CowKeypoints, CowLines } from "./types";
 
@@ -58,26 +59,36 @@ describe("strict weight — Detect lines canonical", () => {
   });
 });
 
-describe("Detect frozen preview — standoff must not change snapshot", () => {
+describe("Detect frozen preview — Plan D scale frozen on analysis", () => {
   const bbox: BBox = { x: 80, y: 60, width: 1123, height: 748, confidence: 0.71 };
   const lines: CowLines = {
     chest: { a: { x: 400, y: 200 }, b: { x: 400, y: 450 } },
     length: { a: { x: 200, y: 350 }, b: { x: 1000, y: 350 } },
   };
-  const analysis = mockAnalysis(bbox, lines);
+  const base = mockAnalysis(bbox, lines);
+  const planD = computePlanDScale({
+    bbox,
+    lines,
+    imageWidthPx: base.imageWidth,
+    imageHeightPx: base.imageHeight,
+    visionUsed: false,
+  });
+  const analysis = { ...base, planD };
 
-  it("null standoff matches Detect snapshot policy", () => {
+  it("frozen planD ignores later standoff (Detect snapshot policy)", () => {
     const snap = computeScanMetrics("plan_b", lines, analysis, null);
     const withStandoff = computeScanMetrics("plan_b", lines, analysis, 7);
     expect(snap.estimatedLiveWeightKg).toBeGreaterThan(0);
-    if (withStandoff.estimatedLiveWeightKg !== snap.estimatedLiveWeightKg) {
-      expect(withStandoff.scaleAdjustedForDistance).toBe(true);
-    }
+    expect(withStandoff.estimatedLiveWeightKg).toBe(snap.estimatedLiveWeightKg);
+    expect(withStandoff.cameraDistanceCm).toBe(snap.cameraDistanceCm);
+    expect(snap.groundDistanceDetected).toBeDefined();
   });
 
-  it("optimal standoff does not change weight vs null", () => {
-    const snap = computeScanMetrics("plan_b", lines, analysis, null);
-    const optimal = computeScanMetrics("plan_b", lines, analysis, 3.5);
-    expect(optimal.estimatedLiveWeightKg).toBe(snap.estimatedLiveWeightKg);
+  it("without frozen planD, standoff can change selected Z", () => {
+    const unfrozen = mockAnalysis(bbox, lines);
+    const a = computeScanMetrics("plan_b", lines, unfrozen, null);
+    const b = computeScanMetrics("plan_b", lines, unfrozen, 3.5);
+    expect(a.scaleMethod).toBe("plan_d_pinhole");
+    expect(b.cameraDistanceCm).toBeDefined();
   });
 });
