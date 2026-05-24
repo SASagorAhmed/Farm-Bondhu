@@ -91,6 +91,8 @@ export const MASK_TAIL_BAND_Y1 = 0.92;
 /** Shoulder–belly torso (excludes narrow head/tail). */
 export const MASK_TORSO_BAND_Y0 = 0.28;
 export const MASK_TORSO_BAND_Y1 = 0.58;
+export const MASK_STRICT_TAIL_Y0 = 0.55;
+export const MASK_STRICT_TAIL_Y1 = 0.95;
 
 const THIRDS_MIN_PIXELS = 20;
 
@@ -176,6 +178,88 @@ export function tailSideFromMaskHindExtremity(
   const tie = bbox.width * 0.02;
   if (Math.abs(distLeft - distRight) < tie) return "unknown";
   return distLeft < distRight ? "left" : "right";
+}
+
+/**
+ * Tail-side body end X in the hind band (max right or min left across rump rows).
+ * Used for C2 rear — wider than the belly-level length row alone.
+ */
+export function maskHindBandTailEndX(
+  mask: CowBodyMask,
+  bbox: BBox,
+  tailOnImageSide: "left" | "right"
+): number | null {
+  const y0 = Math.floor(bbox.y + bbox.height * MASK_TAIL_BAND_Y0);
+  const y1 = Math.floor(bbox.y + bbox.height * MASK_TAIL_BAND_Y1);
+  const minWidth = bbox.width * 0.2;
+  let best: number | null = null;
+  for (let y = y0; y <= y1; y++) {
+    const ext = maskRowExtent(mask, y);
+    if (!ext || ext.right - ext.left < minWidth) continue;
+    if (tailOnImageSide === "right") {
+      best = best === null ? ext.right : Math.max(best, ext.right);
+    } else {
+      best = best === null ? ext.left : Math.min(best, ext.left);
+    }
+  }
+  return best;
+}
+
+/**
+ * Strong tail boundary from a broader rear band (torso+hindquarters).
+ * Uses a robust extremity percentile to avoid single-row spikes.
+ */
+export function maskStrictTailBoundaryX(
+  mask: CowBodyMask,
+  bbox: BBox,
+  tailOnImageSide: "left" | "right"
+): number | null {
+  const y0 = Math.floor(bbox.y + bbox.height * MASK_STRICT_TAIL_Y0);
+  const y1 = Math.floor(bbox.y + bbox.height * MASK_STRICT_TAIL_Y1);
+  const minWidth = bbox.width * 0.18;
+  const candidates: number[] = [];
+  for (let y = y0; y <= y1; y++) {
+    const ext = maskRowExtent(mask, y);
+    if (!ext || ext.right - ext.left < minWidth) continue;
+    candidates.push(tailOnImageSide === "right" ? ext.right : ext.left);
+  }
+  if (candidates.length < 6) return null;
+  candidates.sort((a, b) => a - b);
+  if (tailOnImageSide === "right") {
+    const idx = Math.max(0, Math.floor(candidates.length * 0.9));
+    return candidates[idx];
+  }
+  const idx = Math.max(0, Math.floor(candidates.length * 0.1));
+  return candidates[idx];
+}
+
+/**
+ * Tail-side rear envelope around a target row (used for C2 on same horizontal line).
+ * Scans nearby rows to recover boundary when the single length row has holes.
+ */
+export function maskRearEnvelopeXAtY(
+  mask: CowBodyMask,
+  bbox: BBox,
+  y: number,
+  tailOnImageSide: "left" | "right"
+): number | null {
+  const halfBand = Math.max(10, Math.floor(bbox.height * 0.12));
+  const y0 = Math.max(0, Math.floor(y - halfBand));
+  const y1 = Math.min(mask.height - 1, Math.ceil(y + halfBand));
+  const minWidth = bbox.width * 0.18;
+  const candidates: number[] = [];
+  for (let yy = y0; yy <= y1; yy++) {
+    const ext = maskRowExtent(mask, yy);
+    if (!ext || ext.right - ext.left < minWidth) continue;
+    candidates.push(tailOnImageSide === "right" ? ext.right : ext.left);
+  }
+  if (candidates.length < 5) return null;
+  candidates.sort((a, b) => a - b);
+  if (tailOnImageSide === "right") {
+    return candidates[candidates.length - 1];
+  }
+  const idx = Math.max(0, Math.floor(candidates.length * 0.1));
+  return candidates[idx];
 }
 
 /**
