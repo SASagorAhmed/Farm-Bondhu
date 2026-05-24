@@ -1,39 +1,45 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, ImagePlus, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fileToDataUrl } from "@/lib/cowWeight/imageUtils";
 import { parseExifFromFile } from "@/lib/cowWeight/imageExif";
+import CowWeightPlanBDemoImage from "@/components/cowWeight/CowWeightPlanBDemoImage";
+import CowWeightPhotoActions from "@/components/cowWeight/CowWeightPhotoActions";
+import CowWeightPageShell from "@/components/cowWeight/CowWeightPageShell";
+import type { PhotoCaptureSource } from "@/lib/cowWeight/navigation";
+import { cowWeightBackLinkClass, cowWeightBackLinkStyle } from "@/lib/cowWeight/cowWeightTheme";
+import { useCowWeightPaths } from "@/lib/cowWeight/cowWeightPaths";
 
 const MODE = "plan_b" as const;
 
 export default function CowWeightUpload() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const paths = useCowWeightPaths();
   const [params] = useSearchParams();
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     if (params.get("mode") === "plan_c") {
-      navigate("/dashboard/cow-weight/upload", { replace: true });
+      navigate(paths.upload, { replace: true });
     }
-  }, [params, navigate]);
+  }, [params, navigate, paths.upload]);
 
-  const onFile = async (file: File | undefined) => {
+  const onFile = async (file: File | undefined, photoSource: PhotoCaptureSource) => {
     if (!file || !file.type.startsWith("image/")) return;
     const [dataUrl, exif] = await Promise.all([fileToDataUrl(file), parseExifFromFile(file)]);
-    navigate("/dashboard/cow-weight/analyze", { state: { mode: MODE, dataUrl, exif } });
+    navigate(paths.analyze, {
+      state: { mode: MODE, dataUrl, exif, photoSource },
+    });
   };
 
   const tips = t("cowWeight.tipsUpload");
 
   return (
-    <div className="space-y-6 max-w-lg">
-      <Button variant="ghost" size="sm" asChild>
-        <Link to="/dashboard/cow-weight">
+    <CowWeightPageShell>
+      <Button variant="ghost" size="sm" asChild className={cowWeightBackLinkClass} style={cowWeightBackLinkStyle}>
+        <Link to={paths.hub}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           {t("cowWeight.back")}
         </Link>
@@ -42,37 +48,18 @@ export default function CowWeightUpload() {
       <Card>
         <CardHeader>
           <CardTitle>{t("cowWeight.planBTitle")}</CardTitle>
-          <CardDescription>{t("cowWeight.uploadSubtitle")}</CardDescription>
+          <CardDescription>{t("cowWeight.planBDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <CowWeightPlanBDemoImage />
           <p className="text-sm text-muted-foreground whitespace-pre-line">{tips}</p>
 
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => void onFile(e.target.files?.[0])}
+          <CowWeightPhotoActions
+            layout="stack"
+            onImageFile={(file, source) => void onFile(file, source)}
           />
-          <input
-            ref={galleryRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => void onFile(e.target.files?.[0])}
-          />
-
-          <Button className="w-full h-12" type="button" onClick={() => cameraRef.current?.click()}>
-            <Camera className="h-5 w-5 mr-2" />
-            {t("cowWeight.takePhoto")}
-          </Button>
-          <Button className="w-full h-12" type="button" variant="outline" onClick={() => galleryRef.current?.click()}>
-            <ImagePlus className="h-5 w-5 mr-2" />
-            {t("cowWeight.chooseGallery")}
-          </Button>
         </CardContent>
       </Card>
-    </div>
+    </CowWeightPageShell>
   );
 }
