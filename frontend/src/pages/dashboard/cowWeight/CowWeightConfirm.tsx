@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Check, Loader2 } from "lucide-react";
@@ -11,18 +12,36 @@ import { clampLinesToBBox } from "@/lib/cowWeight/proposeLines";
 import { COW_WEIGHT_DETECTION_MODE, resolveDimensions, saveCowEstimation } from "@/lib/cowWeight/api";
 import { compressDataUrl } from "@/lib/cowWeight/imageUtils";
 import { toast } from "sonner";
+import CowWeightPageShell from "@/components/cowWeight/CowWeightPageShell";
+import CowWeightCallout from "@/components/cowWeight/CowWeightCallout";
+import CowWeightCowNameField from "@/components/cowWeight/CowWeightCowNameField";
+import {
+  cowWeightBackLinkClass,
+  cowWeightBackLinkStyle,
+  cowWeightOutlineButtonClass,
+  cowWeightOutlineButtonStyle,
+  cowWeightPrimaryButtonClass,
+  cowWeightPrimaryButtonStyle,
+} from "@/lib/cowWeight/cowWeightTheme";
+import { useCowWeightPaths } from "@/lib/cowWeight/cowWeightPaths";
 
 export default function CowWeightConfirm() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
+  const paths = useCowWeightPaths();
   const state = location.state as CowWeightConfirmState | null;
 
   const [lines, setLines] = useState<CowLines | null>(() => {
     if (!state?.analysis?.lines || !state.analysis.bbox) return state?.analysis?.lines ?? null;
-    return clampLinesToBBox(state.analysis.lines, state.analysis.bbox);
+    return clampLinesToBBox(
+      state.analysis.lines,
+      state.analysis.bbox,
+      state.analysis.keypoints?.detected?.facing ?? null
+    );
   });
   const [refTapMode, setRefTapMode] = useState(false);
+  const [cowName, setCowName] = useState("");
   const [saving, setSaving] = useState(false);
   const saveInFlight = useRef(false);
 
@@ -30,8 +49,8 @@ export default function CowWeightConfirm() {
     return (
       <div className="p-6 text-center">
         <p className="text-muted-foreground">{t("cowWeight.sessionExpired")}</p>
-        <Button asChild className="mt-4">
-          <Link to="/dashboard/cow-weight">{t("cowWeight.back")}</Link>
+        <Button asChild className={cn("mt-4", cowWeightPrimaryButtonClass)} style={cowWeightPrimaryButtonStyle}>
+          <Link to={paths.hub}>{t("cowWeight.back")}</Link>
         </Button>
       </div>
     );
@@ -44,7 +63,13 @@ export default function CowWeightConfirm() {
 
   const onReferenceTap = (a: Point2D, b: Point2D) => {
     setLines((prev) =>
-      prev ? clampLinesToBBox({ ...prev, reference: { a, b } }, analysis.bbox) : prev
+      prev
+        ? clampLinesToBBox(
+            { ...prev, reference: { a, b } },
+            analysis.bbox,
+            analysis.keypoints?.detected?.facing ?? null
+          )
+        : prev
     );
     setRefTapMode(false);
     toast.success(t("cowWeight.referenceSet"));
@@ -67,6 +92,7 @@ export default function CowWeightConfirm() {
         chest_width_cm: dims.chest_width_cm,
         body_length_cm: dims.body_length_cm,
         confidence: dims.confidence,
+        cow_name: cowName.trim() || undefined,
         file_data: filePayload,
         annotation_json: {
           bbox: analysis.bbox,
@@ -78,7 +104,7 @@ export default function CowWeightConfirm() {
         },
       });
       const next: CowWeightResultState = { estimation: row, mode: COW_WEIGHT_DETECTION_MODE };
-      navigate("/dashboard/cow-weight/result", { state: next });
+      navigate(paths.result, { state: next });
     } catch (e) {
       const msg = e instanceof Error ? e.message : t("cowWeight.saveFailed");
       toast.error(msg);
@@ -92,9 +118,9 @@ export default function CowWeightConfirm() {
   };
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Button variant="ghost" size="sm" asChild>
-        <Link to="/dashboard/cow-weight/upload">
+    <CowWeightPageShell className="space-y-4">
+      <Button variant="ghost" size="sm" asChild className={cowWeightBackLinkClass} style={cowWeightBackLinkStyle}>
+        <Link to={paths.upload}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           {t("cowWeight.retake")}
         </Link>
@@ -125,24 +151,41 @@ export default function CowWeightConfirm() {
             mode="plan_b"
             activeStep={6}
             showReference={hasReference}
-            onLinesChange={(next) => setLines(clampLinesToBBox(next, analysis.bbox))}
+            onLinesChange={(next) =>
+              setLines(
+                clampLinesToBBox(
+                  next,
+                  analysis.bbox,
+                  analysis.keypoints?.detected?.facing ?? null
+                )
+              )
+            }
             onReferenceTapMode={refTapMode}
             onReferenceTap={onReferenceTap}
             bodyOutline={analysis.bodyOutline}
           />
 
           {!hasReference && !refTapMode && (
-            <Button type="button" variant="outline" className="w-full" onClick={() => setRefTapMode(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              className={cn("w-full", cowWeightOutlineButtonClass)}
+              style={cowWeightOutlineButtonStyle}
+              onClick={() => setRefTapMode(true)}
+            >
               {t("cowWeight.tapReference")}
             </Button>
           )}
 
           {!hasReference && analysis.confidence < 0.55 && (
-            <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">{t("cowWeight.lowConfidenceB")}</p>
+            <CowWeightCallout className="rounded-lg">{t("cowWeight.lowConfidenceB")}</CowWeightCallout>
           )}
 
+          <CowWeightCowNameField value={cowName} onChange={setCowName} id="cow-weight-confirm-name" />
+
           <Button
-            className="w-full"
+            className={cn("w-full", cowWeightPrimaryButtonClass)}
+            style={cowWeightPrimaryButtonStyle}
             disabled={saving || (refTapMode && !lines.reference)}
             onClick={() => void onConfirm()}
           >
@@ -151,6 +194,6 @@ export default function CowWeightConfirm() {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </CowWeightPageShell>
   );
 }
