@@ -703,6 +703,8 @@ export async function ensureSchema(sql) {
     await runRequired(sql, `create ${i + 1}/${stmts.length}`, stmts[i]);
   }
 
+  await addColumns(sql, "cow_weight_estimations", ["cow_name text"]);
+
   await addColumns(sql, "profiles", [
     "email text NOT NULL DEFAULT ''",
     "name text NOT NULL DEFAULT 'User'",
