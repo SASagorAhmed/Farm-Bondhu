@@ -11,8 +11,10 @@ import { api } from "@/api/client";
 import { Store, Upload, Clock, CheckCircle2, XCircle, FileText, Plus } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
+import { VENDOR_THEME, vendorGradient } from "@/lib/vendorTheme";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   pending: { bg: `${ICON_COLORS.finance}1A`, text: ICON_COLORS.finance },
@@ -27,6 +29,11 @@ interface ShopData { id: string; shopName: string; description: string; location
 export default function MyShop() {
   const { user, hasCapability } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isVendorContext = location.pathname.startsWith("/seller");
+  const theme = isVendorContext ? VENDOR_THEME : MARKETPLACE_THEME;
+  const gradient = isVendorContext ? vendorGradient() : marketplaceGradient();
+
   const [open, setOpen] = useState(false);
   const [requests, setRequests] = useState<ShopReq[]>([]);
   const [myShop, setMyShop] = useState<ShopData | null>(null);
@@ -35,15 +42,17 @@ export default function MyShop() {
 
   useEffect(() => {
     if (!hasCapability("can_sell")) {
-      const path = window.location.pathname;
-      const prefix = path.startsWith("/dashboard") ? "/dashboard" : "/marketplace";
+      const prefix = location.pathname.startsWith("/seller")
+        ? "/seller"
+        : location.pathname.startsWith("/dashboard")
+          ? "/dashboard"
+          : "/marketplace";
       navigate(`${prefix}/access-center?request=seller_access`, { replace: true });
     }
-  }, [hasCapability, navigate]);
+  }, [hasCapability, navigate, location.pathname]);
 
   useEffect(() => {
     if (!user) return;
-    // Load shop requests
     api.from("approval_requests").select("*").eq("user_id", user.id).eq("request_type", "shop_access").order("created_at", { ascending: false }).then(({ data }) => {
       if (data) setRequests(data.map((r: any) => ({
         id: r.id, shopName: (r.details as any)?.shopName || "N/A", description: (r.details as any)?.description || "",
@@ -52,7 +61,6 @@ export default function MyShop() {
         reviewNote: r.review_notes,
       })));
     });
-    // Load shop
     api.from("shops").select("*").eq("user_id", user.id).single().then(({ data }) => {
       if (data) setMyShop({ id: data.id, shopName: data.shop_name, description: data.description, location: data.location, totalProducts: data.total_products, totalSales: Number(data.total_sales), status: data.status });
     });
@@ -84,10 +92,10 @@ export default function MyShop() {
           <p className="text-muted-foreground mt-1">{hasApproved || myShop ? "Manage your shop and products" : "Request to open a shop on FarmBondhu"}</p>
         </div>
         {hasApproved || myShop ? (
-          <Button className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }} onClick={() => navigate("/seller/dashboard")}><Store className="h-4 w-4 mr-1" /> Go to Seller Dashboard</Button>
+          <Button className="text-white" style={{ backgroundColor: theme.primary }} onClick={() => navigate("/seller/dashboard")}><Store className="h-4 w-4 mr-1" /> Go to Seller Dashboard</Button>
         ) : (
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild><Button className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }} disabled={hasPending}><Plus className="h-4 w-4 mr-1" /> {hasPending ? "Request Pending" : "Request Shop"}</Button></DialogTrigger>
+            <DialogTrigger asChild><Button className="text-white" style={{ backgroundColor: theme.primary }} disabled={hasPending}><Plus className="h-4 w-4 mr-1" /> {hasPending ? "Request Pending" : "Request Shop"}</Button></DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle className="font-display">Request to Open a Shop</DialogTitle>
@@ -102,12 +110,12 @@ export default function MyShop() {
                   <Label htmlFor="nidCardUpload">NID Card (Upload Image)</Label>
                   <div className="mt-1">
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer bg-accent/30 hover:bg-accent/50 transition-colors">
-                      {nidFile ? (<div className="flex flex-col items-center text-foreground"><FileText className="h-8 w-8 mb-1" style={{ color: ICON_COLORS.marketplace }} /><span className="text-sm font-medium">{nidFile.name}</span></div>) : (<div className="flex flex-col items-center text-muted-foreground"><Upload className="h-8 w-8 mb-1" /><span className="text-sm">Click to upload NID card</span></div>)}
+                      {nidFile ? (<div className="flex flex-col items-center text-foreground"><FileText className="h-8 w-8 mb-1" style={{ color: theme.primary }} /><span className="text-sm font-medium">{nidFile.name}</span></div>) : (<div className="flex flex-col items-center text-muted-foreground"><Upload className="h-8 w-8 mb-1" /><span className="text-sm">Click to upload NID card</span></div>)}
                       <input id="nidCardUpload" name="nidCardUpload" type="file" className="hidden" accept="image/*" onChange={e => setNidFile(e.target.files?.[0] || null)} />
                     </label>
                   </div>
                 </div>
-                <Button onClick={handleSubmit} className="w-full text-white" style={{ backgroundColor: ICON_COLORS.marketplace }} disabled={!form.shopName || !form.description || !nidFile}>Submit Request</Button>
+                <Button onClick={handleSubmit} className="w-full text-white" style={{ backgroundColor: theme.primary }} disabled={!form.shopName || !form.description || !nidFile}>Submit Request</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -117,17 +125,17 @@ export default function MyShop() {
       {myShop && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="shadow-card overflow-hidden">
-            <div className="h-1.5" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+            <div className="h-1.5" style={{ background: gradient }} />
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
-                <div className="h-14 w-14 rounded-xl flex items-center justify-center text-white shrink-0" style={{ backgroundColor: ICON_COLORS.marketplace }}><Store className="h-7 w-7" /></div>
+                <div className="h-14 w-14 rounded-xl flex items-center justify-center text-white shrink-0" style={{ backgroundColor: theme.primary }}><Store className="h-7 w-7" /></div>
                 <div className="flex-1">
                   <h3 className="text-xl font-display font-bold text-foreground">{myShop.shopName}</h3>
                   <p className="text-sm text-muted-foreground mt-1">{myShop.description}</p>
                   <div className="flex items-center gap-4 mt-3 text-sm">
                     <span className="text-muted-foreground">📍 {myShop.location}</span>
                     <span className="text-muted-foreground">📦 {myShop.totalProducts} products</span>
-                    <span className="font-medium" style={{ color: ICON_COLORS.marketplace }}>৳{myShop.totalSales.toLocaleString()} total sales</span>
+                    <span className="font-medium" style={{ color: theme.primary }}>৳{myShop.totalSales.toLocaleString()} total sales</span>
                   </div>
                 </div>
                 <Badge style={{ backgroundColor: `${ICON_COLORS.farm}1A`, color: ICON_COLORS.farm }}>{myShop.status}</Badge>
@@ -139,7 +147,7 @@ export default function MyShop() {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+          <div className="h-1" style={{ background: gradient }} />
           <CardHeader><CardTitle className="text-lg font-display">Shop Request History</CardTitle></CardHeader>
           <CardContent>
             {requests.length === 0 ? (

@@ -378,6 +378,7 @@ const App = () => (
                   <Route index element={<MyShop />} />
                 </Route>
                 <Route path="/seller" element={<ProtectedRoute requiredCapability="can_sell"><VendorLayout /></ProtectedRoute>}>
+                  <Route path="my-shop" element={<MyShop />} />
                   <Route path="dashboard" element={<SellerDashboard />} />
                   <Route path="orders" element={<SellerOrders />} />
                   <Route path="products" element={<Products />} />

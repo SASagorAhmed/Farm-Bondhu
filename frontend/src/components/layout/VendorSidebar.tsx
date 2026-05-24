@@ -8,13 +8,15 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Store, Package, ClipboardList, Boxes, DollarSign, Star, Settings,
-  LogOut, Menu, PanelLeftClose, UserCircle, Shield,
+  LogOut, Menu, PanelLeftClose, UserCircle, Shield, ShoppingBag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { VENDOR_THEME } from "@/lib/vendorTheme";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
 import WorkspaceButtons from "./WorkspaceButtons";
 
-const VC = ICON_COLORS.store;
+const VC = VENDOR_THEME.primary;
 
 interface NavItem {
   title: string;
@@ -25,7 +27,7 @@ interface NavItem {
 
 const VENDOR_ITEMS: NavItem[] = [
   { title: "Dashboard", url: "/seller/dashboard", icon: LayoutDashboard, iconColor: VC },
-  { title: "My Store", url: "/my-shop", icon: Store, iconColor: ICON_COLORS.cart },
+  { title: "My Store", url: "/seller/my-shop", icon: Store, iconColor: VC },
   { title: "Products", url: "/seller/products", icon: Package, iconColor: ICON_COLORS.package },
   { title: "Orders", url: "/seller/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders },
   { title: "Inventory", url: "/seller/inventory", icon: Boxes, iconColor: ICON_COLORS.warehouse },
@@ -34,13 +36,17 @@ const VENDOR_ITEMS: NavItem[] = [
   { title: "Settings", url: "/seller/settings", icon: Settings, iconColor: ICON_COLORS.profile },
 ];
 
+const BUYER_ITEMS: NavItem[] = [
+  { title: "Marketplace", url: "/marketplace", icon: ShoppingBag, iconColor: MARKETPLACE_THEME.primary },
+];
+
 const VENDOR_BOTTOM: NavItem[] = [
-  { title: "Access Center", url: "/seller/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
+  { title: "Access Center", url: "/seller/access-center", icon: Shield, iconColor: VENDOR_THEME.primaryDark },
   { title: "Profile", url: "/seller/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
 ];
 
 export default function VendorSidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, hasCapability } = useAuth();
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
@@ -48,12 +54,23 @@ export default function VendorSidebar() {
 
   if (!user) return null;
 
-  const renderItem = (item: NavItem) => {
-    const active = location.pathname === item.url || location.pathname.startsWith(item.url + "/");
+  const showBuyerSection = hasCapability("can_buy");
+
+  const renderItem = (item: NavItem, activeColor: string) => {
+    const itemPath = item.url.split("?")[0];
+    const active =
+      location.pathname === itemPath ||
+      (itemPath !== "/marketplace" && location.pathname.startsWith(itemPath + "/"));
     return (
       <SidebarMenuItem key={item.url}>
         <SidebarMenuButton asChild isActive={active}>
-          <NavLink to={item.url} end className="transition-all duration-200 rounded-lg" activeClassName="text-white font-medium shadow-sm" style={active ? { backgroundColor: VC, color: "white" } : undefined}>
+          <NavLink
+            to={item.url}
+            end
+            className="transition-all duration-200 rounded-lg"
+            activeClassName="text-white font-medium shadow-sm"
+            style={active ? { backgroundColor: activeColor, color: "white" } : undefined}
+          >
             <item.icon className="h-4 w-4" style={{ color: active ? "white" : item.iconColor }} />
             {!collapsed && <span>{item.title}</span>}
           </NavLink>
@@ -85,18 +102,39 @@ export default function VendorSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <div className="px-2 py-2">
+        {!collapsed && (
+          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: VC }}>
+            Seller tools
+          </p>
+        )}
+        <div className="px-2 py-1">
           <SidebarMenu>
-            {VENDOR_ITEMS.map(renderItem)}
+            {VENDOR_ITEMS.map((item) => renderItem(item, VC))}
           </SidebarMenu>
         </div>
+
+        {showBuyerSection && (
+          <>
+            <Separator className="my-2 mx-2" />
+            {!collapsed && (
+              <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: MARKETPLACE_THEME.primary }}>
+                Buyer tools
+              </p>
+            )}
+            <div className="px-2 py-1">
+              <SidebarMenu>
+                {BUYER_ITEMS.map((item) => renderItem(item, MARKETPLACE_THEME.primary))}
+              </SidebarMenu>
+            </div>
+          </>
+        )}
 
         <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />
           <SidebarMenu>
-            {VENDOR_BOTTOM.map(renderItem)}
+            {VENDOR_BOTTOM.map((item) => renderItem(item, VC))}
           </SidebarMenu>
         </div>
       </SidebarContent>
