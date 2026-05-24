@@ -1,23 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+import CowWeightHeadSidePanel from "@/components/cowWeight/CowWeightHeadSidePanel";
 import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import CameraDistanceBar from "@/components/cowWeight/CameraDistanceBar";
 import CowWeightOverlay from "@/components/cowWeight/CowWeightOverlay";
 import ScanStepper from "@/components/cowWeight/ScanStepper";
+import ScanCalculationBreakdown from "@/components/cowWeight/ScanCalculationBreakdown";
 import ScanDetailPanel from "@/components/cowWeight/ScanDetailPanel";
 import ScanLiveSummary from "@/components/cowWeight/ScanLiveSummary";
 import type { CowWeightResultState, CowWeightScanState } from "@/lib/cowWeight/navigation";
 import type { PhotoExifMeta } from "@/lib/cowWeight/imageExif";
 import type { CowKeypoints, CowLines, Point2D, ScanMetrics, ScanStepId } from "@/lib/cowWeight/types";
+import { DEFAULT_CAMERA_DISTANCE_CM } from "@/lib/cowWeight/geometry3d";
 import { computeScanMetrics } from "@/lib/cowWeight/scanMetrics";
 import {
   type CowFacing,
   photoOrientationI18nKey,
   reassignKeypointsForHeadSide,
   resolveStep1Keypoints,
+  proposeLinesFromKeypoints,
+  syncChestKeypointsFromLines,
+  syncLengthKeypointsFromLines,
 } from "@/lib/cowWeight/cowKeypoints";
 import { submitDetectionFeedback } from "@/lib/cowWeight/api";
 import type { BBox, CowAnalysisResult } from "@/lib/cowWeight/types";
@@ -33,6 +41,39 @@ import { compressDataUrl } from "@/lib/cowWeight/imageUtils";
 import { isBboxRibbonOutline } from "@/lib/cowWeight/cowMask";
 import { refineSegBodyOutlineFromImage } from "@/lib/cowWeight/yoloSegDetect";
 import { toast } from "sonner";
+import CowWeightPageShell from "@/components/cowWeight/CowWeightPageShell";
+import CowWeightDisclaimer from "@/components/cowWeight/CowWeightDisclaimer";
+import CowWeightCallout from "@/components/cowWeight/CowWeightCallout";
+import CowWeightCowNameField from "@/components/cowWeight/CowWeightCowNameField";
+import {
+  cowWeightCalloutBadgeOutline,
+  cowWeightCalloutBadgeOutlineStyle,
+  cowWeightCalloutBox,
+  cowWeightCalloutBoxStyle,
+  cowWeightCalloutHint,
+  cowWeightCalloutHintStyle,
+  cowWeightCalloutInline,
+  cowWeightCalloutInlineStyle,
+  cowWeightCalloutMuted,
+  cowWeightCalloutMutedSoft,
+  cowWeightCalloutMutedSoftStyle,
+  cowWeightCalloutMutedStyle,
+  cowWeightCalloutPanel,
+  cowWeightCalloutPanelStrong,
+  cowWeightCalloutPanelStrongStyle,
+  cowWeightCalloutPanelStyle,
+  cowWeightCalloutStrong,
+  cowWeightCalloutStrongStyle,
+} from "@/components/cowWeight/cowWeightCalloutStyles";
+import {
+  cowWeightBackLinkClass,
+  cowWeightBackLinkStyle,
+  cowWeightOutlineButtonClass,
+  cowWeightOutlineButtonStyle,
+  cowWeightPrimaryButtonClass,
+  cowWeightPrimaryButtonStyle,
+} from "@/lib/cowWeight/cowWeightTheme";
+import { useCowWeightPaths } from "@/lib/cowWeight/cowWeightPaths";
 
 function standoffFromPreappliedAnalysis(
   analysis: CowAnalysisResult,
@@ -55,6 +96,7 @@ export default function CowWeightScan() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
+  const paths = useCowWeightPaths();
   const state = location.state as CowWeightScanState | null;
 
   const visionPreApplied = state?.analysis?.directionVerifySource != null;
@@ -83,6 +125,7 @@ export default function CowWeightScan() {
   );
   const [reanalyzing, setReanalyzing] = useState(false);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [cowName, setCowName] = useState("");
   const [standoff, setStandoff] = useState<StandoffEstimate | null>(() => {
     if (!state?.analysis?.directionVerifySource) return null;
     return standoffFromPreappliedAnalysis(state.analysis, {
@@ -101,8 +144,8 @@ export default function CowWeightScan() {
       };
     })()
   );
-  const detectPreviewMetricsRef = useRef<ScanMetrics | null>(null);
-  const [detectPreviewMetrics, setDetectPreviewMetrics] = useState<ScanMetrics | null>(null);
+  const detectLinesRef = useRef<CowLines | null>(null);
+  const chestKpSyncedRef = useRef(false);
 
   const mode = COW_WEIGHT_DETECTION_MODE;
   const hasReference = !!lines?.reference;
@@ -128,8 +171,8 @@ export default function CowWeightScan() {
     return (
       <div className="p-6 text-center">
         <p className="text-muted-foreground">{t("cowWeight.sessionExpired")}</p>
-        <Button asChild className="mt-4">
-          <Link to="/dashboard/cow-weight">{t("cowWeight.back")}</Link>
+        <Button asChild className={cn("mt-4", cowWeightPrimaryButtonClass)} style={cowWeightPrimaryButtonStyle}>
+          <Link to={paths.hub}>{t("cowWeight.back")}</Link>
         </Button>
       </div>
     );
@@ -141,7 +184,10 @@ export default function CowWeightScan() {
   const effectiveBodyOutline = bodyOutlineRepair ?? analysis.bodyOutline;
 
   useEffect(() => {
-    if (analysis.directionVerifySource != null) return;
+    if (analysis.directionVerifySource != null) {
+      setAssistLoading(false);
+      return;
+    }
     setStandoff(estimateCameraStandoff(analysis.bbox, analysis.imageHeight, undefined, exifInput));
   }, [analysis.bbox.height, analysis.bbox.width, analysis.directionVerifySource, analysis.imageHeight, exifInput]);
 
@@ -193,20 +239,47 @@ export default function CowWeightScan() {
   }, [analysis.bodyOutline, analysis.bbox, analysis.imageHeight, analysis.imageWidth, analysis.model, overlayImageUrl]);
 
   useEffect(() => {
+    if (!lines || !analysis.keypoints || chestKpSyncedRef.current || keypointsOverride) return;
+    chestKpSyncedRef.current = true;
+    let kp = syncChestKeypointsFromLines(analysis.keypoints, lines.chest);
+    kp = syncLengthKeypointsFromLines(kp, lines.length);
+    setKeypointsOverride(kp);
+  }, [analysis.keypoints, keypointsOverride, lines]);
+
+  useEffect(() => {
     if (!lines) return;
-    if (detectPreviewMetricsRef.current) return;
-    const snap = computeScanMetrics(mode, lines, analysis, null);
-    detectPreviewMetricsRef.current = snap;
-    setDetectPreviewMetrics(snap);
-  }, [mode, lines, analysis]);
+    if (detectLinesRef.current) return;
+    detectLinesRef.current = {
+      chest: { a: { ...lines.chest.a }, b: { ...lines.chest.b } },
+      length: { a: { ...lines.length.a }, b: { ...lines.length.b } },
+      reference: lines.reference
+        ? { a: { ...lines.reference.a }, b: { ...lines.reference.b } }
+        : undefined,
+    };
+  }, [lines]);
 
   const sk = stepI18nKey(step, hasReference);
   const liveMetrics = useMemo(
     () => computeScanMetrics(mode, lines, analysis, standoff?.meters),
     [mode, lines, analysis, standoff?.meters]
   );
-  const summaryMetrics = step === 1 ? detectPreviewMetrics : liveMetrics;
   const metrics = step >= 2 ? liveMetrics : null;
+  const auditMetrics = liveMetrics;
+  const detectLinesSnapshot = step >= 2 ? detectLinesRef.current : null;
+
+  const cameraBarMetrics = liveMetrics;
+  const groundDistanceDetected =
+    analysis.planD?.groundDistanceDetected ??
+    cameraBarMetrics?.groundDistanceDetected ??
+    true;
+  const cameraDistanceDisplayCm = groundDistanceDetected
+    ? (cameraBarMetrics?.cameraDistanceCm ??
+      analysis.planD?.cameraDistanceCm ??
+      DEFAULT_CAMERA_DISTANCE_CM)
+    : DEFAULT_CAMERA_DISTANCE_CM;
+  const cameraDistanceSource = groundDistanceDetected
+    ? (analysis.planD?.distanceSource ?? cameraBarMetrics?.distanceSource ?? "local")
+    : "fallback_average";
   const showMetricsPanel = step >= 5;
   const pixelsOnly = step === 2 || step === 3;
   const pixelsField = step === 2 ? "chest" : step === 3 ? "length" : "both";
@@ -221,7 +294,7 @@ export default function CowWeightScan() {
   const unusualMeasurementsStrong =
     metrics &&
     step >= 5 &&
-    metrics.scaleMethod === "bbox_assumed_150cm" &&
+    metrics.scaleMethod === "plan_d_pinhole" &&
     (metrics.chestWidthCm > 90 || metrics.bodyLengthCm > 120);
   const refTapIncomplete = refTapMode && !lines.reference;
 
@@ -230,15 +303,34 @@ export default function CowWeightScan() {
   const panelMistakes = t(`cowWeight.scan.${sk}.mistakes`);
 
   const onReferenceTap = (a: Point2D, b: Point2D) => {
+    const clampFacing =
+      (keypointsOverride ?? analysis.keypoints)?.detected?.facing ?? null;
     setLines((prev) =>
-      prev ? clampLinesToBBox({ ...prev, reference: { a, b } }, analysis.bbox) : prev
+      prev
+        ? clampLinesToBBox(
+            { ...prev, reference: { a, b } },
+            analysis.bbox,
+            clampFacing
+          )
+        : prev
     );
     setRefTapMode(false);
     toast.success(t("cowWeight.referenceSet"));
   };
 
   const setLinesClamped = (next: CowLines) => {
-    setLines(clampLinesToBBox(next, analysis.bbox));
+    const clampFacing =
+      (keypointsOverride ?? analysis.keypoints)?.detected?.facing ?? null;
+    const clamped = clampLinesToBBox(next, analysis.bbox, clampFacing);
+    setLines(clamped);
+    if (step === 1) {
+      const base = keypointsOverride ?? analysis.keypoints;
+      if (base) {
+        let kp = syncChestKeypointsFromLines(base, clamped.chest);
+        kp = syncLengthKeypointsFromLines(kp, clamped.length);
+        setKeypointsOverride(kp);
+      }
+    }
   };
 
   const canNext = (): boolean => {
@@ -286,6 +378,7 @@ export default function CowWeightScan() {
         chest_width_cm: dims.chest_width_cm,
         body_length_cm: dims.body_length_cm,
         confidence: dims.confidence,
+        cow_name: cowName.trim() || undefined,
         file_data: filePayload,
         annotation_json: {
           bbox: analysis.bbox,
@@ -295,6 +388,16 @@ export default function CowWeightScan() {
           imageHeight: analysis.imageHeight,
           scanWizard: true,
           scaleMethod: dims.scaleMethod,
+          planD: analysis.planD ?? null,
+          cameraDistanceCm: liveMetrics?.cameraDistanceCm ?? analysis.planD?.cameraDistanceCm ?? null,
+          groundDistanceDetected:
+            analysis.planD?.groundDistanceDetected ?? liveMetrics?.groundDistanceDetected ?? null,
+          distanceSource: analysis.planD?.distanceSource ?? liveMetrics?.distanceSource ?? null,
+          cloudPriorCm: analysis.planD?.cloudPriorCm ?? null,
+          localPriorCm: analysis.planD?.localPriorCm ?? null,
+          r1: liveMetrics?.r1 ?? null,
+          r2: liveMetrics?.r2 ?? null,
+          bodyHeightCm: liveMetrics?.bodyHeightCm ?? null,
           standoffMeters: standoff?.meters ?? null,
           standoffSource: standoff?.method ?? standoff?.source ?? null,
           standoffMethod: standoff?.method ?? null,
@@ -309,7 +412,7 @@ export default function CowWeightScan() {
         },
       });
       const next: CowWeightResultState = { estimation: row, mode };
-      navigate("/dashboard/cow-weight/result", { state: next });
+      navigate(paths.result, { state: next });
     } catch (e) {
       const msg = e instanceof Error ? e.message : t("cowWeight.saveFailed");
       toast.error(msg);
@@ -342,7 +445,15 @@ export default function CowWeightScan() {
   const onHeadSideChange = (side: CowFacing) => {
     const base = keypointsOverride ?? analysis.keypoints;
     if (!base) return;
-    setKeypointsOverride(reassignKeypointsForHeadSide(base, side));
+    const kp = reassignKeypointsForHeadSide(base, side);
+    setKeypointsOverride(kp);
+    setLines(
+      clampLinesToBBox(
+        proposeLinesFromKeypoints(analysis.bbox, kp),
+        analysis.bbox,
+        kp.detected?.facing ?? null
+      )
+    );
   };
 
   const onReanalyze = async () => {
@@ -359,8 +470,7 @@ export default function CowWeightScan() {
       setVerifySource(next.directionVerifySource ?? "none");
       setStandoff(standoffFromPreappliedAnalysis(next, exifInput));
       initialPrediction.current = null;
-      detectPreviewMetricsRef.current = null;
-      setDetectPreviewMetrics(null);
+      detectLinesRef.current = null;
       setStep(1);
       setLines(canonicalLinesFromAnalysis(next));
       navigate(location.pathname, { state: { mode, dataUrl, analysis: next, exif: photoExif }, replace: true });
@@ -448,37 +558,26 @@ export default function CowWeightScan() {
 
   const step1OrientationExtra =
     step === 1 && scanKeypoints ? (
-      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2 text-sm">
-        <div className="flex flex-wrap justify-between gap-2 items-center">
-          <span className="text-muted-foreground font-medium">{t("cowWeight.scan.orientationLabel")}</span>
-          <div className="flex flex-wrap gap-1 justify-end">
-            {directionNotDetected ? (
-              <Badge variant="secondary" className="bg-orange-200 text-orange-950 hover:bg-orange-200">
-                {t("cowWeight.scan.notDetected")}
-              </Badge>
-            ) : (
-              <>
-                {orientationLabel && (
-                  <Badge variant="secondary" className="bg-amber-200 text-amber-950 hover:bg-amber-200">
-                    {orientationLabel}
-                  </Badge>
-                )}
-                {directionKeys.direction && (
-                  <Badge
-                    variant="secondary"
-                    className={
-                      bodyDirection?.isReversed
-                        ? "bg-orange-200 text-orange-950 hover:bg-orange-200"
-                        : "bg-emerald-200 text-emerald-950 hover:bg-emerald-200"
-                    }
-                  >
-                    {t(directionKeys.direction)}
-                  </Badge>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+      <div className="space-y-2">
+        <CowWeightHeadSidePanel
+          value={facing}
+          onChange={onHeadSideChange}
+          notDetected={directionNotDetected}
+        />
+        {facing && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="w-full"
+            disabled={feedbackSaving}
+            onClick={() => void onSaveDetectionFeedback()}
+          >
+            {feedbackSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+            {t("cowWeight.scan.saveCorrection")}
+          </Button>
+        )}
+        <div className={cowWeightCalloutBox} style={cowWeightCalloutBoxStyle}>
         {step === 1 && (
           <Button
             type="button"
@@ -497,44 +596,71 @@ export default function CowWeightScan() {
           </Button>
         )}
         {assistLoading && (
-          <p className="text-xs text-amber-900 flex items-center gap-1">
+          <p className={`${cowWeightCalloutStrong} flex items-center gap-1`} style={cowWeightCalloutStrongStyle}>
             <Loader2 className="h-3 w-3 animate-spin" />
             {t("cowWeight.scan.aiAssistLoading")}
           </p>
         )}
         {!assistLoading && verifySource === "vision" && (
-          <p className="text-xs text-emerald-800 font-medium">{t("cowWeight.scan.cloudVerified")}</p>
+          <p className="text-xs font-medium" style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.cloudVerified")}</p>
         )}
         {!assistLoading && verifySource === "local" && (
-          <p className="text-xs text-amber-800">{t("cowWeight.scan.localOnly")}</p>
+          <p className={cowWeightCalloutInline} style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.localOnly")}</p>
         )}
         {standoff?.warningKey && !assistLoading && (
-          <p className="text-xs text-orange-900 font-medium">{t(standoff.warningKey)}</p>
+          <p className={cowWeightCalloutStrong} style={cowWeightCalloutStrongStyle}>{t(standoff.warningKey)}</p>
         )}
         {scanKeypoints && !scanKeypoints.detected?.legs && !assistLoading && (
-          <p className="text-xs text-orange-800">{t("cowWeight.scan.legsUncertain")}</p>
+          <p className={cowWeightCalloutInline} style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.legsUncertain")}</p>
         )}
         {scanKeypoints?.detected?.legsInferred && !assistLoading && (
-          <p className="text-xs text-amber-800">{t("cowWeight.scan.legsInferred")}</p>
+          <p className={cowWeightCalloutInline} style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.legsInferred")}</p>
         )}
         {step === 1 && !analysis.model.includes("seg") && !assistLoading && (
-          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-            {t("cowWeight.scan.segModelHint")}
-          </p>
+          <p className={cowWeightCalloutPanel} style={cowWeightCalloutPanelStyle}>{t("cowWeight.scan.segModelHint")}</p>
         )}
         {step === 1 && !assistLoading && (
           <p className="text-xs text-muted-foreground">{t("cowWeight.scan.dragKeypointsHint")}</p>
         )}
+        {step === 1 && scanKeypoints && !assistLoading && (
+          <div className="rounded border border-slate-200 bg-white/90 p-2 space-y-0.5 text-[11px] font-mono text-slate-800">
+            <p className="font-semibold text-slate-700">{t("cowWeight.scan.detectedPointsTitle")}</p>
+            <p>
+              {t("cowWeight.scan.frontLegShort")} ({Math.round(scanKeypoints.leg1.x)},{" "}
+              {Math.round(scanKeypoints.leg1.y)})
+            </p>
+            <p>
+              {t("cowWeight.scan.hindLegShort")} ({Math.round(scanKeypoints.leg2.x)},{" "}
+              {Math.round(scanKeypoints.leg2.y)})
+            </p>
+            <p>
+              {t("cowWeight.scan.chestCh1")} ({Math.round(lines.chest.a.x)},{" "}
+              {Math.round(lines.chest.a.y)})
+            </p>
+            <p>
+              {t("cowWeight.scan.chestCh2")} ({Math.round(lines.chest.b.x)},{" "}
+              {Math.round(lines.chest.b.y)})
+            </p>
+            <p>
+              {t("cowWeight.scan.lengthC1Shoulder")} ({Math.round(lines.length.a.x)},{" "}
+              {Math.round(lines.length.a.y)})
+            </p>
+            <p>
+              {t("cowWeight.scan.lengthC2Rear")} ({Math.round(lines.length.b.x)},{" "}
+              {Math.round(lines.length.b.y)})
+            </p>
+          </div>
+        )}
         {scanKeypoints &&
           (!scanKeypoints.detected?.topChest || !scanKeypoints.detected?.lowerChest) &&
           !assistLoading && (
-            <p className="text-xs text-orange-800">{t("cowWeight.scan.chestUncertain")}</p>
+            <p className={cowWeightCalloutInline} style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.chestUncertain")}</p>
           )}
         {directionNotDetected && directionKeys.issue && !assistLoading && (
-          <p className="text-xs text-orange-900 font-medium">{t(directionKeys.issue)}</p>
+          <p className={cowWeightCalloutStrong} style={cowWeightCalloutStrongStyle}>{t(directionKeys.issue)}</p>
         )}
         {aiSuggestionKey && !assistLoading && (
-          <p className="text-xs text-amber-900/90">
+          <p className={cowWeightCalloutMuted} style={cowWeightCalloutMutedStyle}>
             {assistApplied
               ? t("cowWeight.scan.aiAssistApplied")
               : t("cowWeight.scan.aiSuggestion")}
@@ -542,46 +668,18 @@ export default function CowWeightScan() {
           </p>
         )}
         {!directionNotDetected && directionKeys.head && directionKeys.tail && (
-          <p className="text-xs text-amber-900/80">
+          <p className={cowWeightCalloutMutedSoft} style={cowWeightCalloutMutedSoftStyle}>
             {t(directionKeys.head)} · {t(directionKeys.tail)} · L1={t("cowWeight.scan.l1Tail")} · L2=
             {t("cowWeight.scan.l2Head")}
           </p>
         )}
         {directionKeys.sourceHint && !directionNotDetected && (
-          <p className="text-xs text-amber-800/90">{t(directionKeys.sourceHint)}</p>
+          <p className={cowWeightCalloutHint} style={cowWeightCalloutHintStyle}>{t(directionKeys.sourceHint)}</p>
         )}
         {directionNotDetected && (
-          <p className="text-xs text-orange-800">{t("cowWeight.scan.directionUnknownHint")}</p>
+          <p className={cowWeightCalloutInline} style={cowWeightCalloutInlineStyle}>{t("cowWeight.scan.directionUnknownHint")}</p>
         )}
-        <ToggleGroup
-          type="single"
-          value={facing ?? ""}
-          onValueChange={(v) => {
-            if (v === "head_left" || v === "head_right") onHeadSideChange(v);
-          }}
-          className="w-full grid grid-cols-2 gap-1"
-        >
-          <ToggleGroupItem value="head_left" className="flex-1 text-xs sm:text-sm">
-            {t("cowWeight.scan.headLeft")}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="head_right" className="flex-1 text-xs sm:text-sm">
-            {t("cowWeight.scan.headRight")}
-          </ToggleGroupItem>
-        </ToggleGroup>
-        <p className="text-xs text-muted-foreground">{t("cowWeight.scan.headSideHint")}</p>
-        {facing && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            disabled={feedbackSaving}
-            onClick={() => void onSaveDetectionFeedback()}
-          >
-            {feedbackSaving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-            {t("cowWeight.scan.saveCorrection")}
-          </Button>
-        )}
+        </div>
       </div>
     ) : null;
 
@@ -589,16 +687,22 @@ export default function CowWeightScan() {
     step === 4 ? (
       <div className="space-y-2">
         {hasReference ? (
-          <Badge variant="outline" className="text-emerald-800 border-emerald-300 bg-emerald-50">
+          <Badge variant="outline" className={cowWeightCalloutBadgeOutline} style={cowWeightCalloutBadgeOutlineStyle}>
             {t("cowWeight.scan.step4.refActive")}
           </Badge>
         ) : (
-          <Badge variant="outline" className="text-amber-800 border-amber-300 bg-amber-50">
+          <Badge variant="outline" className={cowWeightCalloutBadgeOutline} style={cowWeightCalloutBadgeOutlineStyle}>
             {t("cowWeight.scan.step4b.lowAccuracy")}
           </Badge>
         )}
         {!hasReference && !refTapMode && (
-          <Button type="button" variant="outline" className="w-full" onClick={() => setRefTapMode(true)}>
+          <Button
+            type="button"
+            variant="outline"
+            className={cn("w-full", cowWeightOutlineButtonClass)}
+            style={cowWeightOutlineButtonStyle}
+            onClick={() => setRefTapMode(true)}
+          >
             {t("cowWeight.scan.step4.calibrateStick")}
           </Button>
         )}
@@ -612,16 +716,16 @@ export default function CowWeightScan() {
     step === 6 ? (
       <>
         {!hasReference && analysis.confidence < 0.55 && (
-          <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">{t("cowWeight.lowConfidenceB")}</p>
+          <CowWeightCallout className="rounded-lg">{t("cowWeight.lowConfidenceB")}</CowWeightCallout>
         )}
-        <p className="text-xs text-muted-foreground">{t("cowWeight.disclaimer")}</p>
+        <CowWeightDisclaimer />
       </>
     ) : null;
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto">
-      <Button variant="ghost" size="sm" asChild>
-        <Link to="/dashboard/cow-weight/upload">
+    <CowWeightPageShell className="space-y-4">
+      <Button variant="ghost" size="sm" asChild className={cowWeightBackLinkClass} style={cowWeightBackLinkStyle}>
+        <Link to={paths.upload}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           {t("cowWeight.retake")}
         </Link>
@@ -630,7 +734,7 @@ export default function CowWeightScan() {
       <ScanStepper current={step} labels={stepLabels} />
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <div className="min-w-0 w-full min-h-[320px]">
+        <div className="min-w-0 w-full min-h-[320px] flex flex-col">
           <CowWeightOverlay
             imageUrl={overlayImageUrl}
             imageWidth={analysis.imageWidth}
@@ -653,26 +757,55 @@ export default function CowWeightScan() {
             headBbox={headBbox}
             bodyOutline={effectiveBodyOutline}
             outlineSourceLabel={outlineSourceLabel}
+            cameraDistanceCm={cameraDistanceDisplayCm}
+            groundDistanceDetected={groundDistanceDetected}
+            showGroundDistanceLabel={step >= 1}
           />
+          {step >= 1 && (
+            <CameraDistanceBar
+              cameraDistanceCm={cameraDistanceDisplayCm}
+              distanceSource={cameraDistanceSource}
+              groundDistanceDetected={groundDistanceDetected}
+              loading={assistLoading && step === 1}
+            />
+          )}
         </div>
 
         <div className="space-y-3 min-w-0 lg:self-start">
           <ScanLiveSummary
-            metrics={summaryMetrics}
+            metrics={liveMetrics}
             standoff={standoff}
             hasReference={hasReference}
             step={step}
             assistLoading={assistLoading}
-            detectLocked={step === 1}
+            cameraDistanceCm={cameraDistanceDisplayCm}
+            distanceSource={cameraDistanceSource}
+            groundDistanceDetected={groundDistanceDetected}
           />
+          {lines && auditMetrics && (
+            <ScanCalculationBreakdown
+              metrics={auditMetrics}
+              imageWidthPx={analysis.imageWidth}
+              imageHeightPx={analysis.imageHeight}
+              bbox={analysis.bbox}
+              lines={lines}
+              step={step}
+              hasReference={hasReference}
+              stepShortLabel={stepLabels[step - 1]}
+              keypoints={resolveStep1Keypoints(scanKeypoints, lines, analysis.bbox)}
+              detectLines={detectLinesSnapshot}
+              planD={analysis.planD}
+            />
+          )}
         <ScanDetailPanel
           title={panelTitle}
           description={panelDesc}
           mistakes={panelMistakes || undefined}
+          mistakesTone={step === 1 ? "retake" : "tip"}
           metrics={panelMetrics}
           pixelsOnly={pixelsOnly}
           pixelsField={pixelsField}
-          bbox={step === 1 ? analysis.bbox : undefined}
+          bbox={analysis.bbox}
           model={step === 1 ? analysis.model : undefined}
           bboxHeightPx={analysis.bbox.height}
           bboxWidthPx={analysis.bbox.width}
@@ -681,12 +814,12 @@ export default function CowWeightScan() {
             <>
               {step1OrientationExtra}
               {unusualMeasurementsStrong && (
-                <p className="text-xs text-amber-900 bg-amber-100 border border-amber-300 rounded px-2 py-1.5 font-medium">
+                <p className={cowWeightCalloutPanelStrong} style={cowWeightCalloutPanelStrongStyle}>
                   {t("cowWeight.scan.unusualMeasurementsStrong")}
                 </p>
               )}
               {unusualMeasurements && !unusualMeasurementsStrong && (
-                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <p className={`${cowWeightCalloutPanel} py-1.5`} style={cowWeightCalloutPanelStyle}>
                   {t("cowWeight.scan.unusualMeasurements")}
                 </p>
               )}
@@ -698,24 +831,44 @@ export default function CowWeightScan() {
         </div>
       </div>
 
+      {step === 6 && (
+        <CowWeightCowNameField value={cowName} onChange={setCowName} id="cow-weight-scan-name" />
+      )}
+
       <div className="flex gap-2 justify-between sticky bottom-0 bg-background/95 py-2 border-t">
-        <Button variant="outline" disabled={step === 1} onClick={onBack}>
+        <Button
+          variant="outline"
+          disabled={step === 1}
+          className={cowWeightOutlineButtonClass}
+          style={cowWeightOutlineButtonStyle}
+          onClick={onBack}
+        >
           <ArrowLeft className="h-4 w-4 mr-1" />
           {t("cowWeight.scan.back")}
         </Button>
 
         {step < 6 ? (
-          <Button disabled={!canNext()} onClick={onNext}>
+          <Button
+            disabled={!canNext()}
+            className={cowWeightPrimaryButtonClass}
+            style={cowWeightPrimaryButtonStyle}
+            onClick={onNext}
+          >
             {t("cowWeight.scan.next")}
             <ArrowRight className="h-4 w-4 ml-1" />
           </Button>
         ) : (
-          <Button disabled={saving || refTapIncomplete} onClick={() => void onConfirm()}>
+          <Button
+            disabled={saving || refTapIncomplete}
+            className={cowWeightPrimaryButtonClass}
+            style={cowWeightPrimaryButtonStyle}
+            onClick={() => void onConfirm()}
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
             {t("cowWeight.confirmEstimate")}
           </Button>
         )}
       </div>
-    </div>
+    </CowWeightPageShell>
   );
 }
