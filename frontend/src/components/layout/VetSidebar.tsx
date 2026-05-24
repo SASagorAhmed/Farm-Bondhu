@@ -8,11 +8,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, CalendarCheck, Users, FileText, Clock, DollarSign,
-  UserCircle, User, LogOut, Menu, PanelLeftClose, Stethoscope, Shield, Settings,
+  UserCircle, User, LogOut, Menu, PanelLeftClose, Stethoscope, Shield, Settings, Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
 import WorkspaceButtons from "./WorkspaceButtons";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const MB = ICON_COLORS.medibondhu;
 
@@ -22,16 +23,6 @@ interface NavItem {
   icon: React.ElementType;
   iconColor: string;
 }
-
-const VET_ITEMS: NavItem[] = [
-  { title: "Dashboard", url: "/vet/dashboard", icon: LayoutDashboard, iconColor: MB },
-  { title: "Consultations", url: "/vet/consultations", icon: CalendarCheck, iconColor: ICON_COLORS.orders },
-  { title: "Patients", url: "/vet/patients", icon: Users, iconColor: ICON_COLORS.profile },
-  { title: "Prescriptions", url: "/vet/prescriptions", icon: FileText, iconColor: ICON_COLORS.learning },
-  { title: "Availability", url: "/vet/availability", icon: Clock, iconColor: ICON_COLORS.bell },
-  { title: "Earnings", url: "/vet/earnings", icon: DollarSign, iconColor: ICON_COLORS.dollar },
-  { title: "Profile", url: "/vet/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
-];
 
 const VET_BOTTOM: NavItem[] = [
   { title: "Access Center", url: "/vet/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
@@ -45,6 +36,18 @@ export default function VetSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useLanguage();
+
+  const VET_ITEMS: NavItem[] = [
+    { title: "Dashboard", url: "/vet/dashboard", icon: LayoutDashboard, iconColor: MB },
+    { title: "Consultations", url: "/vet/consultations", icon: CalendarCheck, iconColor: ICON_COLORS.orders },
+    { title: "Patients", url: "/vet/patients", icon: Users, iconColor: ICON_COLORS.profile },
+    { title: "Prescriptions", url: "/vet/prescriptions", icon: FileText, iconColor: ICON_COLORS.learning },
+    { title: t("sidebar.cowWeight"), url: "/vet/cow-weight", icon: Scale, iconColor: MB },
+    { title: "Availability", url: "/vet/availability", icon: Clock, iconColor: ICON_COLORS.bell },
+    { title: "Earnings", url: "/vet/earnings", icon: DollarSign, iconColor: ICON_COLORS.dollar },
+    { title: "Profile", url: "/vet/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  ];
 
   if (!user) return null;
 

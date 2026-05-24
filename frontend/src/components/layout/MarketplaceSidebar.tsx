@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   ShoppingCart, Store, ClipboardList, ShoppingBag, Package, LogOut, Menu,
-  PanelLeftClose, Truck, UserCircle, Shield, Settings, MessageCircle,
+  PanelLeftClose, Truck, UserCircle, Shield, Settings, MessageCircle, Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -42,6 +42,7 @@ export default function MarketplaceSidebar() {
     { title: t("sidebar.myCart"), url: "/cart", icon: ShoppingBag, iconColor: ICON_COLORS.shopping, capability: "can_buy" },
     { title: t("sidebar.myOrders"), url: "/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders, capability: "can_buy" },
     { title: t("sidebar.messages"), url: "/marketplace/inbox", icon: MessageCircle, iconColor: ICON_COLORS.marketplace, capability: "can_buy" },
+    { title: t("sidebar.cowWeight"), url: "/marketplace/cow-weight", icon: Scale, iconColor: ICON_COLORS.analytics },
     { title: t("sidebar.myShop"), url: "/my-shop", icon: Store, iconColor: ICON_COLORS.store },
     { title: t("sidebar.sellerDashboard"), url: "/seller/dashboard", icon: Package, iconColor: ICON_COLORS.package, capability: "can_sell" },
     { title: t("sidebar.manageOrders"), url: "/seller/orders", icon: Truck, iconColor: ICON_COLORS.farm, capability: "can_manage_orders" },

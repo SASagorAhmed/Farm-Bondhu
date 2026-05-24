@@ -320,4 +320,48 @@
   .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
     color: white !important;
   }
+
+  /* VetBondhu sidebar nav hover: Emerald #059669 */
+  .vetbondhu-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(5, 150, 105, 0.12) !important;
+    color: #059669 !important;
+  }
+  .vetbondhu-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #059669 !important;
+  }
+  .vetbondhu-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .vetbondhu-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #059669 !important;
+    color: white !important;
+  }
+  .vetbondhu-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .vetbondhu-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
+  .vetbondhu-nav-item:hover,
+  .vetbondhu-nav-item:hover * {
+    color: white !important;
+    background-color: #059669 !important;
+  }
+  .vetbondhu-nav-item:hover svg {
+    color: white !important;
+  }
+
+  /* Vet Panel sidebar nav hover: MediBondhu Cyan #12C2D6 */
+  .vet-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(18, 194, 214, 0.12) !important;
+    color: #12C2D6 !important;
+  }
+  .vet-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #12C2D6 !important;
+  }
+  .vet-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .vet-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #12C2D6 !important;
+    color: white !important;
+  }
+  .vet-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .vet-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
 }

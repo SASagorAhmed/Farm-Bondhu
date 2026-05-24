@@ -8,11 +8,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarCheck, FileText, LogOut, Menu, PanelLeftClose, Search, LayoutGrid, Stethoscope, UserCircle,
-  Shield, Settings,
+  Shield, Settings, Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
 import WorkspaceButtons from "./WorkspaceButtons";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const VB = ICON_COLORS.vetbondhu;
 
@@ -22,13 +23,6 @@ interface NavItem {
   icon: React.ElementType;
   iconColor: string;
 }
-
-const VETBONDHU_ITEMS: NavItem[] = [
-  { title: "Home", url: "/vetbondhu", icon: LayoutGrid, iconColor: VB },
-  { title: "Find Vet", url: "/vetbondhu/vets", icon: Search, iconColor: VB },
-  { title: "Consultations", url: "/vetbondhu/consultations", icon: CalendarCheck, iconColor: VB },
-  { title: "Prescriptions", url: "/vetbondhu/prescriptions", icon: FileText, iconColor: VB },
-];
 
 const VB_BOTTOM: NavItem[] = [
   { title: "Access Center", url: "/vetbondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
@@ -42,8 +36,18 @@ export default function VetBondhuSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const isVetUser = hasRole("vet") || hasCapability("can_consult_as_vet");
   const profilePath = isVetUser ? "/vet/profile" : "/vetbondhu/profile";
+
+  const VETBONDHU_ITEMS: NavItem[] = [
+    { title: "Home", url: "/vetbondhu", icon: LayoutGrid, iconColor: VB },
+    { title: "Find Vet", url: "/vetbondhu/vets", icon: Search, iconColor: VB },
+    { title: "Consultations", url: "/vetbondhu/consultations", icon: CalendarCheck, iconColor: VB },
+    { title: "Prescriptions", url: "/vetbondhu/prescriptions", icon: FileText, iconColor: VB },
+    { title: t("sidebar.cowWeight"), url: "/vetbondhu/cow-weight", icon: Scale, iconColor: VB },
+  ];
+
   const bottomNav = VB_BOTTOM.map((item) =>
     item.url === "/vetbondhu/profile" ? { ...item, url: profilePath } : item
   );
