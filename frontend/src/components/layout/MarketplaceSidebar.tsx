@@ -12,6 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+import { VENDOR_THEME } from "@/lib/vendorTheme";
 import WorkspaceButtons from "./WorkspaceButtons";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -33,41 +35,51 @@ export default function MarketplaceSidebar() {
 
   if (!user) return null;
 
-  const brandColor = ICON_COLORS.cart;
+  const buyerBrandColor = MARKETPLACE_THEME.primary;
+  const sellerBrandColor = VENDOR_THEME.primary;
   const isVetUser = hasRole("vet") || hasCapability("can_consult_as_vet");
   const profilePath = isVetUser ? "/vet/profile" : "/marketplace/profile";
 
-  const MARKETPLACE_CORE: NavItem[] = [
-    { title: t("sidebar.browseProducts"), url: "/marketplace", icon: ShoppingCart, iconColor: ICON_COLORS.cart, capability: "can_buy" },
-    { title: t("sidebar.myCart"), url: "/cart", icon: ShoppingBag, iconColor: ICON_COLORS.shopping, capability: "can_buy" },
-    { title: t("sidebar.myOrders"), url: "/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders, capability: "can_buy" },
-    { title: t("sidebar.messages"), url: "/marketplace/inbox", icon: MessageCircle, iconColor: ICON_COLORS.marketplace, capability: "can_buy" },
+  const SHOPPING_ITEMS: NavItem[] = [
+    { title: t("sidebar.browseProducts"), url: "/marketplace", icon: ShoppingCart, iconColor: MARKETPLACE_THEME.primary, capability: "can_buy" },
+    { title: t("sidebar.myCart"), url: "/cart", icon: ShoppingBag, iconColor: MARKETPLACE_THEME.primary, capability: "can_buy" },
+    { title: t("sidebar.myOrders"), url: "/orders", icon: ClipboardList, iconColor: MARKETPLACE_THEME.primary, capability: "can_buy" },
+    { title: t("sidebar.messages"), url: "/marketplace/inbox", icon: MessageCircle, iconColor: MARKETPLACE_THEME.primary, capability: "can_buy" },
     { title: t("sidebar.cowWeight"), url: "/marketplace/cow-weight", icon: Scale, iconColor: ICON_COLORS.analytics },
-    { title: t("sidebar.myShop"), url: "/my-shop", icon: Store, iconColor: ICON_COLORS.store },
-    { title: t("sidebar.sellerDashboard"), url: "/seller/dashboard", icon: Package, iconColor: ICON_COLORS.package, capability: "can_sell" },
-    { title: t("sidebar.manageOrders"), url: "/seller/orders", icon: Truck, iconColor: ICON_COLORS.farm, capability: "can_manage_orders" },
+  ];
+
+  const SELLER_ITEMS: NavItem[] = [
+    { title: t("sidebar.myShop"), url: "/my-shop", icon: Store, iconColor: VENDOR_THEME.primary, capability: "can_sell" },
+    { title: t("sidebar.sellerDashboard"), url: "/seller/dashboard", icon: Package, iconColor: VENDOR_THEME.primary, capability: "can_sell" },
+    { title: t("sidebar.manageOrders"), url: "/seller/orders", icon: Truck, iconColor: VENDOR_THEME.primary, capability: "can_manage_orders" },
   ];
 
   const MARKETPLACE_BOTTOM: NavItem[] = [
-    { title: t("sidebar.accessCenter"), url: "/marketplace/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
+    { title: t("sidebar.accessCenter"), url: "/marketplace/access-center", icon: Shield, iconColor: MARKETPLACE_THEME.accessCenter },
     { title: t("sidebar.profile"), url: profilePath, icon: UserCircle, iconColor: ICON_COLORS.profile },
     { title: t("sidebar.settings"), url: "/marketplace/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
   ];
 
-  const coreWithSmartShop = MARKETPLACE_CORE.map((item) =>
-    item.url === "/my-shop" && !hasCapability("can_sell")
-      ? { ...item, url: "/marketplace/access-center?request=seller_access" }
-      : item
-  );
-  const visibleCore = coreWithSmartShop.filter((item) => !item.capability || hasCapability(item.capability));
+  const visibleShopping = SHOPPING_ITEMS.filter((item) => !item.capability || hasCapability(item.capability));
+  const visibleSeller = SELLER_ITEMS.filter((item) => !item.capability || hasCapability(item.capability));
+  const showSellerSection =
+    (hasCapability("can_sell") || hasCapability("can_manage_orders")) && visibleSeller.length > 0;
 
-  const renderItem = (item: NavItem) => {
+  const renderItem = (item: NavItem, activeColor: string) => {
     const itemPath = item.url.split("?")[0];
-    const active = location.pathname === itemPath || (itemPath !== "/marketplace" && location.pathname.startsWith(itemPath + "/"));
+    const active =
+      location.pathname === itemPath ||
+      (itemPath !== "/marketplace" && location.pathname.startsWith(itemPath + "/"));
     return (
       <SidebarMenuItem key={item.url}>
         <SidebarMenuButton asChild isActive={active}>
-          <NavLink to={item.url} end className="transition-all duration-200 rounded-lg" activeClassName="text-white font-medium shadow-sm" style={active ? { backgroundColor: brandColor, color: "white" } : undefined}>
+          <NavLink
+            to={item.url}
+            end
+            className="transition-all duration-200 rounded-lg"
+            activeClassName="text-white font-medium shadow-sm"
+            style={active ? { backgroundColor: activeColor, color: "white" } : undefined}
+          >
             <item.icon className="h-4 w-4" style={{ color: active ? "white" : item.iconColor }} />
             {!collapsed && <span>{item.title}</span>}
           </NavLink>
@@ -83,8 +95,8 @@ export default function MarketplaceSidebar() {
           {!collapsed ? (
             <>
               <div className="flex items-center gap-2">
-                <ShoppingCart className="h-4 w-4" style={{ color: brandColor }} />
-                <span className="text-sm font-semibold tracking-tight" style={{ color: brandColor }}>{t("sidebar.marketplace")}</span>
+                <ShoppingCart className="h-4 w-4" style={{ color: buyerBrandColor }} />
+                <span className="text-sm font-semibold tracking-tight" style={{ color: buyerBrandColor }}>{t("sidebar.marketplace")}</span>
               </div>
               <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                 <PanelLeftClose className="h-4 w-4" />
@@ -99,26 +111,39 @@ export default function MarketplaceSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <div className="px-2 py-2">
-          <SidebarMenu>
-            {visibleCore.map(renderItem)}
-          </SidebarMenu>
+        {!collapsed && visibleShopping.length > 0 && (
+          <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shopping</p>
+        )}
+        <div className="px-2 py-1">
+          <SidebarMenu>{visibleShopping.map((item) => renderItem(item, buyerBrandColor))}</SidebarMenu>
         </div>
+
+        {showSellerSection && (
+          <>
+            <Separator className="my-2 mx-2" />
+            {!collapsed && (
+              <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: sellerBrandColor }}>
+                Seller tools
+              </p>
+            )}
+            <div className="px-2 py-1">
+              <SidebarMenu>{visibleSeller.map((item) => renderItem(item, sellerBrandColor))}</SidebarMenu>
+            </div>
+          </>
+        )}
 
         <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />
-          <SidebarMenu>
-            {MARKETPLACE_BOTTOM.map(renderItem)}
-          </SidebarMenu>
+          <SidebarMenu>{MARKETPLACE_BOTTOM.map((item) => renderItem(item, buyerBrandColor))}</SidebarMenu>
         </div>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-3">
         {!collapsed && (
           <button onClick={() => navigate(profilePath)} className="flex items-center gap-2 mb-2 px-1 w-full hover:opacity-80 transition-opacity cursor-pointer">
-            <div className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: brandColor }}>
+            <div className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: buyerBrandColor }}>
               {user.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0 text-left">
