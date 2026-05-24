@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { API_BASE, api, readSession, subscribeVetbondhuVetInboxNewBooking, subscribeVetInboxNewBooking } from "@/api/client";
+import { API_BASE, vetbondhuApi, readSession, subscribeVetbondhuVetInboxNewBooking, subscribeVetInboxNewBooking } from "@/api/client";
 import { CalendarCheck, MessageSquare, Users, DollarSign, Clock, AlertCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import StatCard from "@/components/dashboard/StatCard";
@@ -74,7 +74,7 @@ export default function VetDashboard() {
       setVetParticipantIds([]);
       return;
     }
-    void api
+    void vetbondhuApi
       .from("vets")
       .select("id,user_id")
       .eq("user_id", user.id)
@@ -139,7 +139,7 @@ export default function VetDashboard() {
 
   const handleAccept = async (bookingId: string) => {
     setAccepting(bookingId);
-    const { error } = await api
+    const { error } = await vetbondhuApi
       .from("consultation_bookings")
       .update({ status: "in_progress" })
       .eq("id", bookingId);

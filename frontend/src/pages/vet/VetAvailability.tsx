@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
-import { api } from "@/api/client";
+import { vetbondhuApi } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { Clock, Plus, Trash2 } from "lucide-react";
@@ -36,7 +36,7 @@ export default function VetAvailability() {
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (!session) return [];
-      const { data } = await api
+      const { data } = await vetbondhuApi
         .from("vet_availability")
         .select("*")
         .eq("user_id", session.user.id)
@@ -55,7 +55,7 @@ export default function VetAvailability() {
   const removeSlot = async (index: number) => {
     const slot = slots[index];
     if (slot.id) {
-      await api.from("vet_availability").delete().eq("id", slot.id);
+      await vetbondhuApi.from("vet_availability").delete().eq("id", slot.id);
     }
     setSlots(prev => prev.filter((_, i) => i !== index));
     toast({ title: "Slot removed" });
@@ -70,7 +70,7 @@ export default function VetAvailability() {
     setSaving(true);
     try {
       // Delete all existing and re-insert
-      await api.from("vet_availability").delete().eq("user_id", session.user.id);
+      await vetbondhuApi.from("vet_availability").delete().eq("user_id", session.user.id);
       
       if (slots.length > 0) {
         const rows = slots.map(s => ({
@@ -80,7 +80,7 @@ export default function VetAvailability() {
           end_time: s.end_time,
           is_active: s.is_active,
         }));
-        const { error } = await api.from("vet_availability").insert(rows);
+        const { error } = await vetbondhuApi.from("vet_availability").insert(rows);
         if (error) throw error;
       }
       toast({ title: "Availability saved!" });

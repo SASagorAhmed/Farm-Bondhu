@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api } from "@/api/client";
+import { vetbondhuApi } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { ALL_ANIMAL_TYPES, getAnimalTypeLabel, normalizeAnimalType } from "@/lib/animalTypes";
@@ -237,7 +237,7 @@ export default function CreatePrescription() {
   useEffect(() => {
     if (!consultationId) return;
     setLoading(true);
-    api
+    vetbondhuApi
       .from("consultation_bookings")
       .select("*")
       .eq("id", consultationId)
@@ -342,7 +342,7 @@ export default function CreatePrescription() {
           notes: m.notes || null,
         }));
 
-        const { error: iErr } = await api
+        const { error: iErr } = await vetbondhuApi
           .from("prescription_items")
           .insert(items);
 

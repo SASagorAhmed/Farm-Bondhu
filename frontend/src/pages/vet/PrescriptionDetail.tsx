@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { API_BASE, api, readSession } from "@/api/client";
+import { API_BASE, vetbondhuApi, readSession } from "@/api/client";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
@@ -84,8 +84,8 @@ export default function PrescriptionDetail() {
     if (!prescriptionId) return;
     const fetchData = async () => {
       const [{ data: pData }, { data: mData }] = await Promise.all([
-        api.from("prescriptions").select("*").eq("id", prescriptionId).single(),
-        api.from("prescription_items").select("*").eq("prescription_id", prescriptionId).order("created_at"),
+        vetbondhuApi.from("prescriptions").select("*").eq("id", prescriptionId).single(),
+        vetbondhuApi.from("prescription_items").select("*").eq("prescription_id", prescriptionId).order("created_at"),
       ]);
       setPrescription(pData as PrescriptionData | null);
       setMedicines((mData as MedicineItem[]) || []);

@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { api } from "@/api/client";
+import { vetbondhuApi } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Users } from "lucide-react";
 import { format } from "date-fns";
@@ -35,7 +35,7 @@ export default function VetPatients() {
     gcTime: moduleCachePolicy.vet.gcTime,
     placeholderData: (prev) => prev,
     queryFn: async () => {
-      const { data } = await api
+      const { data } = await vetbondhuApi
         .from("consultation_bookings")
         .select("patient_mock_id, patient_name, animal_type, created_at")
         .eq("vet_user_id", user?.id)
