@@ -64,8 +64,8 @@ export function referenceCmDefault(): number {
   return REFERENCE_CM;
 }
 
-export function cmPerPixelFromReference(line: LineSegment): number {
+export function cmPerPixelFromReference(line: LineSegment, referenceCm = REFERENCE_CM): number {
   const px = lineLengthPx(line);
   if (px <= 0) return 0;
-  return REFERENCE_CM / px;
+  return referenceCm / px;
 }

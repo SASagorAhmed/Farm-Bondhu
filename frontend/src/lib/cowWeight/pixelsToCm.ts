@@ -1,6 +1,7 @@
 import { isStandoffInOptimalBand, standoffHeightMultiplier } from "./cowWeightResearch";
 import type { BBox, CowLines } from "./types";
 import { lineLengthPx } from "./imageUtils";
+import { dimensionsFromPlanDScale } from "./measureSegments";
 
 /** Vertical chest line ↔ standing height (Plan B). */
 export const ASSUMED_COW_HEIGHT_CM = 150;
@@ -93,4 +94,13 @@ export function dimensionsFromLinesPlanB(
 /** @deprecated Use cmPerPixelFromBBoxHeight — kept for callers expecting single bbox-height scale. */
 export function estimateCmPerPixelFromBBox(bboxHeightPx: number, assumedHeightCm = ASSUMED_COW_HEIGHT_CM): number {
   return cmPerPixelFromBBoxHeight(bboxHeightPx, assumedHeightCm);
+}
+
+/** Plan D: axis-aware cm from dynamic r1 (vertical/chest) and r2 (horizontal/length). */
+export function dimensionsFromLinesPlanD(
+  lines: CowLines,
+  r1: number,
+  r2: number
+): { chest_width_cm: number; body_length_cm: number } {
+  return dimensionsFromPlanDScale(lines, r1, r2);
 }
