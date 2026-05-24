@@ -524,7 +524,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           method: "POST",
           body: JSON.stringify(this.insertRow),
         });
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Failed to add product")) };
         return { data: (body as { data: unknown }).data, error: null };
       }
       if (this.op === "update" && this.table === "products") {
@@ -533,7 +533,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           method: "PATCH",
           body: JSON.stringify(this.updatePatch || {}),
         });
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Failed to update product")) };
         return { data: (body as { data: unknown }).data, error: null };
       }
       if (this.op === "delete" && this.table === "products") {

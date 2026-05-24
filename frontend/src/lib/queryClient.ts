@@ -5,7 +5,7 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 export const moduleCachePolicy = {
   auth: { staleTime: 30 * 1000, gcTime: 8 * 60 * 60 * 1000 },
   dashboard: { staleTime: 3 * 60 * 1000, gcTime: 8 * 60 * 60 * 1000 },
-  marketplace: { staleTime: 5 * 60 * 1000, gcTime: 8 * 60 * 60 * 1000 },
+  marketplace: { staleTime: 60 * 1000, gcTime: 8 * 60 * 60 * 1000 },
   vet: { staleTime: 60 * 1000, gcTime: 8 * 60 * 60 * 1000 },
   admin: { staleTime: 2 * 60 * 1000, gcTime: 8 * 60 * 60 * 1000 },
 } as const;

@@ -2,11 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,10 +11,15 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import AdminChatInbox from "@/components/marketplace/AdminChatInbox";
+import ProductFormDialog from "@/components/marketplace/ProductFormDialog";
+import {
+  ProductFormValues,
+  fromDbRow,
+  resolveProductImageUrl,
+  toApiPayload,
+} from "@/lib/marketplaceProductForm";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
-
-const categories = ["feed", "medicine", "vaccines", "equipment", "livestock", "eggs", "meat", "milk", "produce"];
 
 interface FBProduct {
   id: string;
@@ -32,15 +33,17 @@ interface FBProduct {
   image: string;
   free_delivery: boolean;
   is_verified_seller: boolean;
+  is_flash_sale?: boolean;
+  wholesale_price?: number | null;
+  wholesale_min_qty?: number | null;
 }
-
-const emptyForm = { name: "", category: "feed", price: "", original_price: "", stock: "", unit: "kg", description: "", image: "/placeholder.svg", free_delivery: true };
 
 export default function FarmBondhuShop() {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [initialForm, setInitialForm] = useState<ProductFormValues | undefined>();
   const queryClient = useQueryClient();
 
   const { data: products = [] } = useQuery({
@@ -65,42 +68,41 @@ export default function FarmBondhuShop() {
     };
   }, [queryClient]);
 
-  const handleSave = async () => {
-    if (!form.name || !form.price || !user) return toast.error("Name and price required");
-    const payload = {
-      name: form.name,
-      category: form.category,
-      price: Number(form.price),
-      original_price: form.original_price ? Number(form.original_price) : null,
-      stock: Number(form.stock) || 0,
-      unit: form.unit,
-      description: form.description,
-      image: form.image || "/placeholder.svg",
-      free_delivery: form.free_delivery,
-      seller_id: user.id,
-      seller_name: "FarmBondhu",
-      is_verified_seller: true,
-      status: "active",
-    };
-    if (editing) {
-      const { error } = await api.from("products").update(payload).eq("id", editing);
-      if (error) return toast.error(error.message);
-      toast.success("Product updated");
-    } else {
-      const { error } = await api.from("products").insert(payload);
-      if (error) return toast.error(error.message);
-      toast.success("Product added");
-    }
-    setOpen(false);
-    setEditing(null);
-    setForm(emptyForm);
-    queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
+  const openCreate = () => {
+    setFormMode("create");
+    setEditingId(null);
+    setInitialForm(undefined);
+    setFormOpen(true);
   };
 
   const handleEdit = (p: FBProduct) => {
-    setEditing(p.id);
-    setForm({ name: p.name, category: p.category, price: String(p.price), original_price: p.original_price ? String(p.original_price) : "", stock: String(p.stock), unit: p.unit, description: p.description, image: p.image, free_delivery: p.free_delivery });
-    setOpen(true);
+    setFormMode("edit");
+    setEditingId(p.id);
+    setInitialForm(fromDbRow(p as Record<string, unknown>));
+    setFormOpen(true);
+  };
+
+  const handleSubmit = async (values: ProductFormValues) => {
+    if (!user) return;
+    const imageUrl = await resolveProductImageUrl(values);
+    const payload = {
+      ...toApiPayload(values, imageUrl),
+      seller_id: user.id,
+      seller_name: "FarmBondhu",
+      is_verified_seller: true,
+    };
+
+    if (formMode === "edit" && editingId) {
+      const { error } = await api.from("products").update(payload).eq("id", editingId);
+      if (error) throw new Error(error.message);
+      toast.success("Product updated");
+    } else {
+      const { error } = await api.from("products").insert(payload);
+      if (error) throw new Error(error.message);
+      toast.success("Product added");
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
+    queryClient.invalidateQueries({ queryKey: queryKeys().products() });
   };
 
   const handleDelete = async (id: string) => {
@@ -108,6 +110,7 @@ export default function FarmBondhuShop() {
     if (error) return toast.error(error.message);
     toast.success("Product deleted");
     queryClient.invalidateQueries({ queryKey: queryKeys().officialShopProducts() });
+    queryClient.invalidateQueries({ queryKey: queryKeys().products() });
   };
 
   return (
@@ -120,40 +123,21 @@ export default function FarmBondhuShop() {
             <p className="text-muted-foreground mt-1">Manage official platform products</p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(emptyForm); } }}>
-          <DialogTrigger asChild>
-            <Button style={{ backgroundColor: ICON_COLORS.farm }} className="text-white"><Plus className="h-4 w-4 mr-2" />Add Product</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{editing ? "Edit" : "Add"} FarmBondhu Product</DialogTitle>
-              <DialogDescription>Set pricing, stock, and listing details for the official shop.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-                <div><Label>Category</Label>
-                  <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{categories.map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div><Label>Price (৳)</Label><Input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} /></div>
-                <div><Label>Original Price</Label><Input type="number" value={form.original_price} onChange={e => setForm({ ...form, original_price: e.target.value })} /></div>
-                <div><Label>Stock</Label><Input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Unit</Label><Input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} /></div>
-                <div><Label>Image URL</Label><Input value={form.image} onChange={e => setForm({ ...form, image: e.target.value })} /></div>
-              </div>
-              <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
-              <Button onClick={handleSave} style={{ backgroundColor: ICON_COLORS.farm }} className="text-white">{editing ? "Update" : "Add"} Product</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button style={{ backgroundColor: ICON_COLORS.farm }} className="text-white" onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-2" />Add Product
+        </Button>
       </motion.div>
+
+      <ProductFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        mode={formMode}
+        initialValues={initialForm}
+        title={formMode === "edit" ? "Edit FarmBondhu Product" : "Add FarmBondhu Product"}
+        description="Set pricing, photo, stock, and listing details for the official shop."
+        accentColor={ICON_COLORS.farm}
+        onSubmit={handleSubmit}
+      />
 
       <Tabs defaultValue="products" className="space-y-4">
         <TabsList><TabsTrigger value="products">Products</TabsTrigger><TabsTrigger value="messages"><MessageCircle className="h-4 w-4 mr-1" />Messages</TabsTrigger></TabsList>
@@ -178,6 +162,9 @@ export default function FarmBondhuShop() {
                     <TableRow key={p.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
+                          {p.image && (
+                            <img src={p.image} alt={p.name} className="h-8 w-8 rounded object-cover" />
+                          )}
                           <span className="font-medium text-foreground">{p.name}</span>
                           <Badge className="text-[10px] gap-1" style={{ backgroundColor: ICON_COLORS.farm, color: "white" }}><ShieldCheck className="h-3 w-3" />Official</Badge>
                         </div>
