@@ -1333,5 +1333,12 @@ export async function ensureSchema(sql) {
      WHERE slot_date IS DISTINCT FROM ((slot_start AT TIME ZONE 'Asia/Dhaka')::date)`,
   );
 
+  /** Multi-patient windows: legacy rows marked booked=true no longer block patient booking. */
+  await runOptional(
+    sql,
+    "medi reset doctor_time_slots.booked",
+    `UPDATE medibondhu_doctor_time_slots SET booked = false WHERE booked = true`,
+  );
+
   console.log("[ensureSchema] public tables and indexes checked");
 }

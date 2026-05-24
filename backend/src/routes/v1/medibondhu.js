@@ -284,7 +284,6 @@ router.get(
         exists (
           select 1 from medibondhu_doctor_time_slots ts
           where ts.doctor_id = d.id
-            and ts.booked = false
             and ts.slot_end > now()
         ) as has_open_slots
       from medibondhu_doctors d
@@ -330,7 +329,6 @@ router.get(
         exists (
           select 1 from medibondhu_doctor_time_slots ts
           where ts.doctor_id = d.id
-            and ts.booked = false
             and ts.slot_end > now()
         ) as has_open_slots
       from medibondhu_doctors d
@@ -359,7 +357,6 @@ router.get(
       from medibondhu_doctor_time_slots
       where doctor_id = ${doctorId}::uuid
         and ((slot_start at time zone 'Asia/Dhaka')::date = ${dateRaw}::date)
-        and booked = false
         and slot_end > now()
       order by slot_start asc
     `;
@@ -381,7 +378,7 @@ router.post(
     try {
       const result = await sql.begin(async (tx) => {
         const [slot] = await tx`
-          select ts.id, ts.doctor_id, ts.booked, ts.slot_end, d.specialty_id
+          select ts.id, ts.doctor_id, ts.slot_end, d.specialty_id
           from medibondhu_doctor_time_slots ts
           join medibondhu_doctors d on d.id = ts.doctor_id
           where ts.id = ${slot_id}::uuid
@@ -389,7 +386,6 @@ router.post(
             for update
         `;
         if (!slot) throw new Error("SLOT_NOT_FOUND");
-        if (slot.booked) throw new Error("SLOT_TAKEN");
         const endMs =
           slot.slot_end instanceof Date
             ? slot.slot_end.getTime()
@@ -397,6 +393,15 @@ router.post(
               ? Date.parse(slot.slot_end)
               : NaN;
         if (Number.isFinite(endMs) && endMs <= Date.now()) throw new Error("SLOT_WINDOW_ENDED");
+
+        const [dupActive] = await tx`
+          select id from medibondhu_appointments
+          where slot_id = ${slot_id}::uuid
+            and patient_user_id = ${uid}::uuid
+            and status in ('pending', 'confirmed', 'in_progress')
+          limit 1
+        `;
+        if (dupActive) throw new Error("DUPLICATE_ACTIVE_BOOKING");
 
         // Online visits start pending until the doctor accepts (join video → in_progress), like VetBondhu.
         const initialStatus = ctype === "chamber" ? "confirmed" : "pending";
@@ -414,9 +419,6 @@ router.post(
       })}
           returning *
         `;
-        await tx`
-          update medibondhu_doctor_time_slots set booked = true where id = ${slot_id}::uuid
-        `;
         return appt;
       });
       /** Patient bootstrap keyed by booking user; doctor inbox by practitioner user — both must invalidate. */
@@ -426,10 +428,17 @@ router.post(
       invalidateByPrefix(`${CACHE_PREFIX}|u:${uid}|`);
       if (docRow?.user_id) invalidateByPrefix(`${CACHE_PREFIX}|u:${String(docRow.user_id)}|`);
 
-      res.status(201).json({ data: result });
+      res.status(201).json({
+        data: {
+          ...result,
+          doctor_user_id: docRow?.user_id ? String(docRow.user_id) : null,
+        },
+      });
     } catch (e) {
       const m = String((e && e.message) || e);
-      if (m.includes("SLOT_TAKEN")) return res.status(409).json({ error: "Slot already booked" });
+      if (m.includes("DUPLICATE_ACTIVE_BOOKING")) {
+        return res.status(409).json({ error: "You already have an active booking for this time window" });
+      }
       if (m.includes("SLOT_WINDOW_ENDED")) return res.status(400).json({ error: "This time slot has ended; choose another" });
       if (m.includes("SLOT_NOT_FOUND")) return res.status(404).json({ error: "Slot not found" });
       throw e;
@@ -553,8 +562,8 @@ router.get(
     const st = String(row.status || "").toLowerCase();
     const terminal = terminalMediAppointmentStatus(st);
     const slotOk = isWithinMediTeleconsultWindow(row.slot_start, row.slot_end);
-    /** Video only after the doctor accepts (status in_progress); pending patients use the waiting room. */
-    const canJoinVideo = !terminal && slotOk && st === "in_progress";
+    /** Video after doctor accepts (in_progress). Slot window is advisory only — VetBondhu does not block active visits. */
+    const canJoinVideo = !terminal && st === "in_progress";
 
     const participantIds = [
       String(row.patient_user_id || ""),
@@ -592,6 +601,7 @@ router.get(
           isDoctor,
           isAdmin: roleSet.has("admin"),
           canJoinVideo,
+          slotWithinWindow: slotOk,
           zegoRoomId: mediHumanZegoRoomId(apptId),
         },
       },
@@ -707,11 +717,6 @@ router.patch(
             updated_at = now()
           where id = ${apptId}::uuid
         `;
-        if (row.slot_id) {
-          await tx`
-            update medibondhu_doctor_time_slots set booked = false where id = ${String(row.slot_id)}::uuid
-          `;
-        }
       });
 
       const [nextRow] = await sql`select * from medibondhu_appointments where id = ${apptId}::uuid`;
@@ -735,9 +740,6 @@ router.patch(
       }
       if (prevStatus !== "confirmed" && prevStatus !== "pending") {
         return res.status(400).json({ error: "Can only start a teleconsult from a pending or confirmed appointment" });
-      }
-      if (!isWithinMediTeleconsultWindow(row.slot_start, row.slot_end)) {
-        return res.status(400).json({ error: "Outside the scheduled consultation window" });
       }
     }
 
@@ -781,12 +783,6 @@ router.patch(
       `;
     }
     if (!updated) return res.status(404).json({ error: "Not updated" });
-
-    if (st === "rejected" && row.slot_id) {
-      await sql`
-        update medibondhu_doctor_time_slots set booked = false where id = ${String(row.slot_id)}::uuid
-      `;
-    }
 
     res.json({
       data: updated,
@@ -1104,7 +1100,17 @@ router.get(
               floor(extract(epoch from (coalesce(ap.talk_ended_at, now()) - ap.talk_started_at)) / 60)::int
             )
             else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
-          end as consultation_minutes
+          end as consultation_minutes,
+          (
+            select count(*)::int from medibondhu_appointments a
+            where a.slot_id = ts.id
+              and a.status in ('pending', 'confirmed', 'in_progress')
+          ) as active_appointment_count,
+          (
+            select count(*)::int from medibondhu_appointments a
+            where a.slot_id = ts.id
+              and a.status not in ('cancelled', 'rejected')
+          ) as total_appointment_count
         from medibondhu_doctor_time_slots ts
         left join lateral (
           select a.*
@@ -1142,7 +1148,17 @@ router.get(
           case
             when ap.id is null then null
             else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
-          end as consultation_minutes
+          end as consultation_minutes,
+          (
+            select count(*)::int from medibondhu_appointments a
+            where a.slot_id = ts.id
+              and a.status in ('pending', 'confirmed', 'in_progress')
+          ) as active_appointment_count,
+          (
+            select count(*)::int from medibondhu_appointments a
+            where a.slot_id = ts.id
+              and a.status not in ('cancelled', 'rejected')
+          ) as total_appointment_count
         from medibondhu_doctor_time_slots ts
         left join lateral (
           select a.*
@@ -1237,12 +1253,38 @@ router.delete(
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk || !isUuid(sid)) return res.status(400).json({ error: "Invalid" });
 
+    const [slotRow] = await sql`
+      select ts.id, ts.slot_end,
+        (
+          select count(*)::int from medibondhu_appointments a
+          where a.slot_id = ts.id
+            and a.status in ('pending', 'confirmed', 'in_progress')
+        ) as active_appointment_count
+      from medibondhu_doctor_time_slots ts
+      where ts.id = ${sid}::uuid and ts.doctor_id = ${doctorPk}::uuid
+      limit 1
+    `;
+    if (!slotRow) return res.status(404).json({ error: "Slot not found" });
+    const activeCount = Number(slotRow.active_appointment_count || 0);
+    if (activeCount > 0) {
+      return res.status(409).json({ error: "Cannot remove slot while patients are still booked" });
+    }
+    const endMs =
+      slotRow.slot_end instanceof Date
+        ? slotRow.slot_end.getTime()
+        : Number.isFinite(Date.parse(slotRow.slot_end))
+          ? Date.parse(slotRow.slot_end)
+          : NaN;
+    if (Number.isFinite(endMs) && endMs <= Date.now()) {
+      return res.status(400).json({ error: "Past slots cannot be removed" });
+    }
+
     const [del] = await sql`
       delete from medibondhu_doctor_time_slots
-      where id = ${sid}::uuid and doctor_id = ${doctorPk}::uuid and booked = false
+      where id = ${sid}::uuid and doctor_id = ${doctorPk}::uuid
       returning id
     `;
-    if (!del) return res.status(404).json({ error: "Slot not found or already booked" });
+    if (!del) return res.status(404).json({ error: "Slot not found" });
     res.json({ data: { ok: true } });
   })
 );

@@ -22,7 +22,7 @@ type SlotRow = {
   slot_date: string;
   slot_start: string;
   slot_end: string;
-  booked: boolean;
+  booked?: boolean;
   appointment_id?: string | null;
   consultation_type?: string | null;
   appointment_status?: string | null;
@@ -30,7 +30,16 @@ type SlotRow = {
   patient_name?: string | null;
   patient_email?: string | null;
   consultation_minutes?: number | null;
+  active_appointment_count?: number;
+  total_appointment_count?: number;
 };
+
+function invalidateScheduleCaches(qc: ReturnType<typeof useQueryClient>, userId?: string, from?: string, to?: string) {
+  void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorSchedule(userId, from, to) });
+  void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-slots"] });
+  void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctors"] });
+  void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorsPreview(userId) });
+}
 
 export default function MediDoctorSchedule() {
   const { user } = useAuth();
@@ -41,8 +50,10 @@ export default function MediDoctorSchedule() {
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("09:30");
 
+  const scheduleKey = queryKeys().medibondhuHumanDoctorSchedule(user?.id, from, to);
+
   const q = useQuery({
-    queryKey: queryKeys().medibondhuHumanDoctorSchedule(user?.id, from, to),
+    queryKey: scheduleKey,
     enabled: Boolean(user?.id),
     queryFn: async () => {
       const { res, body } = await mediHumanJson<{ data?: SlotRow[] }>(
@@ -61,7 +72,9 @@ export default function MediDoctorSchedule() {
       if (Date.parse(slot_end) <= Date.now()) {
         throw new Error("This slot already ended in Bangladesh time. Pick a future end time.");
       }
-      const { res, body } = await mediHumanJson<{ data?: { inserted_count?: number; requested_count?: number; duplicates_skipped?: number; past_skipped?: number } }>(`/doctor/time-slots/bulk`, {
+      const { res, body } = await mediHumanJson<{
+        data?: { inserted_count?: number; requested_count?: number; duplicates_skipped?: number; past_skipped?: number };
+      }>(`/doctor/time-slots/bulk`, {
         method: "POST",
         body: JSON.stringify({
           slots: [{ slot_date, slot_start, slot_end }],
@@ -77,19 +90,19 @@ export default function MediDoctorSchedule() {
     },
     onSuccess: async ({ insertedCount, requestedCount, duplicatesSkipped, pastSkipped }) => {
       if (insertedCount > 0) {
-        toast.success(insertedCount === 1 ? "Slot added" : `${insertedCount} slots added`);
+        toast.success(insertedCount === 1 ? "Availability window added" : `${insertedCount} windows added`);
       } else {
         if (pastSkipped > 0) {
-          toast.warning("No new slot added. This slot already ended, so it is hidden from patients.");
+          toast.warning("No new window added. This slot already ended, so it is hidden from patients.");
         } else {
           const duplicateHint =
             duplicatesSkipped > 0 || requestedCount > 0
-              ? "This time slot already exists or was skipped as duplicate."
-              : "No valid slots were inserted.";
-          toast.warning(`No new slot added. ${duplicateHint}`);
+              ? "This time window already exists or was skipped as a duplicate."
+              : "No valid windows were inserted.";
+          toast.warning(`No new window added. ${duplicateHint}`);
         }
       }
-      await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-slots"] });
+      invalidateScheduleCaches(qc, user?.id, from, to);
     },
     onError: (e: Error) => toast.error(e.message || "Failed"),
   });
@@ -100,16 +113,28 @@ export default function MediDoctorSchedule() {
       if (!res.ok) throw new Error(String((body as { error?: string }).error || res.status));
     },
     onSuccess: async () => {
-      toast.success("Slot removed");
-      await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-slots"] });
+      toast.success("Availability window removed");
+      invalidateScheduleCaches(qc, user?.id, from, to);
     },
     onError: (e: Error) => toast.error(e.message || "Failed"),
   });
 
-  const sorted = useMemo(() => [...(q.data || [])].sort((a, b) => String(a.slot_start).localeCompare(String(b.slot_start))), [q.data]);
+  const sorted = useMemo(
+    () => [...(q.data || [])].sort((a, b) => String(a.slot_start).localeCompare(String(b.slot_start))),
+    [q.data],
+  );
 
-  const openCount = sorted.filter((s) => !s.booked).length;
-  const bookedCount = sorted.filter((s) => s.booked).length;
+  const stats = useMemo(() => {
+    const now = Date.now();
+    let openWindows = 0;
+    let activePatients = 0;
+    for (const s of sorted) {
+      const endMs = new Date(s.slot_end).getTime();
+      if (Number.isFinite(endMs) && endMs > now) openWindows += 1;
+      activePatients += Number(s.active_appointment_count || 0);
+    }
+    return { openWindows, activePatients };
+  }, [sorted]);
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -122,22 +147,24 @@ export default function MediDoctorSchedule() {
           Availability
         </h1>
         <p className="text-muted-foreground mt-2 text-sm max-w-2xl leading-relaxed">
-          Define bookable windows for MediBondhu patients. Dates and clocks use Bangladesh time ({MEDI_BONDHU_TZ}). Booked slots cannot be deleted here — cancel
-          the appointment from your inbox if the patient needs to reschedule.
+          Publish open time windows for MediBondhu patients (Bangladesh time, {MEDI_BONDHU_TZ}). Each window stays bookable until it ends — multiple patients
+          can request visits in the same window. Remove a window only when no active appointments remain.
         </p>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Card className="rounded-xl">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Open slots</p>
-            <p className="text-2xl font-bold mt-1 tabular-nums">{openCount}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Open windows</p>
+            <p className="text-2xl font-bold mt-1 tabular-nums">{stats.openWindows}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Not ended yet</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Booked</p>
-            <p className="text-2xl font-bold mt-1 tabular-nums">{bookedCount}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Active bookings</p>
+            <p className="text-2xl font-bold mt-1 tabular-nums">{stats.activePatients}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pending / in progress</p>
           </CardContent>
         </Card>
         <Card className="rounded-xl col-span-2 sm:col-span-1">
@@ -172,12 +199,12 @@ export default function MediDoctorSchedule() {
       <Card className="rounded-2xl overflow-hidden border-border shadow-sm">
         <div className="h-1 w-full shrink-0 opacity-70" style={{ backgroundColor: MB }} />
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-display">Add a slot</CardTitle>
+          <CardTitle className="text-lg font-display">Add a window</CardTitle>
           <CardDescription>
-            Start/end are interpreted as Bangladesh local time. Patients see unbooked slots until each window ends (Bangladesh time), matching your MediBondhu profile.
+            Start/end use Bangladesh local time. Patients see every window until its end time — not one patient per window.
           </CardDescription>
           <p className="text-xs text-muted-foreground">
-            Note: if another slot already exists at the same start time, it is skipped as a duplicate.
+            If another window already exists at the same start time, it is skipped as a duplicate.
           </p>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
@@ -202,111 +229,95 @@ export default function MediDoctorSchedule() {
           </div>
           <div className="md:col-span-2">
             <Button type="button" className="rounded-xl text-white font-semibold px-8" style={{ backgroundColor: MB }} disabled={bulk.isPending} onClick={() => bulk.mutate()}>
-              {bulk.isPending ? "Saving…" : "Add slot"}
+              {bulk.isPending ? "Saving…" : "Add window"}
             </Button>
           </div>
         </CardContent>
       </Card>
 
       <div>
-        <MediSectionTitle eyebrow="In selected range" title="Your slots" />
+        <MediSectionTitle eyebrow="In selected range" title="Your availability" />
         <Card className="rounded-2xl border-border overflow-hidden">
           <CardContent className="p-0 divide-y">
             {sorted.map((s) => {
               const now = Date.now();
-              const startMs = new Date(s.slot_start).getTime();
               const endMs = new Date(s.slot_end).getTime();
-              const appointmentStatus = String(s.appointment_status || "").toLowerCase();
-              const appointmentLabel = appointmentStatus ? appointmentStatus.replace("_", " ") : "booked";
-              const isPastBooked = Boolean(s.booked) && Number.isFinite(endMs) && endMs <= now;
-              const isCompleted = appointmentStatus === "completed";
-              const isCancelled = appointmentStatus === "cancelled";
-              const isRejected = appointmentStatus === "rejected";
-              const inWindow = !s.booked && Number.isFinite(startMs) && Number.isFinite(endMs) && startMs <= now && endMs > now;
-              const isFutureOpen = !s.booked && Number.isFinite(startMs) && startMs > now && endMs > now;
-              const isPastUnbooked = !s.booked && Number.isFinite(endMs) && endMs <= now;
+              const activeCount = Number(s.active_appointment_count || 0);
+              const totalCount = Number(s.total_appointment_count || 0);
+              const isEnded = Number.isFinite(endMs) && endMs <= now;
+              const isOpen = !isEnded;
+              const canRemove = isOpen && activeCount === 0;
+              const latestStatus = String(s.appointment_status || "").toLowerCase();
+
               return (
-              <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-foreground tabular-nums">
-                      {formatDateYMDInDhaka(new Date(s.slot_start))}
-                    </span>
-                    <Badge variant="outline" className="rounded-md font-normal text-xs">
-                      {new Date(s.slot_start).toLocaleTimeString(undefined, {
-                        timeZone: MEDI_BONDHU_TZ,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                      —{" "}
-                      {new Date(s.slot_end).toLocaleTimeString(undefined, {
-                        timeZone: MEDI_BONDHU_TZ,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Badge>
-                    {s.booked ? (
-                      isCompleted ? (
-                        <Badge className="rounded-md bg-emerald-500/15 text-emerald-900 dark:text-emerald-100 border-emerald-500/30">Completed</Badge>
-                      ) : isCancelled || isRejected ? (
-                        <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
-                          {appointmentLabel}
-                        </Badge>
-                      ) : isPastBooked ? (
-                        <Badge variant="outline" className="rounded-md font-normal text-xs">
+                <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-foreground tabular-nums">
+                        {formatDateYMDInDhaka(new Date(s.slot_start))}
+                      </span>
+                      <Badge variant="outline" className="rounded-md font-normal text-xs">
+                        {new Date(s.slot_start).toLocaleTimeString(undefined, {
+                          timeZone: MEDI_BONDHU_TZ,
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                        —{" "}
+                        {new Date(s.slot_end).toLocaleTimeString(undefined, {
+                          timeZone: MEDI_BONDHU_TZ,
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Badge>
+                      {isEnded ? (
+                        <Badge variant="outline" className="rounded-md font-normal text-muted-foreground">
                           Ended
                         </Badge>
+                      ) : activeCount > 0 ? (
+                        <Badge className="rounded-md font-normal" style={{ backgroundColor: `${MB}22`, color: MB, borderColor: `${MB}55` }}>
+                          Open · {activeCount} active
+                        </Badge>
                       ) : (
-                        <Badge className="rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-100 border-amber-500/30">Booked</Badge>
-                      )
-                    ) : inWindow ? (
-                      <Badge className="rounded-md font-normal" style={{ backgroundColor: `${MB}22`, color: MB, borderColor: `${MB}55` }}>
-                        In progress · open
-                      </Badge>
-                    ) : isPastUnbooked ? (
-                      <Badge variant="outline" className="rounded-md font-normal text-muted-foreground border-border">
-                        Past · unbooked
-                      </Badge>
-                    ) : isFutureOpen ? (
-                      <Badge variant="secondary" className="rounded-md font-normal">Open</Badge>
-                    ) : null}
-                    {s.booked && (
-                      <>
-                        <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
-                          {String(s.consultation_type || "online").toLowerCase() === "offline" ? "Offline" : "Online"}
+                        <Badge variant="secondary" className="rounded-md font-normal">
+                          Open
                         </Badge>
-                        {!isCompleted && !isCancelled && !isRejected && (
-                          <Badge variant="outline" className="rounded-md font-normal text-xs capitalize">
-                            {isPastBooked ? "ended" : appointmentLabel}
-                          </Badge>
-                        )}
+                      )}
+                      {totalCount > 0 && (
                         <Badge variant="outline" className="rounded-md font-normal text-xs">
-                          {Number.isFinite(Number(s.consultation_minutes)) ? `${Number(s.consultation_minutes)} min` : "Duration pending"}
+                          {totalCount} visit{totalCount === 1 ? "" : "s"} total
                         </Badge>
-                      </>
+                      )}
+                    </div>
+                    {activeCount > 0 && (s.patient_name || s.patient_email) && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Latest: {s.patient_name || s.patient_email}
+                        {latestStatus ? ` (${latestStatus.replace("_", " ")})` : ""}
+                        {s.patient_email && s.patient_name ? ` · ${s.patient_email}` : ""}
+                      </p>
+                    )}
+                    {activeCount > 1 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {activeCount} patients in queue for this window — manage each visit from your inbox.
+                      </p>
                     )}
                   </div>
-                  {s.booked && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Patient: {s.patient_name || s.patient_email || "Booked patient"}
-                      {s.patient_email ? ` (${s.patient_email})` : ""}
-                    </p>
+                  {canRemove ? (
+                    <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive rounded-lg gap-1" disabled={del.isPending} onClick={() => del.mutate(s.id)}>
+                      <Trash2 className="h-4 w-4" /> Remove
+                    </Button>
+                  ) : isEnded ? (
+                    <span className="text-xs text-muted-foreground">Ended</span>
+                  ) : activeCount > 0 ? (
+                    <span className="text-xs text-muted-foreground max-w-[140px] text-right">
+                      Cancel or complete active visits before removing
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
                   )}
-                  <p className="text-xs text-muted-foreground font-mono mt-1 truncate max-w-full">{s.id}</p>
                 </div>
-                {!s.booked && isFutureOpen ? (
-                  <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive rounded-lg gap-1" disabled={del.isPending} onClick={() => del.mutate(s.id)}>
-                    <Trash2 className="h-4 w-4" /> Remove
-                  </Button>
-                ) : !s.booked ? (
-                  <span className="text-xs text-muted-foreground">Past or active slot</span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Booked slot (read-only)</span>
-                )}
-              </div>
-            );
+              );
             })}
-            {!sorted.length && <p className="text-sm text-muted-foreground py-10 text-center px-4">No slots in this date range.</p>}
+            {!sorted.length && <p className="text-sm text-muted-foreground py-10 text-center px-4">No availability in this date range.</p>}
           </CardContent>
         </Card>
       </div>
