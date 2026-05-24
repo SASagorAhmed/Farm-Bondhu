@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { getDefaultRoute } from "@/components/ProtectedRoute";
+import { getPostLoginPath } from "@/components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -30,5 +30,5 @@ export default function AuthRedirect() {
     );
   }
 
-  return <Navigate to={getDefaultRoute(user.primaryRole)} replace />;
+  return <Navigate to={getPostLoginPath(user)} replace />;
 }

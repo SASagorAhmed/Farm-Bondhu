@@ -54,7 +54,8 @@ const WORKSPACE_TABS = [
   { value: "unread", label: "Unread", icon: Bell },
   { value: "farm", label: "Farm", icon: Tractor, contexts: ["farm"] },
   { value: "marketplace", label: "Marketplace", icon: ShoppingCart, contexts: ["marketplace"] },
-  { value: "medibondhu", label: "MediBondhu", icon: Stethoscope, contexts: ["medibondhu", "vet"] },
+  { value: "medibondhu", label: "MediBondhu", icon: Stethoscope, contexts: ["medibondhu"] },
+  { value: "vetbondhu", label: "VetBondhu", icon: Stethoscope, contexts: ["vetbondhu", "vet"] },
   { value: "learning", label: "Learning", icon: GraduationCap, contexts: ["learning"] },
   { value: "admin", label: "Admin", icon: ShieldCheck, contexts: ["admin"] },
 ];
@@ -69,7 +70,8 @@ function getDefaultTab(contextFilter?: string[]): string {
   // Map contextFilter to the best matching workspace tab
   if (contextFilter.includes("farm")) return "farm";
   if (contextFilter.includes("marketplace")) return "marketplace";
-  if (contextFilter.includes("medibondhu") || contextFilter.includes("vet")) return "medibondhu";
+  if (contextFilter.includes("vetbondhu") || contextFilter.includes("vet")) return "vetbondhu";
+  if (contextFilter.includes("medibondhu")) return "medibondhu";
   if (contextFilter.includes("learning")) return "learning";
   if (contextFilter.includes("admin")) return "admin";
   return "all";
@@ -86,7 +88,8 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     if (tab.value === "all" || tab.value === "unread") return true;
     if (tab.value === "marketplace") return true;
     if (tab.value === "farm") return hasRole("farmer") || hasCapability("can_manage_farm");
-    if (tab.value === "medibondhu") return hasRole("vet") || hasCapability("can_book_vet");
+    if (tab.value === "medibondhu") return hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human") || hasCapability("can_book_human");
+    if (tab.value === "vetbondhu") return hasRole("vet") || hasCapability("can_book_vet");
     if (tab.value === "learning") return hasCapability("can_access_learning") || hasRole("farmer");
     if (tab.value === "admin") return hasRole("admin");
     return false;
@@ -179,8 +182,9 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     "/marketplace": "/admin/marketplace",
     "/learning": "/admin/learning",
     "/seller/dashboard": "/admin/marketplace",
-    "/medibondhu": "/admin/medibondhu-overview",
+    "/medibondhu": "/admin/medibondhu-human",
     "/vet/dashboard": "/admin/medibondhu-overview",
+    "/vetbondhu": "/admin/medibondhu-overview",
     "/orders": "/admin/orders",
     "/dashboard/farms": "/admin/farms",
     "/dashboard/animals": "/admin/farms",

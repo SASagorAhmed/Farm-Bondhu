@@ -94,6 +94,21 @@ const NAV_BY_ROLE: Record<UserRole, { label: string; items: NavItem[] }[]> = {
       { title: "Learning Center", url: "/learning", icon: BookOpen, iconColor: ICON_COLORS.learning },
     ]},
   ],
+  doctor: [
+    {
+      label: "MediBondhu — Human care",
+      items: [
+        { title: "Doctor dashboard", url: "/medibondhu/doctor/dashboard", icon: LayoutDashboard, iconColor: ICON_COLORS.dashboard },
+        { title: "Schedule", url: "/medibondhu/doctor/schedule", icon: CalendarCheck, iconColor: ICON_COLORS.calendar },
+        { title: "Prescriptions", url: "/medibondhu/doctor/prescriptions", icon: FileText, iconColor: ICON_COLORS.prescription },
+        { title: "Practice profile & verification", url: "/medibondhu/doctor/profile-setup", icon: ClipboardList, iconColor: ICON_COLORS.medibondhu },
+      ],
+    },
+    {
+      label: "Learning",
+      items: [{ title: "Learning Center", url: "/learning", icon: BookOpen, iconColor: ICON_COLORS.learning }],
+    },
+  ],
   admin: [
     { label: "Admin Panel", items: [
       { title: "Dashboard", url: "/admin", icon: LayoutDashboard, iconColor: ICON_COLORS.admin },
@@ -106,7 +121,8 @@ const NAV_BY_ROLE: Record<UserRole, { label: string; items: NavItem[] }[]> = {
       { title: "Marketplace", url: "/admin/marketplace", icon: ShoppingCart, iconColor: ICON_COLORS.cart },
       { title: "Reports", url: "/admin/reports", icon: TrendingUp, iconColor: ICON_COLORS.trending },
       { title: "Learning Posts", url: "/admin/learning", icon: BookOpen, iconColor: ICON_COLORS.learning },
-      { title: "MediBondhu", url: "/admin/medibondhu-overview", icon: Stethoscope, iconColor: ICON_COLORS.stethoscope },
+      { title: "Vet payouts", url: "/admin/medibondhu-overview", icon: Stethoscope, iconColor: ICON_COLORS.stethoscope },
+      { title: "MediBondhu Human", url: "/admin/medibondhu-human", icon: Stethoscope, iconColor: ICON_COLORS.medibondhu },
       { title: "Farms", url: "/admin/farms", icon: Warehouse, iconColor: ICON_COLORS.farm },
       { title: "Orders", url: "/admin/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders },
       { title: "Community", url: "/admin/community", icon: MessageSquareText, iconColor: ICON_COLORS.community },
@@ -136,6 +152,7 @@ export default function DashboardSidebar() {
   const roleLabel = `${formatUserRoleLabel(user)} Panel`;
   const roleColor = user.primaryRole === "admin" ? ICON_COLORS.admin
     : user.primaryRole === "vet" ? ICON_COLORS.stethoscope
+    : user.primaryRole === "doctor" ? ICON_COLORS.medibondhu
     : user.primaryRole === "vendor" ? ICON_COLORS.cart
     : ICON_COLORS.farm;
 
@@ -203,7 +220,7 @@ export default function DashboardSidebar() {
           );
         })}
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vet", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons targets={["farm", "marketplace", "vet", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
 
         {/* Bottom section: Access Center, Profile, Settings */}
         <div className="px-2 py-1">

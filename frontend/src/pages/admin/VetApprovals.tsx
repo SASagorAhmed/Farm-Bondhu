@@ -49,7 +49,7 @@ export default function VetApprovals() {
     staleTime: moduleCachePolicy.admin.staleTime,
     gcTime: moduleCachePolicy.admin.gcTime,
     queryFn: async () => {
-      const { res, body } = await apiRequest("/v1/medibondhu/admin/vet-profiles");
+      const { res, body } = await apiRequest("/v1/vetbondhu/admin/vet-profiles");
       if (!res.ok) {
         toast.error(body.error || "Failed to load vet approvals");
         return [];
@@ -71,7 +71,7 @@ export default function VetApprovals() {
   }, [queryClient]);
 
   const approve = async (id: string) => {
-    const { res, body } = await apiRequest(`/v1/medibondhu/admin/vet-profiles/${id}/approve`, { method: "POST" });
+    const { res, body } = await apiRequest(`/v1/vetbondhu/admin/vet-profiles/${id}/approve`, { method: "POST" });
     if (!res.ok) {
       toast.error(body.error || "Approval failed");
       return;
@@ -83,7 +83,7 @@ export default function VetApprovals() {
   const reject = async (id: string) => {
     const reason = window.prompt("Enter rejection reason", "Profile details are incomplete");
     if (reason == null) return;
-    const { res, body } = await apiRequest(`/v1/medibondhu/admin/vet-profiles/${id}/reject`, {
+    const { res, body } = await apiRequest(`/v1/vetbondhu/admin/vet-profiles/${id}/reject`, {
       method: "POST",
       body: JSON.stringify({ rejection_reason: reason }),
     });

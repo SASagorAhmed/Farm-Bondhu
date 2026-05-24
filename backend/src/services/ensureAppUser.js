@@ -1,6 +1,6 @@
 import sql from "../db.js";
 
-const APP_ROLES = new Set(["farmer", "buyer", "vendor", "vet", "admin"]);
+const APP_ROLES = new Set(["farmer", "buyer", "vendor", "vet", "doctor", "admin"]);
 
 function normalizeRole(raw) {
   const r = String(raw || "farmer").toLowerCase();

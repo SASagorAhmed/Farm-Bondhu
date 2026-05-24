@@ -1,270 +1,234 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
-import { API_BASE, api, readSession } from "@/api/client";
-import { withApiTiming } from "@/lib/perfMetrics";
-import { useAuth } from "@/contexts/AuthContext";
-import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import StatCard from "@/components/dashboard/StatCard";
+import { CalendarCheck, ChevronRight, Stethoscope, Video, ClipboardList, CheckCircle } from "lucide-react";
+import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { moduleCachePolicy } from "@/lib/queryClient";
-import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
+import { useAuth } from "@/contexts/AuthContext";
+import { MediStatusBadge, MB, MediSectionTitle } from "@/components/medibondhu/MediChrome";
 
-const MB = "#12C2D6";
-const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
-type JoinableBooking = {
+type ApptRow = {
   id: string;
-  status?: string | null;
-  leave_deadline_at?: string | null;
-  left_user_id?: string | null;
+  status: string;
+  chief_complaint: string | null;
+  consultation_type: string;
+  doctor_name?: string | null;
+  specialty_name?: string | null;
+  slot_start?: string | null;
 };
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === "cancelled") return <Badge className="bg-destructive/15 text-destructive flex items-center gap-1"><XCircle className="h-3.5 w-3.5" />{status}</Badge>;
-  return <Badge className="flex items-center gap-1" style={{ backgroundColor: `${MB}20`, color: MB }}><Clock className="h-3.5 w-3.5" />{status}</Badge>;
-}
-
-function bookingDisplayStatus(booking: any): string {
-  if (booking?.status === "in_progress" && booking?.leave_deadline_at) return "ending";
-  return String(booking?.status || "pending");
-}
-
-function canRejoinNow(booking: any, currentUserId?: string) {
-  if (booking?.status !== "in_progress") return false;
-  const leftUserId = String(booking?.left_user_id || "");
-  const hasLeaveDeadline = Boolean(booking?.leave_deadline_at);
-  if (!hasLeaveDeadline) return true;
-  return !!currentUserId && leftUserId === String(currentUserId);
-}
-
-function canShowJoinButton(booking: JoinableBooking, currentUserId?: string) {
-  const status = String(booking?.status || "");
-  if (status === "pending" || status === "confirmed") return true;
-  if (TERMINAL_STATUSES.has(status)) return false;
-  return canRejoinNow(booking, currentUserId);
-}
-
-function resolveJoinDestination(booking: JoinableBooking, currentUserId?: string): string | null {
-  const status = String(booking?.status || "");
-  if (status === "pending" || status === "confirmed") {
-    return `/medibondhu/waiting/${booking.id}`;
-  }
-  if (canRejoinNow(booking, currentUserId)) {
-    return `/medibondhu/room/${booking.id}`;
-  }
-  return null;
-}
-
 export default function Consultations() {
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const pageSize = 20;
 
-  const [offset, setOffset] = useState(0);
-  const [rejoiningId, setRejoiningId] = useState<string | null>(null);
-  const [rows, setRows] = useState<any[]>([]);
-  const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
-  const { data } = useQuery({
-    queryKey: ["medibondhu-consultations", user?.id, offset],
+  const q = useInfiniteQuery({
+    queryKey: ["medibondhu-human-appt-feed", user?.id],
     enabled: Boolean(user?.id),
-    staleTime: 20 * 1000,
-    gcTime: moduleCachePolicy.vet.gcTime,
-    refetchOnWindowFocus: true,
-    placeholderData: (prev) => prev,
-    queryFn: async () => {
-      if (!user) return { consultations: [], totalSpent: 0 };
-      const token = readSession()?.access_token;
-      const res = await withApiTiming("/v1/medibondhu/bookings/bootstrap", () =>
-        fetch(`${API_BASE}/v1/medibondhu/bookings/bootstrap?view=patient&limit=50&offset=${offset}`, {
-          cache: "no-store",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
+    initialPageParam: 0,
+    getNextPageParam: (last) => {
+      const p = last?.page?.nextOffset;
+      return typeof p === "number" ? p : undefined;
+    },
+    queryFn: async ({ pageParam }) => {
+      const offset = pageParam ?? 0;
+      const { res, body } = await mediHumanJson<{
+        data?: { appointments?: ApptRow[]; page?: { hasMore?: boolean; nextOffset?: number | null } };
+      }>(`/appointments/bootstrap?view=patient&limit=${pageSize}&offset=${offset}`);
+      if (!res.ok) throw new Error(String((body as { error?: string }).error || res.status));
+      return (
+        body.data || {
+          appointments: [],
+          page: { hasMore: false, nextOffset: null },
+        }
       );
-      if (!res.ok || res.status === 304) {
-        const prev = queryClient.getQueryData<{
-          consultations?: any[];
-          totalSpent?: number;
-          page?: { hasMore?: boolean; nextOffset?: number | null };
-        }>(["medibondhu-consultations", user.id, offset]);
-        return {
-          consultations: prev?.consultations || (offset === 0 ? rows : []),
-          totalSpent: Number(prev?.totalSpent || 0),
-          page: {
-            hasMore: Boolean(prev?.page?.hasMore),
-            nextOffset: prev?.page?.nextOffset ?? null,
-          },
-        };
-      }
-      const body = (await res.json().catch(() => ({}))) as {
-        data?: {
-          consultations?: any[];
-          totalSpent?: number;
-          page?: { hasMore?: boolean; nextOffset?: number | null };
-        };
-      };
-      return {
-        consultations: (body.data?.consultations || []) as any[],
-        totalSpent: Number(body.data?.totalSpent || 0),
-        page: {
-          hasMore: Boolean(body.data?.page?.hasMore),
-          nextOffset: body.data?.page?.nextOffset ?? null,
-        },
-      };
     },
   });
-  useEffect(() => {
-    if (!data) return;
-    setRows((prev) => {
-      if (offset === 0) return data.consultations || [];
-      const seen = new Set(prev.map((r) => r.id));
-      const incoming = (data.consultations || []).filter((r: any) => !seen.has(r.id));
-      return [...prev, ...incoming];
-    });
-    setPage(data.page || { hasMore: false, nextOffset: null });
-  }, [data, offset]);
 
-  useEffect(() => {
-    setOffset(0);
-    setRows([]);
-    setPage({ hasMore: false, nextOffset: null });
-    setRejoiningId(null);
-  }, [user?.id]);
+  const appointments = q.data?.pages.flatMap((p) => p.appointments || []) || [];
 
-  const consultations = offset === 0 ? (data?.consultations || rows) : rows;
-  const totalSpent = data?.totalSpent || 0;
-
-  useEffect(() => {
-    if (!rejoiningId) return;
-    if (consultations.some((c) => c.id === rejoiningId && TERMINAL_STATUSES.has(String(c.status || "")))) {
-      setRejoiningId(null);
+  const stats = useMemo(() => {
+    const terminal = new Set(["completed", "cancelled", "rejected"]);
+    let active = 0;
+    let done = 0;
+    for (const a of appointments) {
+      const s = String(a.status || "").toLowerCase();
+      if (terminal.has(s)) done += 1;
+      else active += 1;
     }
-  }, [consultations, rejoiningId]);
-
-  useEffect(() => {
-    if (!user) return;
-    const unsubscribe = subscribeConsultationBookings({
-      channelKey: `consultations-live-${user.id}`,
-      userId: user.id,
-      queryClient,
-      onEvent: (eventType, row) => {
-        queryClient.setQueriesData(
-          { queryKey: ["medibondhu-consultations", user.id] },
-          (prev: any) => {
-            if (!prev) return prev;
-            if (Array.isArray(prev)) {
-              return patchBookingList(prev, eventType, row);
-            }
-            const prevConsultations = Array.isArray(prev.consultations) ? prev.consultations : [];
-            return {
-              ...prev,
-              consultations: patchBookingList(prevConsultations, eventType, row),
-            };
-          }
-        );
-        if (row?.id) {
-          queryClient.invalidateQueries({ queryKey: ["consultation-room", row.id] });
-        }
-        queryClient.invalidateQueries({
-          queryKey: ["medibondhu-consultations", user.id],
-          exact: false,
-        });
-      },
-    });
-    return unsubscribe;
-  }, [queryClient, user]);
-
-  const scheduled = consultations.filter(c => c.status === "confirmed" || c.status === "pending").length;
-  const completed = consultations.filter(c => c.status === "completed").length;
+    return { total: appointments.length, active, done };
+  }, [appointments]);
 
   return (
-    <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Consultations</h1><p className="text-muted-foreground mt-1">Manage your veterinary consultations</p></div>
-        <Dialog><DialogTrigger asChild><Button className="text-white" style={{ backgroundColor: MB }}><Plus className="h-4 w-4 mr-1" />Book New</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Book Consultation</DialogTitle>
-              <DialogDescription className="py-1">Visit the Vet Directory to book a consultation with a specialist.</DialogDescription>
-            </DialogHeader>
-          </DialogContent>
-        </Dialog>
-      </motion.div>
+    <div className="space-y-8">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your care</p>
+          <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground flex items-center gap-2 mt-1">
+            <CalendarCheck style={{ color: MB }} className="h-9 w-9 shrink-0" />
+            Consultations
+          </h1>
+          <p className="text-muted-foreground mt-2 max-w-xl">
+            MediBondhu human doctors — waiting room and video behave like VetBondhu: pending until the doctor starts, then join video from here or the appointment
+            screen.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="lg"
+          className="rounded-xl font-semibold text-white shrink-0"
+          style={{ backgroundColor: MB }}
+          onClick={() => navigate("/medibondhu/doctors")}
+        >
+          Book a doctor
+        </Button>
+      </header>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total" value={consultations.length} icon={<Stethoscope className="h-5 w-5" />} iconColor={MB} index={0} />
-        <StatCard title="Scheduled" value={scheduled} icon={<CalendarCheck className="h-5 w-5" />} iconColor={MB} index={1} />
-        <StatCard title="Completed" value={completed} icon={<CheckCircle className="h-5 w-5" />} iconColor={MB} index={2} />
-        <StatCard title="Total Spent" value={`৳${totalSpent}`} icon={<Stethoscope className="h-5 w-5" />} iconColor={MB} index={3} />
-      </div>
+      {!q.isLoading && appointments.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            title="All visits"
+            value={stats.total}
+            icon={<ClipboardList className="h-5 w-5" style={{ color: MB }} />}
+            iconColor={MB}
+            gradient="from-background via-background to-muted/40"
+            index={0}
+          />
+          <StatCard
+            title="Active / waiting"
+            value={stats.active}
+            icon={<Video className="h-5 w-5 text-amber-600" />}
+            iconColor="#d97706"
+            gradient="from-background via-background to-amber-500/10"
+            index={1}
+          />
+          <StatCard
+            title="Ended"
+            value={stats.done}
+            icon={<CheckCircle className="h-5 w-5 text-emerald-600" />}
+            iconColor="#059669"
+            gradient="from-background via-background to-emerald-500/10"
+            index={2}
+          />
+        </div>
+      )}
 
-      <div className="space-y-4">
-        {consultations.map((c, i) => (
-          <motion.div key={c.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-            <Card className="shadow-card overflow-hidden">
-              <div className="h-1" style={{ backgroundColor: MB }} />
-              <CardContent className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-full flex items-center justify-center text-white text-xl shrink-0" style={{ backgroundColor: MB }}>🩺</div>
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <h3 className="font-display font-bold text-foreground">{c.vet_name}</h3>
-                      <StatusBadge status={bookingDisplayStatus(c)} />
-                    </div>
-                    <p className="text-sm text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p>
-                    <p className="text-sm text-foreground"><span className="text-muted-foreground">Symptoms:</span> {c.symptoms}</p>
-                    {canShowJoinButton(c, user?.id) && (
-                      <div className="pt-1">
-                        <Button
-                          size="sm"
-                          disabled={rejoiningId === c.id}
-                          onClick={() => {
-                            const destination = resolveJoinDestination(c, user?.id);
-                            if (!destination) return;
-                            setRejoiningId(c.id);
-                            const targetIntent = destination.includes("/waiting/")
-                              ? "waiting_entry"
-                              : "room_entry";
-                            navigate(destination, {
-                              replace: true,
-                              state: { from: "rejoin", bookingId: c.id, intent: targetIntent },
-                            });
-                          }}
-                          className="text-white"
-                          style={{ backgroundColor: MB }}
-                        >
-                          <Video className="h-4 w-4 mr-1" />
-                          {rejoiningId === c.id ? "Joining..." : "Join Again"}
-                        </Button>
-                      </div>
-                    )}
-                    {c.status === "in_progress" && !canShowJoinButton(c, user?.id) && (
-                      <div className="pt-1 text-xs text-muted-foreground">Ending...</div>
-                    )}
-                  </div>
+      <MediSectionTitle eyebrow="Timeline" title="Upcoming & recent visits" />
+
+      {q.isLoading && (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="rounded-xl overflow-hidden">
+              <Skeleton className="h-1 w-full rounded-none" style={{ backgroundColor: `${MB}55` }} />
+              <CardContent className="p-5 flex gap-4">
+                <Skeleton className="h-12 w-12 rounded-xl shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-3 w-full max-w-md" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {q.isError && (
+        <p className="text-destructive text-sm rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">{(q.error as Error).message}</p>
+      )}
+
+      <div className="space-y-3">
+        {appointments.map((a, i) => (
+          <motion.div key={a.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.35) }}>
+            <Card
+              className="rounded-xl overflow-hidden cursor-pointer hover:shadow-md border-border transition-shadow group"
+              onClick={() => navigate(`/medibondhu/appointment/${a.id}`)}
+            >
+              <div className="h-1 w-full shrink-0" style={{ backgroundColor: MB }} />
+              <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="h-11 w-11 rounded-xl flex items-center justify-center shrink-0 bg-muted">
+                  <Stethoscope className="h-5 w-5" style={{ color: MB }} />
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="font-semibold text-foreground text-base">{a.doctor_name || "Doctor"}</p>
+                  {a.specialty_name && <p className="text-sm text-muted-foreground">{a.specialty_name}</p>}
+                  {a.slot_start && (
+                    <p className="text-sm font-medium text-foreground/90 mt-1">{new Date(a.slot_start).toLocaleString()}</p>
+                  )}
+                  {a.chief_complaint && <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{a.chief_complaint}</p>}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end sm:shrink-0">
+                  <Badge variant="outline" className="capitalize rounded-md font-normal">
+                    {a.consultation_type}
+                  </Badge>
+                  <MediStatusBadge status={a.status} />
+                  {String(a.consultation_type || "").toLowerCase() === "online" && String(a.status || "").toLowerCase() === "pending" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg gap-1.5 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/medibondhu/waiting/${a.id}`);
+                      }}
+                    >
+                      <Video className="h-3.5 w-3.5" />
+                      Waiting room
+                    </Button>
+                  )}
+                  {String(a.consultation_type || "").toLowerCase() === "online" &&
+                    ["confirmed", "in_progress"].includes(String(a.status || "").toLowerCase()) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg gap-1.5 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/medibondhu/room/${a.id}`);
+                      }}
+                    >
+                      <Video className="h-3.5 w-3.5" />
+                      Join video
+                    </Button>
+                  )}
+                  <ChevronRight className="h-5 w-5 text-muted-foreground hidden sm:block group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </CardContent>
             </Card>
           </motion.div>
         ))}
-        {page.hasMore && (
-          <div className="pt-2 flex justify-center">
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (page.nextOffset == null) return;
-                setOffset(page.nextOffset);
-              }}
-            >
-              Load older consultations
-            </Button>
-          </div>
-        )}
-        {consultations.length === 0 && <p className="text-center text-muted-foreground py-12">No consultations yet</p>}
       </div>
+
+      {q.hasNextPage && (
+        <div className="flex justify-center pt-2">
+          <Button type="button" variant="outline" className="rounded-full px-8" disabled={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>
+            {q.isFetchingNextPage ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      )}
+
+      {!q.isLoading && appointments.length === 0 && (
+        <Card className="rounded-2xl border-dashed">
+          <CardContent className="p-12 text-center space-y-4 max-w-md mx-auto">
+            <div className="h-14 w-14 rounded-2xl mx-auto flex items-center justify-center" style={{ backgroundColor: `${MB}18` }}>
+              <CalendarCheck className="h-7 w-7" style={{ color: MB }} />
+            </div>
+            <div>
+              <p className="font-display font-bold text-lg text-foreground">No appointments yet</p>
+              <p className="text-sm text-muted-foreground mt-2">When you book a doctor, your visits will appear here with status and visit type.</p>
+            </div>
+            <Button type="button" className="rounded-xl text-white font-semibold" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctors")}>
+              Find a doctor
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

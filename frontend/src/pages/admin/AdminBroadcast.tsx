@@ -30,13 +30,15 @@ const DESTINATIONS = [
   { value: "/admin/approvals", label: "Admin Approvals" },
   { value: "/admin/marketplace", label: "Admin Marketplace" },
   { value: "/admin/learning", label: "Admin Learning" },
-  { value: "/admin/medibondhu-overview", label: "Admin MediBondhu" },
+  { value: "/admin/medibondhu-overview", label: "Admin Vet payouts" },
+  { value: "/admin/medibondhu-human", label: "Admin MediBondhu Human" },
   { value: "/admin/farms", label: "Admin Farms" },
   { value: "/admin/orders", label: "Admin Orders" },
   { value: "/marketplace", label: "Marketplace (user)" },
   { value: "/learning", label: "Learning Center (user)" },
   { value: "/dashboard", label: "Farm Dashboard (user)" },
-  { value: "/medibondhu", label: "MediBondhu (user)" },
+  { value: "/medibondhu", label: "MediBondhu Human (user)" },
+  { value: "/vetbondhu", label: "VetBondhu (user)" },
   { value: "custom", label: "Custom URL" },
 ];
 

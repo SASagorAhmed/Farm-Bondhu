@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { API_BASE, api, readSession, subscribeVetInboxNewBooking } from "@/api/client";
+import { API_BASE, api, readSession, subscribeVetbondhuVetInboxNewBooking, subscribeVetInboxNewBooking } from "@/api/client";
 import { CalendarCheck, MessageSquare, Users, DollarSign, Clock, AlertCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import StatCard from "@/components/dashboard/StatCard";
@@ -45,8 +45,8 @@ export default function VetDashboard() {
     },
     queryFn: async () => {
       const token = readSession()?.access_token;
-      const res = await withApiTiming("/v1/medibondhu/vet/dashboard/bootstrap", () =>
-        fetch(`${API_BASE}/v1/medibondhu/vet/dashboard/bootstrap?limit=30`, {
+      const res = await withApiTiming("/v1/vetbondhu/vet/dashboard/bootstrap", () =>
+        fetch(`${API_BASE}/v1/vetbondhu/vet/dashboard/bootstrap?limit=30`, {
           cache: "no-store",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
@@ -123,10 +123,18 @@ export default function VetDashboard() {
 
   useEffect(() => {
     if (!user?.id) return;
-    return subscribeVetInboxNewBooking(user.id, () => {
+    const unsubMedi = subscribeVetInboxNewBooking(user.id, () => {
       queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
       queryClient.invalidateQueries({ queryKey: consultationsQueryKey });
     });
+    const unsubVetbondhu = subscribeVetbondhuVetInboxNewBooking(user.id, () => {
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
+      queryClient.invalidateQueries({ queryKey: consultationsQueryKey });
+    });
+    return () => {
+      unsubMedi();
+      unsubVetbondhu();
+    };
   }, [consultationsQueryKey, dashboardQueryKey, queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {

@@ -16,6 +16,8 @@ export default function ProfileLayoutWrapper() {
       return <VendorLayout />;
     case "vet":
       return <VetLayout />;
+    case "doctor":
+      return <DashboardLayout />;
     case "admin":
       return <DashboardLayout />;
     default:

@@ -1,11 +1,29 @@
 import { Router } from "express";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireUser } from "../../middleware/requireUser.js";
+import {
+  getChatModelsCatalog,
+  resolveChatModel,
+} from "../../services/openrouterChatModels.js";
 
 const router = Router();
 
 const SYSTEM_PROMPT = `You are FarmBondhu AI — a friendly, knowledgeable farm assistant for Bangladeshi farmers and livestock owners.
 Be warm, practical, and concise. Respond in English. Keep under 300 words unless asked for detail.`;
+
+router.get(
+  "/chat-models",
+  requireUser,
+  asyncHandler(async (_req, res) => {
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+    res.json({
+      data: {
+        ...getChatModelsCatalog(),
+        configured: !!apiKey,
+      },
+    });
+  })
+);
 
 router.post(
   "/farm-chat",
@@ -16,12 +34,21 @@ router.post(
       res.status(503).json({ error: "OPENROUTER_API_KEY not configured" });
       return;
     }
-    const { messages } = req.body || {};
+    const { messages, model: requestedModel } = req.body || {};
     if (!messages || !Array.isArray(messages) || !messages.length) {
       res.status(400).json({ error: "messages array required" });
       return;
     }
-    const model = process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.0-flash-001";
+
+    const resolved = resolveChatModel(requestedModel);
+    if (!resolved.ok) {
+      res.status(400).json({
+        error: resolved.error,
+        allowed: resolved.allowed,
+      });
+      return;
+    }
+
     const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -31,7 +58,7 @@ router.post(
         "X-Title": "FarmBondhu API",
       },
       body: JSON.stringify({
-        model,
+        model: resolved.model,
         messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
         stream: true,
       }),

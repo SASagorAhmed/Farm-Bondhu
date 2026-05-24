@@ -62,8 +62,8 @@ export default function VetEarnings() {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     try {
       const [summaryRes, withdrawRes] = await Promise.all([
-        fetch(`${API_BASE}/v1/medibondhu/vet-earnings/summary`, { headers }),
-        fetch(`${API_BASE}/v1/medibondhu/vet-withdrawals`, { headers }),
+        fetch(`${API_BASE}/v1/vetbondhu/vet-earnings/summary`, { headers }),
+        fetch(`${API_BASE}/v1/vetbondhu/vet-withdrawals`, { headers }),
       ]);
       const summaryBody = (await summaryRes.json().catch(() => ({}))) as { data?: EarningsSummary; error?: string };
       const withdrawBody = (await withdrawRes.json().catch(() => ({}))) as { data?: WithdrawalRow[]; error?: string };
@@ -120,7 +120,7 @@ export default function VetEarnings() {
     const token = readSession()?.access_token;
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/vet-withdrawals`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-withdrawals`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

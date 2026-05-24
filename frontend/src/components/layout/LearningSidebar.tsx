@@ -94,7 +94,7 @@ export default function LearningSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vet", "medibondhu", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons targets={["farm", "marketplace", "vetbondhu", "medibondhu", "community"]} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

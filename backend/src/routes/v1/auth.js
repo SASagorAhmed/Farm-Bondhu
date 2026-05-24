@@ -329,7 +329,7 @@ router.post(
     const primary_role = String(meta.primary_role || "farmer").toLowerCase();
     const phone = meta.phone != null && meta.phone !== "" ? String(meta.phone) : null;
     const location = meta.location != null && meta.location !== "" ? String(meta.location) : null;
-    const roleSet = new Set(["farmer", "buyer", "vendor", "vet", "admin"]);
+    const roleSet = new Set(["farmer", "buyer", "vendor", "vet", "doctor", "admin"]);
     const pr = roleSet.has(primary_role) ? primary_role : "farmer";
 
     try {

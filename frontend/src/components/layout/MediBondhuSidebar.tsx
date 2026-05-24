@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarCheck, FileText, LogOut, Menu, PanelLeftClose, Search, LayoutGrid, Stethoscope, UserCircle,
-  Shield, Settings,
+  Shield, Settings, ClipboardList, CalendarDays, Users, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -24,15 +24,24 @@ interface NavItem {
 }
 
 const MEDIBONDHU_ITEMS: NavItem[] = [
-  { title: "Home", url: "/medibondhu", icon: LayoutGrid, iconColor: MB },
-  { title: "Find Doctor", url: "/medibondhu/vets", icon: Search, iconColor: MB },
+  { title: "Care home", url: "/medibondhu", icon: LayoutGrid, iconColor: MB },
+  { title: "Find doctors", url: "/medibondhu/doctors", icon: Search, iconColor: MB },
   { title: "Consultations", url: "/medibondhu/consultations", icon: CalendarCheck, iconColor: MB },
   { title: "Prescriptions", url: "/medibondhu/prescriptions", icon: FileText, iconColor: MB },
 ];
 
+const DOCTOR_ITEMS: NavItem[] = [
+  { title: "Dashboard", url: "/medibondhu/doctor/dashboard", icon: ClipboardList, iconColor: MB },
+  { title: "Consultations", url: "/medibondhu/doctor/consultations", icon: CalendarCheck, iconColor: MB },
+  { title: "Patients", url: "/medibondhu/doctor/patients", icon: Users, iconColor: MB },
+  { title: "Prescriptions", url: "/medibondhu/doctor/prescriptions", icon: FileText, iconColor: MB },
+  { title: "Availability", url: "/medibondhu/doctor/schedule", icon: CalendarDays, iconColor: MB },
+  { title: "Earnings", url: "/medibondhu/doctor/earnings", icon: Wallet, iconColor: MB },
+];
+
 const MEDI_BOTTOM: NavItem[] = [
-  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
   { title: "Profile", url: "/medibondhu/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
   { title: "Settings", url: "/medibondhu/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -42,8 +51,15 @@ export default function MediBondhuSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
-  const isVetUser = hasRole("vet") || hasCapability("can_consult_as_vet");
-  const profilePath = isVetUser ? "/vet/profile" : "/medibondhu/profile";
+  const isVetPortalUser = hasRole("vet") || hasCapability("can_consult_as_vet");
+  /** Full clinical workspace: approved for human practice, or platform admin. */
+  const canUseFullDoctorWorkspace =
+    hasCapability("can_practice_human") || hasRole("admin");
+  /** Show doctor section for doctors (pending or approved) and admins. */
+  const showDoctorNav = hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human");
+  const showPatientCareNav = !showDoctorNav;
+  const doctorNavItems = hasRole("doctor") && !canUseFullDoctorWorkspace ? [] : DOCTOR_ITEMS;
+  const profilePath = isVetPortalUser ? "/vet/profile" : "/medibondhu/profile";
   const mediBottom = MEDI_BOTTOM.map((item) =>
     item.url === "/medibondhu/profile" ? { ...item, url: profilePath } : item
   );
@@ -59,7 +75,13 @@ export default function MediBondhuSidebar() {
     return (
       <SidebarMenuItem key={item.url}>
         <SidebarMenuButton asChild isActive={active}>
-          <NavLink to={item.url} end className="medibondhu-nav-item transition-all duration-200 rounded-lg" activeClassName="text-white font-medium shadow-sm" style={active ? { backgroundColor: MB, color: "white" } : undefined}>
+          <NavLink
+            to={item.url}
+            end
+            className="medibondhu-nav-item transition-all duration-200 rounded-lg"
+            activeClassName="text-white font-medium shadow-sm"
+            style={active ? { backgroundColor: MB, color: "white" } : undefined}
+          >
             <item.icon className="h-4 w-4" style={{ color: active ? "white" : item.iconColor }} />
             {!collapsed && <span>{item.title}</span>}
           </NavLink>
@@ -67,6 +89,9 @@ export default function MediBondhuSidebar() {
       </SidebarMenuItem>
     );
   };
+
+  const workspaceTargets: string[] = ["farm", "marketplace", "learning", "community", "vetbondhu"];
+  if (isVetPortalUser) workspaceTargets.push("vet");
 
   return (
     <Sidebar collapsible="icon" className="medibondhu-sidebar">
@@ -76,14 +101,27 @@ export default function MediBondhuSidebar() {
             <>
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-4 w-4" style={{ color: MB }} />
-                <span className="text-sm font-semibold tracking-tight" style={{ color: MB }}>MediBondhu</span>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-sm font-semibold tracking-tight" style={{ color: MB }}>MediBondhu</span>
+                  {showDoctorNav && (
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Doctor panel</span>
+                  )}
+                </div>
               </div>
-              <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </>
           ) : (
-            <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto"
+            >
               <Menu className="h-4 w-4" />
             </button>
           )}
@@ -91,13 +129,33 @@ export default function MediBondhuSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <div className="px-2 py-2">
-          <SidebarMenu>
-            {MEDIBONDHU_ITEMS.map(renderItem)}
-          </SidebarMenu>
-        </div>
+        {showPatientCareNav && (
+          <div className="px-2 py-2">
+            {!collapsed && (
+              <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Patient care
+              </p>
+            )}
+            <SidebarMenu>
+              {MEDIBONDHU_ITEMS.map(renderItem)}
+            </SidebarMenu>
+          </div>
+        )}
 
-        <WorkspaceButtons targets={["farm", "marketplace", "learning", "community"]} collapsed={collapsed} />
+        {showDoctorNav && (
+          <div className="px-2 py-1">
+            {!collapsed && (
+              <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Clinical workspace
+              </p>
+            )}
+            <SidebarMenu>
+              {doctorNavItems.map(renderItem)}
+            </SidebarMenu>
+          </div>
+        )}
+
+        <WorkspaceButtons targets={workspaceTargets} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />
@@ -109,7 +167,11 @@ export default function MediBondhuSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border p-3">
         {!collapsed && (
-          <button onClick={() => navigate(profilePath)} className="flex items-center gap-2 mb-2 px-1 w-full hover:opacity-80 transition-opacity cursor-pointer">
+          <button
+            type="button"
+            onClick={() => navigate(profilePath)}
+            className="flex items-center gap-2 mb-2 px-1 w-full hover:opacity-80 transition-opacity cursor-pointer"
+          >
             <div className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: MB }}>
               {user.name.charAt(0)}
             </div>
@@ -119,7 +181,12 @@ export default function MediBondhuSidebar() {
             </div>
           </button>
         )}
-        <Button variant="ghost" size={collapsed ? "icon" : "default"} onClick={logout} className="w-full bg-red-500 text-black hover:bg-red-600 hover:text-black transition-all duration-200">
+        <Button
+          variant="ghost"
+          size={collapsed ? "icon" : "default"}
+          onClick={logout}
+          className="w-full bg-red-500 text-black hover:bg-red-600 hover:text-black transition-all duration-200"
+        >
           <LogOut className="h-4 w-4" />
           {!collapsed && <span className="ml-2">Logout</span>}
         </Button>

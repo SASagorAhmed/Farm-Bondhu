@@ -95,7 +95,7 @@ export default function AdminMediBondhu() {
   const fetchWithdrawals = useCallback(async (options?: { silent?: boolean }) => {
     const token = readSession()?.access_token;
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/admin/vet-withdrawals`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/admin/vet-withdrawals`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = (await res.json().catch(() => ({}))) as { data?: WithdrawalRow[]; error?: string };
@@ -117,7 +117,7 @@ export default function AdminMediBondhu() {
     const token = readSession()?.access_token;
     setDetailsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/admin/vet-withdrawals/${id}/details`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/admin/vet-withdrawals/${id}/details`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = (await res.json().catch(() => ({}))) as { data?: WithdrawalDetails; error?: string };
@@ -198,7 +198,7 @@ export default function AdminMediBondhu() {
     const token = readSession()?.access_token;
     setActingId(id);
     try {
-      const res = await fetch(`${API_BASE}/v1/medibondhu/admin/vet-withdrawals/${id}/${action}`, {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/admin/vet-withdrawals/${id}/${action}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { api, readSession, API_BASE } from "@/api/client";
+import { vetbondhuApi, readSession, API_BASE } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
@@ -15,8 +15,9 @@ import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { withApiTiming } from "@/lib/perfMetrics";
+import { ICON_COLORS } from "@/lib/iconColors";
 
-const MB = "#12C2D6";
+const VB = ICON_COLORS.vetbondhu;
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled"]);
 
 const isTerminalBookingStatus = (status?: string | null) =>
@@ -97,7 +98,7 @@ export default function ConsultationRoom() {
   const { user } = useAuth();
   const consultationsPath = location.pathname.startsWith("/vet/")
     ? "/vet/consultations"
-    : "/medibondhu/consultations";
+    : "/vetbondhu/consultations";
   const queryClient = useQueryClient();
   const [booking, setBooking] = useState<any>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
@@ -171,7 +172,7 @@ export default function ConsultationRoom() {
   );
 
   const { data: roomBootstrap, isLoading: bookingLoading } = useQuery({
-    queryKey: queryKeys().consultationRoom(bookingId),
+    queryKey: queryKeys().vetbondhuConsultationRoom(bookingId),
     enabled: Boolean(bookingId),
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
@@ -186,8 +187,8 @@ export default function ConsultationRoom() {
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const token = readSession()?.access_token;
-      const res = await withApiTiming("/v1/medibondhu/bookings/:id/room-bootstrap", () =>
-        fetch(`${API_BASE}/v1/medibondhu/bookings/${bookingId}/room-bootstrap?message_limit=160`, {
+      const res = await withApiTiming("/v1/vetbondhu/bookings/:id/room-bootstrap", () =>
+        fetch(`${API_BASE}/v1/vetbondhu/bookings/${bookingId}/room-bootstrap?message_limit=160`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
       );
@@ -227,7 +228,7 @@ export default function ConsultationRoom() {
     if (!booking || hasHandledTerminalStatusRef.current) return;
     if (booking.status === "cancelled" || booking.status === "completed") {
       hasHandledTerminalStatusRef.current = true;
-      queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+      queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
       if (booking.status === "completed") {
@@ -243,8 +244,8 @@ export default function ConsultationRoom() {
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
     if (!bookingId) return;
-    const channel = api
-      .channel(`room-${bookingId}`)
+    const channel = vetbondhuApi
+      .channel(`vetbondhu-room-${bookingId}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "consultation_messages", filter: `booking_id=eq.${bookingId}` },
@@ -255,7 +256,7 @@ export default function ConsultationRoom() {
             messagesSignatureRef.current = getMessagesSignature(nextMessages);
             return nextMessages;
           });
-          queryClient.setQueryData(["consultation-room-messages", bookingId || "unknown"], (prev: any) => {
+          queryClient.setQueryData(["vetbondhu-consultation-room-messages", bookingId || "unknown"], (prev: any) => {
             const current = Array.isArray(prev) ? prev : [];
             if (current.some((msg: any) => msg.id === payload.new.id)) return current;
             return [...current, payload.new];
@@ -264,7 +265,7 @@ export default function ConsultationRoom() {
       )
       .subscribe();
 
-    return () => { api.removeChannel(channel); };
+    return () => { vetbondhuApi.removeChannel(channel); };
   }, [bookingId]);
 
   // Auto-scroll chat
@@ -309,7 +310,7 @@ export default function ConsultationRoom() {
     lastLeftParticipantIdRef.current = user.id;
     localLeaveDeadlineRef.current = deadlineDate;
     setLeaveGraceSeconds(20);
-    const { error } = await api
+    const { error } = await vetbondhuApi
       .from("consultation_bookings")
       .update({
         leave_deadline_at: deadline,
@@ -330,7 +331,7 @@ export default function ConsultationRoom() {
 
   const clearLeaveGraceInDb = useCallback(async () => {
     if (!bookingId) return;
-    await api
+    await vetbondhuApi
       .from("consultation_bookings")
       .update({
         leave_deadline_at: null,
@@ -373,7 +374,7 @@ export default function ConsultationRoom() {
     finalizeInFlightRef.current = true;
     const nextStatus = "completed";
     try {
-      const { error } = await api
+      const { error } = await vetbondhuApi
         .from("consultation_bookings")
         .update({ status: nextStatus })
         .eq("id", bookingId);
@@ -386,7 +387,7 @@ export default function ConsultationRoom() {
       await clearLeaveGraceInDb();
       clearLeaveGraceTimer();
       queryClient.setQueriesData(
-        { queryKey: ["medibondhu-consultations"] },
+        { queryKey: ["vetbondhu-consultations"] },
         (prev: any) => patchConsultationCaches(prev, bookingId, "completed")
       );
       queryClient.setQueriesData(
@@ -395,7 +396,7 @@ export default function ConsultationRoom() {
       );
       queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
       toast.success("Your consultation successfully completed.");
-      queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuConsultationRoom(bookingId) });
       navigate(consultationsPath);
     } catch (error) {
       console.error("Finalize consultation failed:", error);
@@ -429,7 +430,7 @@ export default function ConsultationRoom() {
       if (reason === "sdk_leave") {
         toast.info("You left the room. Rejoin within 20 seconds or consultation will auto-complete.");
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuConsultationRoom(bookingId) });
       if (opts?.navigateAway) navigate(consultationsPath);
     },
     [bookingId, consultationsPath, markLeaveGraceInDb, navigate, queryClient, user?.id]
@@ -444,7 +445,7 @@ export default function ConsultationRoom() {
     }
     finalizeInFlightRef.current = true;
     try {
-      const completeAttempt = await api
+      const completeAttempt = await vetbondhuApi
         .from("consultation_bookings")
         .update({
           status: "completed",
@@ -454,7 +455,7 @@ export default function ConsultationRoom() {
         .eq("id", bookingId);
       let finalStatus: "completed" | "cancelled" = "completed";
       if (completeAttempt.error) {
-        const cancelAttempt = await api
+        const cancelAttempt = await vetbondhuApi
           .from("consultation_bookings")
           .update({
             status: "cancelled",
@@ -475,15 +476,15 @@ export default function ConsultationRoom() {
       hasFinalizedRef.current = true;
       clearLeaveGraceTimer();
       queryClient.setQueriesData(
-        { queryKey: ["medibondhu-consultations"] },
+        { queryKey: ["vetbondhu-consultations"] },
         (prev: any) => patchConsultationCaches(prev, bookingId, finalStatus)
       );
       queryClient.setQueriesData(
         { queryKey: ["vet-consultations"] },
         (prev: any) => patchConsultationCaches(prev, bookingId, finalStatus)
       );
-      queryClient.invalidateQueries({ queryKey: queryKeys().consultationRoom(bookingId) });
-      queryClient.invalidateQueries({ queryKey: ["medibondhu-consultations"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuConsultationRoom(bookingId) });
+      queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
       if (finalStatus === "completed") {
@@ -719,8 +720,8 @@ export default function ConsultationRoom() {
 
   useEffect(() => {
     if (!bookingId) return;
-    const channel = api
-      .channel(`room-booking-${bookingId}`)
+    const channel = vetbondhuApi
+      .channel(`vetbondhu-room-booking-${bookingId}`)
       .on(
         "postgres_changes",
         {
@@ -762,7 +763,7 @@ export default function ConsultationRoom() {
       )
       .subscribe();
     return () => {
-      api.removeChannel(channel);
+      vetbondhuApi.removeChannel(channel);
     };
   }, [bookingId, consultationsPath, navigate, resetGraceUiWhenNoLeaveDeadline]);
 
@@ -824,7 +825,7 @@ export default function ConsultationRoom() {
       return next;
     });
     setNewMessage("");
-    const { data, error } = await api.from("consultation_messages").insert({
+    const { data, error } = await vetbondhuApi.from("consultation_messages").insert({
       booking_id: bookingId,
       sender_id: user.id,
       sender_name: user.name,
@@ -858,7 +859,7 @@ export default function ConsultationRoom() {
   if (!booking) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Clock className="h-8 w-8 animate-spin" style={{ color: MB }} />
+        <Clock className="h-8 w-8 animate-spin" style={{ color: VB }} />
       </div>
     );
   }
@@ -885,13 +886,13 @@ export default function ConsultationRoom() {
           <Button variant="ghost" size="icon" onClick={leaveRoomAndGoBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="h-10 w-10 rounded-full flex items-center justify-center text-white shrink-0" style={{ backgroundColor: MB }}>
+          <div className="h-10 w-10 rounded-full flex items-center justify-center text-white shrink-0" style={{ backgroundColor: VB }}>
             <Stethoscope className="h-5 w-5" />
           </div>
           <div>
             <h2 className="font-display font-bold text-foreground text-sm">{booking.vet_name}</h2>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge className="text-xs" style={{ backgroundColor: `${MB}18`, color: MB }}>
+              <Badge className="text-xs" style={{ backgroundColor: `${VB}18`, color: VB }}>
                 {method || "chat"}
               </Badge>
               <span className="flex items-center gap-1">
@@ -914,13 +915,13 @@ export default function ConsultationRoom() {
       </div>
 
       {leaveGraceSeconds !== null && (
-        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${MB}55`, backgroundColor: `${MB}12`, color: MB }}>
+        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${VB}55`, backgroundColor: `${VB}12`, color: VB }}>
           Rejoin within <span className="font-bold">{leaveGraceSeconds}</span>s or this consultation will end automatically.
         </div>
       )}
 
       {showConnecting && (
-        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${MB}55`, backgroundColor: `${MB}12`, color: MB }}>
+        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${VB}55`, backgroundColor: `${VB}12`, color: VB }}>
           Reconnecting to active consultation...
         </div>
       )}
@@ -931,7 +932,7 @@ export default function ConsultationRoom() {
         {!isChat && (
           <div className="lg:col-span-2">
             <Card className="shadow-card overflow-hidden h-full">
-              <div className="h-1" style={{ backgroundColor: MB }} />
+              <div className="h-1" style={{ backgroundColor: VB }} />
               <CardContent className="p-0 h-full" style={{ minHeight: 480 }}>
                 <div ref={zegoContainerRef} className="w-full h-full" style={{ minHeight: 480 }} />
               </CardContent>
@@ -942,16 +943,16 @@ export default function ConsultationRoom() {
         {/* Chat Panel */}
         <div className={isChat ? "lg:col-span-3" : ""}>
           <Card className="shadow-card overflow-hidden h-full flex flex-col">
-            <div className="h-1" style={{ backgroundColor: MB }} />
+            <div className="h-1" style={{ backgroundColor: VB }} />
             <div className="p-3 border-b border-border flex items-center gap-2">
-              <MessageSquare className="h-4 w-4" style={{ color: MB }} />
+              <MessageSquare className="h-4 w-4" style={{ color: VB }} />
               <span className="font-display font-bold text-sm text-foreground">Chat</span>
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: isChat ? 400 : 300 }}>
               <div className="text-center py-2">
-                <Badge style={{ backgroundColor: `${MB}15`, color: MB }} className="text-xs">
+                <Badge style={{ backgroundColor: `${VB}15`, color: VB }} className="text-xs">
                   Consultation started — {booking.animal_type} • {booking.symptoms?.slice(0, 50)}
                 </Badge>
               </div>
@@ -969,10 +970,10 @@ export default function ConsultationRoom() {
                       className={`max-w-[80%] rounded-2xl px-4 py-2 ${
                         isMe ? "rounded-br-sm text-white" : "rounded-bl-sm bg-accent"
                       }`}
-                      style={isMe ? { backgroundColor: MB } : undefined}
+                      style={isMe ? { backgroundColor: VB } : undefined}
                     >
                       {!isMe && (
-                        <p className="text-xs font-bold mb-0.5" style={{ color: MB }}>
+                        <p className="text-xs font-bold mb-0.5" style={{ color: VB }}>
                           {msg.sender_name}
                         </p>
                       )}
@@ -1004,7 +1005,7 @@ export default function ConsultationRoom() {
                 <Button
                   size="icon"
                   className="shrink-0 text-white"
-                  style={{ backgroundColor: MB }}
+                  style={{ backgroundColor: VB }}
                   onClick={sendMessage}
                   disabled={!newMessage.trim() || roomEnded}
                 >
@@ -1019,20 +1020,20 @@ export default function ConsultationRoom() {
       {/* Consultation Details sidebar card (chat mode) */}
       {isChat && (
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ backgroundColor: MB }} />
+          <div className="h-1" style={{ backgroundColor: VB }} />
           <CardContent className="p-4">
             <h3 className="font-display font-bold text-sm text-foreground mb-3 flex items-center gap-2">
-              <FileText className="h-4 w-4" style={{ color: MB }} />
+              <FileText className="h-4 w-4" style={{ color: VB }} />
               Consultation Details
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
               <div><p className="text-xs text-muted-foreground">Animal</p><p className="font-medium capitalize text-foreground">{booking.animal_type}</p></div>
               <div><p className="text-xs text-muted-foreground">Age</p><p className="font-medium text-foreground">{booking.animal_age || "N/A"}</p></div>
               <div><p className="text-xs text-muted-foreground">Method</p><p className="font-medium capitalize text-foreground">{booking.consultation_method}</p></div>
-              <div><p className="text-xs text-muted-foreground">Fee</p><p className="font-bold" style={{ color: MB }}>৳{booking.fee}</p></div>
+              <div><p className="text-xs text-muted-foreground">Fee</p><p className="font-bold" style={{ color: VB }}>৳{booking.fee}</p></div>
             </div>
             {booking.symptoms && (
-              <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: `${MB}08` }}>
+              <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: `${VB}08` }}>
                 <p className="text-xs text-muted-foreground mb-1">Symptoms</p>
                 <p className="text-sm text-foreground">{booking.symptoms}</p>
               </div>

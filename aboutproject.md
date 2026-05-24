@@ -56,6 +56,10 @@ Core goals:
   - `src/db/ensureSchema.js` — schema bootstrap + indexes + seed permissions
 - `.githooks/` — commit hooks
 
+### Feature trackers (living specs)
+
+- **Cow weight & meat estimation (AI):** [`docs/ai/cow_weight_detection.md`](docs/ai/cow_weight_detection.md) — product spec, formula, phased checklist, API/DB plans; update on every related task
+
 ---
 
 ## 4) User Roles and Capabilities

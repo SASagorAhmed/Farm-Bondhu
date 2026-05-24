@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy, useEffect, type ReactNode } from "react";
-import { BrowserRouter, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,6 +19,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import LearningLayout from "@/components/layout/LearningLayout";
 import MarketplaceLayout from "@/components/layout/MarketplaceLayout";
 import MediBondhuLayout from "@/components/layout/MediBondhuLayout";
+import VetBondhuLayout from "@/components/layout/VetBondhuLayout";
 import ProfileLayoutWrapper from "@/components/layout/ProfileLayoutWrapper";
 
 // Public pages
@@ -41,6 +42,7 @@ import Production from "./pages/dashboard/Production";
 import Finances from "./pages/dashboard/Finances";
 import Mortality from "./pages/dashboard/Mortality";
 import Sales from "./pages/dashboard/Sales";
+import CowWeightEstimator from "./pages/dashboard/cowWeight/CowWeightEstimator";
 import Notifications from "./pages/dashboard/Notifications";
 
 // Marketplace pages
@@ -62,14 +64,32 @@ import BuyerHome from "./pages/marketplace/BuyerHome";
 import Categories from "./pages/marketplace/Categories";
 import Wishlist from "./pages/marketplace/Wishlist";
 
-// MediBondhu pages
+// MediBondhu — human physician module only (VetBondhu uses `/vetbondhu`).
 import Specialities from "./pages/medibondhu/Specialities";
-import VetDirectory from "./pages/medibondhu/VetDirectory";
-import VetProfile from "./pages/medibondhu/VetProfile";
+import DoctorDirectory from "./pages/medibondhu/DoctorDirectory";
+import DoctorProfile from "./pages/medibondhu/DoctorProfile";
 import BookConsultation from "./pages/medibondhu/BookConsultation";
-import WaitingRoom from "./pages/medibondhu/WaitingRoom";
-import ConsultationRoom from "./pages/medibondhu/ConsultationRoom";
 import Prescriptions from "./pages/medibondhu/Prescriptions";
+import AppointmentDetail from "./pages/medibondhu/AppointmentDetail";
+import MediWaitingRoom from "./pages/medibondhu/MediWaitingRoom";
+import MediHumanConsultationRoom from "./pages/medibondhu/MediHumanConsultationRoom";
+import PrescriptionDetailHuman from "./pages/medibondhu/PrescriptionDetailHuman";
+import MediDoctorDashboard from "./pages/doctor/MediDoctorDashboard";
+import MediDoctorSchedule from "./pages/doctor/MediDoctorSchedule";
+import MediDoctorPrescriptions from "./pages/doctor/MediDoctorPrescriptions";
+import MediDoctorPrescriptionNew from "./pages/doctor/MediDoctorPrescriptionNew";
+import MediDoctorProfileSetup from "./pages/doctor/MediDoctorProfileSetup";
+import MediDoctorConsultations from "./pages/doctor/MediDoctorConsultations";
+import MediDoctorPatients from "./pages/doctor/MediDoctorPatients";
+import MediDoctorEarnings from "./pages/doctor/MediDoctorEarnings";
+
+import VetBondhuSpecialities from "./pages/vetbondhu/Specialities";
+import VetBondhuDirectory from "./pages/vetbondhu/VetDirectory";
+import VetBondhuVetProfile from "./pages/vetbondhu/VetProfile";
+import VetBondhuBookConsultation from "./pages/vetbondhu/BookConsultation";
+import VetBondhuWaitingRoom from "./pages/vetbondhu/WaitingRoom";
+import VetBondhuConsultationRoom from "./pages/vetbondhu/ConsultationRoom";
+import VetBondhuPrescriptions from "./pages/vetbondhu/Prescriptions";
 
 // Learning
 import LearningCenter from "./pages/learning/LearningCenter";
@@ -101,6 +121,8 @@ import AdminFarms from "./pages/admin/AdminFarms";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminCommunity from "./pages/admin/AdminCommunity";
 import VetApprovals from "./pages/admin/VetApprovals";
+import AdminMediBondhuHuman from "./pages/admin/AdminMediBondhuHuman";
+import AdminCowDetectionExport from "./pages/admin/AdminCowDetectionExport";
 
 // Community pages
 import CommunityLayout from "@/components/layout/CommunityLayout";
@@ -124,6 +146,7 @@ const importProductDetail = () => import("./pages/marketplace/ProductDetail");
 const importBuyerInbox = () => import("./pages/marketplace/BuyerInbox");
 const importChatDetail = () => import("./pages/marketplace/ChatDetail");
 const importConsultations = () => import("./pages/medibondhu/Consultations");
+const importVetbondhuConsultations = () => import("./pages/vetbondhu/Consultations");
 const importAdminDashboard = () => import("./pages/admin/AdminDashboard");
 const importUserManagement = () => import("./pages/admin/UserManagement");
 const importVetPatients = () => import("./pages/vet/VetPatients");
@@ -135,6 +158,7 @@ const ProductDetail = lazy(importProductDetail);
 const BuyerInbox = lazy(importBuyerInbox);
 const ChatDetail = lazy(importChatDetail);
 const Consultations = lazy(importConsultations);
+const VetbondhuConsultations = lazy(importVetbondhuConsultations);
 const AdminDashboard = lazy(importAdminDashboard);
 const UserManagement = lazy(importUserManagement);
 const VetPatients = lazy(importVetPatients);
@@ -187,6 +211,8 @@ function RouteIntentPrefetch() {
         void importAdminDashboard();
       } else if (route.startsWith("/medibondhu/consultations")) {
         void importConsultations();
+      } else if (route.startsWith("/vetbondhu/consultations")) {
+        void importVetbondhuConsultations();
       }
     };
 
@@ -289,6 +315,7 @@ const App = () => (
                   <Route index element={<Overview />} />
                   <Route path="farms" element={<Farms />} />
                   <Route path="animals" element={<Animals />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                   <Route path="feed" element={<Feed />} />
                   <Route path="health" element={<Health />} />
                   <Route path="production" element={<Production />} />
@@ -331,6 +358,7 @@ const App = () => (
                   <Route path="settings" element={<Settings />} />
                   <Route path="inbox" element={<LazyPage><BuyerInbox /></LazyPage>} />
                   <Route path="chat/:conversationId" element={<LazyPage><ChatDetail /></LazyPage>} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                   <Route path=":id" element={<LazyPage><ProductDetail /></LazyPage>} />
                 </Route>
                 <Route path="/cart" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
@@ -366,7 +394,7 @@ const App = () => (
                 <Route path="/vet" element={<ProtectedRoute allowedRoles={["vet", "admin"]}><VetLayout /></ProtectedRoute>}>
                   <Route path="dashboard" element={<VetDashboard />} />
                   <Route path="consultations" element={<VetConsultations />} />
-                  <Route path="room/:bookingId" element={<ConsultationRoom />} />
+                  <Route path="room/:bookingId" element={<VetBondhuConsultationRoom />} />
                   <Route path="patients" element={<LazyPage><VetPatients /></LazyPage>} />
                   <Route path="prescriptions" element={<VetPrescriptions />} />
                   <Route path="prescriptions/create" element={<CreatePrescription />} />
@@ -378,27 +406,114 @@ const App = () => (
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="notifications" element={<Notifications contextFilter={["vet", "general"]} />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                 </Route>
 
-                {/* ============ MEDIBONDHU (patient books or vet conducts) ============ */}
+                {/* ============ MEDIBONDHU — human outpatient; VetBondhu (/vetbondhu) is animal telemed ============ */}
                 <Route
                   path="/medibondhu"
                   element={
-                    <ProtectedRoute requireAnyCapability={["can_book_vet", "can_consult_as_vet"]}>
+                    <ProtectedRoute
+                      requireAnyCapability={["can_book_human", "can_practice_human", "can_manage_platform"]}
+                      capabilityBypassRoles={["doctor"]}
+                    >
                       <MediBondhuLayout />
                     </ProtectedRoute>
                   }
                 >
                   <Route index element={<Specialities />} />
-                  <Route path="vets" element={<VetDirectory />} />
-                  <Route path="vet/:id" element={<VetProfile />} />
-                  <Route path="book/:vetId" element={<BookConsultation />} />
-                  <Route path="waiting/:bookingId" element={<WaitingRoom />} />
-                  <Route path="room/:bookingId" element={<ConsultationRoom />} />
+                  <Route path="doctors" element={<DoctorDirectory />} />
+                  <Route path="doctor/:id" element={<DoctorProfile />} />
+                  <Route path="book/:doctorId" element={<BookConsultation />} />
+                  <Route path="appointment/:appointmentId" element={<AppointmentDetail />} />
+                  <Route path="waiting/:appointmentId" element={<MediWaitingRoom />} />
+                  <Route path="room/:appointmentId" element={<MediHumanConsultationRoom />} />
                   <Route path="consultations" element={<LazyPage><Consultations /></LazyPage>} />
                   <Route path="prescriptions" element={<Prescriptions />} />
+                  <Route path="prescription/:id" element={<PrescriptionDetailHuman />} />
+                  <Route
+                    path="doctor/dashboard"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorDashboard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/schedule"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorSchedule />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/consultations"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorConsultations />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/patients"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorPatients />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/prescriptions"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorPrescriptions />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/earnings"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorEarnings />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="doctor/rx/new"
+                    element={
+                      <ProtectedRoute requireAnyCapability={["can_practice_human", "can_manage_platform"]}>
+                        <MediDoctorPrescriptionNew />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="doctor/profile-setup" element={<Navigate to="/medibondhu/profile" replace />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["medibondhu", "general"]} />} />
+                  <Route path="access-center" element={<AccessCenter />} />
+                  <Route path="settings" element={<Settings />} />
+                </Route>
+
+                {/* ============ VETBONDHU (isolated animal-care consult surface) ============ */}
+                <Route
+                  path="/vetbondhu"
+                  element={
+                    <ProtectedRoute requireAnyCapability={["can_book_vet", "can_consult_as_vet"]}>
+                      <VetBondhuLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<VetBondhuSpecialities />} />
+                  <Route path="vets" element={<VetBondhuDirectory />} />
+                  <Route path="vet/:id" element={<VetBondhuVetProfile />} />
+                  <Route path="book/:vetId" element={<VetBondhuBookConsultation />} />
+                  <Route path="waiting/:bookingId" element={<VetBondhuWaitingRoom />} />
+                  <Route path="room/:bookingId" element={<VetBondhuConsultationRoom />} />
+                  <Route path="consultations" element={<LazyPage><VetbondhuConsultations /></LazyPage>} />
+                  <Route path="prescriptions" element={<VetBondhuPrescriptions />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
+                  <Route path="profile" element={<ProfilePage />} />
+                  <Route path="notifications" element={<Notifications contextFilter={["vetbondhu", "vet", "medibondhu", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
                 </Route>
@@ -432,9 +547,11 @@ const App = () => (
                   <Route path="reports" element={<Reports />} />
                   <Route path="learning" element={<AdminLearning />} />
                   <Route path="medibondhu-overview" element={<AdminMediBondhu />} />
+                  <Route path="medibondhu-human" element={<AdminMediBondhuHuman />} />
                   <Route path="farms" element={<AdminFarms />} />
                   <Route path="orders" element={<AdminOrders />} />
                   <Route path="community" element={<AdminCommunity />} />
+                  <Route path="cow-detection-export" element={<AdminCowDetectionExport />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications />} />
                   <Route path="settings" element={<Settings />} />

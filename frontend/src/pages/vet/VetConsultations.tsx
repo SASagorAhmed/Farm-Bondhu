@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { API_BASE, api, readSession, subscribeVetInboxNewBooking } from "@/api/client";
+import { API_BASE, api, readSession, subscribeVetbondhuVetInboxNewBooking, subscribeVetInboxNewBooking } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, Clock, CheckCircle, AlertCircle, Video, FileText } from "lucide-react";
@@ -87,8 +87,8 @@ export default function VetConsultations() {
     },
     queryFn: async () => {
       const token = readSession()?.access_token;
-      const res = await withApiTiming("/v1/medibondhu/vet/consultations/bootstrap", () =>
-        fetch(`${API_BASE}/v1/medibondhu/vet/consultations/bootstrap?limit=80&offset=${offset}`, {
+      const res = await withApiTiming("/v1/vetbondhu/vet/consultations/bootstrap", () =>
+        fetch(`${API_BASE}/v1/vetbondhu/vet/consultations/bootstrap?limit=80&offset=${offset}`, {
           cache: "no-store",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
@@ -202,10 +202,18 @@ export default function VetConsultations() {
 
   useEffect(() => {
     if (!user?.id) return;
-    return subscribeVetInboxNewBooking(user.id, () => {
+    const unsubMedi = subscribeVetInboxNewBooking(user.id, () => {
       queryClient.invalidateQueries({ queryKey: queryKeys().vetConsultations(user.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user.id) });
     });
+    const unsubVetbondhu = subscribeVetbondhuVetInboxNewBooking(user.id, () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetConsultations(user.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys().vetBookingsDashboard(user.id) });
+    });
+    return () => {
+      unsubMedi();
+      unsubVetbondhu();
+    };
   }, [queryClient, user?.id]);
 
   const handleAccept = async (bookingId: string) => {

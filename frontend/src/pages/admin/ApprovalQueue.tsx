@@ -30,8 +30,8 @@ async function callVetApprovalEndpoint(userId: string, status: "approved" | "rej
   const token = readSession()?.access_token;
   const path =
     status === "approved"
-      ? `/v1/medibondhu/admin/vet-profiles/${encodeURIComponent(userId)}/approve`
-      : `/v1/medibondhu/admin/vet-profiles/${encodeURIComponent(userId)}/reject`;
+      ? `/v1/vetbondhu/admin/vet-profiles/${encodeURIComponent(userId)}/approve`
+      : `/v1/vetbondhu/admin/vet-profiles/${encodeURIComponent(userId)}/reject`;
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {

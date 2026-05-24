@@ -1,102 +1,41 @@
+/**
+ * MediBondhu API — human doctor appointments (tables: medibondhu_*).
+ * Veterinary consultations use /v1/vetbondhu only.
+ */
 import { Router } from "express";
 import sql from "../../db.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
-import {
-  assertApprovedVetAccess,
-  assertBookingParticipant,
-  assertVetAccess,
-  getBookingById,
-  getRequestRoleSet,
-  requestHasAnyRole,
-  resolveVetUserId,
-} from "../../services/medibondhuAccess.js";
+import { getRequestRoleSet, requestHasAnyRole } from "../../services/medibondhuAccess.js";
 import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
+import { uploadToCloudinary } from "../../services/cloudinaryUpload.js";
 
 const router = Router();
-const nowMs = () => Date.now();
-const MEDIBONDHU_CACHE_PREFIX = "medibondhu";
+const CACHE_PREFIX = "medibondhu_human";
+
+router.use(requireDatabase);
 
 router.use((req, res, next) => {
   if (req.method === "GET") return next();
   res.on("finish", () => {
     if (res.statusCode >= 400 || !req.userId) return;
-    invalidateByPrefix(`${MEDIBONDHU_CACHE_PREFIX}|u:${req.userId}|`);
+    invalidateByPrefix(`${CACHE_PREFIX}|u:${req.userId}|`);
   });
   next();
 });
 
-function readLimit(value, fallback = 30, max = 100) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(Math.max(Math.trunc(n), 1), max);
+function readLimit(v, fb = 50, mx = 200) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fb;
+  return Math.min(Math.max(Math.trunc(n), 1), mx);
 }
 
-function readOffset(value) {
-  const n = Number(value);
+function readOffset(v) {
+  const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.max(Math.trunc(n), 0);
 }
-
-/** @param {unknown} v */
-function isUuid(v) {
-  return typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
-}
-
-/**
- * @param {string} hhmm
- */
-function toMinutes(hhmm) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ""));
-  if (!m) return null;
-  const hh = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return hh * 60 + mm;
-}
-
-/**
- * @param {number} mins
- */
-function toTimeLabel(mins) {
-  const h24 = Math.floor(mins / 60);
-  const mm = mins % 60;
-  const suffix = h24 >= 12 ? "PM" : "AM";
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${String(h12).padStart(2, "0")}:${String(mm).padStart(2, "0")} ${suffix}`;
-}
-
-/**
- * Accepts both "HH:mm" and "hh:mm AM/PM" and returns canonical "hh:mm AM/PM".
- * @param {unknown} value
- */
-function normalizeSlotLabel(value) {
-  const raw = String(value || "").trim();
-  if (!raw || raw.toLowerCase() === "now") return null;
-  const h24 = toMinutes(raw);
-  if (h24 != null) return toTimeLabel(h24);
-  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(raw);
-  if (!m) return null;
-  const hh = Number(m[1]);
-  const mm = Number(m[2]);
-  const suffix = String(m[3]).toUpperCase();
-  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
-  const hour24 = suffix === "PM" ? (hh % 12) + 12 : hh % 12;
-  return toTimeLabel(hour24 * 60 + mm);
-}
-
-/**
- * @param {Record<string, unknown>} booking
- */
-function normalizeBooking(booking) {
-  return {
-    ...booking,
-    vet_user_id: booking.vet_user_id || booking.computed_vet_user_id || null,
-  };
-}
-
-const BOOKING_STATUS = new Set(["pending", "confirmed", "in_progress", "completed", "cancelled"]);
 
 function toTextOrNull(value) {
   const text = value == null ? "" : String(value).trim();
@@ -107,30 +46,90 @@ function toMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
-async function computeVetEarningsSummary(vetUserId) {
+/** @param {unknown} u */
+function isUuid(u) {
+  return typeof u === "string" && /^[0-9a-f-]{36}$/i.test(u);
+}
+
+const VERIFICATION_DOC_TYPES = new Set([
+  "medical_degree",
+  "registration_certificate",
+  "cv",
+  "national_id",
+  "other",
+]);
+
+/** @param {unknown} raw */
+function normalizeVerificationDocuments(raw) {
+  if (raw == null) return [];
+  let arr = raw;
+  if (typeof raw === "string") {
+    try {
+      arr = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(
+    (x) => x && typeof x === "object" && typeof /** @type {{ type?: unknown }} */ (x).type === "string" && typeof /** @type {{ url?: unknown }} */ (x).url === "string",
+  );
+}
+
+async function doctorMayApplyMediProfile(req) {
+  return (
+    (await requestHasAnyRole(req, ["admin"])) ||
+    (await requestHasAnyRole(req, ["doctor"])) ||
+    (await requestHasAnyRole(req, ["vet"]))
+  );
+}
+
+async function isAdminReq(req) {
+  return await requestHasAnyRole(req, ["admin"]);
+}
+
+async function isDoctorApprovedUser(userId) {
+  const [row] = await sql`
+    select id from medibondhu_doctors
+    where user_id = ${userId} and approval_status = 'approved'
+    limit 1
+  `;
+  return row?.id ? String(row.id) : null;
+}
+
+async function computeDoctorEarningsSummary(doctorUserId) {
   const [grossRow] = await sql`
     select
-      coalesce(sum(coalesce(fee, 0)), 0) as gross_earnings,
+      coalesce(sum(coalesce(d.consultation_fee, 0)), 0) as gross_earnings,
       count(*)::int as consultation_count
-    from consultation_bookings
-    where vet_user_id = ${vetUserId}
-      and status = 'completed'
+    from medibondhu_appointments a
+    join medibondhu_doctors d on d.id = a.doctor_id
+    where d.user_id = ${doctorUserId}
+      and a.status = 'completed'
   `;
   const [monthlyRow] = await sql`
     select
-      coalesce(sum(coalesce(fee, 0)), 0) as monthly_gross
-    from consultation_bookings
-    where vet_user_id = ${vetUserId}
-      and status = 'completed'
-      and date_trunc('month', coalesce(completed_at, created_at)) = date_trunc('month', now())
+      coalesce(sum(coalesce(d.consultation_fee, 0)), 0) as monthly_gross
+    from medibondhu_appointments a
+    join medibondhu_doctors d on d.id = a.doctor_id
+    where d.user_id = ${doctorUserId}
+      and a.status = 'completed'
+      and date_trunc('month', a.updated_at) = date_trunc('month', now())
   `;
-  const [withdrawRow] = await sql`
-    select
-      coalesce(sum(case when status in ('approved', 'paid') then request_amount else 0 end), 0) as withdrawn_total,
-      coalesce(sum(case when status = 'pending' then request_amount else 0 end), 0) as pending_withdraw_total
-    from vet_withdrawals
-    where vet_user_id = ${vetUserId}
-  `;
+  let withdrawRow = null;
+  try {
+    [withdrawRow] = await sql`
+      select
+        coalesce(sum(case when status in ('approved', 'paid') then request_amount else 0 end), 0) as withdrawn_total,
+        coalesce(sum(case when status = 'pending' then request_amount else 0 end), 0) as pending_withdraw_total
+      from medibondhu_doctor_withdrawals
+      where doctor_user_id = ${doctorUserId}
+    `;
+  } catch (e) {
+    const code = /** @type {{ code?: string }} */ (e)?.code;
+    if (code !== "42P01") throw e;
+    withdrawRow = { withdrawn_total: 0, pending_withdraw_total: 0 };
+  }
   const gross = toMoney(grossRow?.gross_earnings || 0);
   const monthlyGross = toMoney(monthlyRow?.monthly_gross || 0);
   const platformFee = toMoney(gross * 0.15);
@@ -152,959 +151,1252 @@ async function computeVetEarningsSummary(vetUserId) {
   };
 }
 
-async function createWithdrawalReviewNotification(vetUserId, requestId, status, reviewNote) {
-  const title = status === "approved" ? "Withdrawal approved" : "Withdrawal rejected";
+async function createDoctorWithdrawalReviewNotification(doctorUserId, requestId, status, reviewNote) {
+  const title = status === "approved" ? "Doctor withdrawal approved" : "Doctor withdrawal rejected";
   const message = reviewNote
-    ? `Your withdrawal request has been ${status}. Reason: ${reviewNote}`
-    : `Your withdrawal request has been ${status}.`;
+    ? `Your doctor withdrawal request has been ${status}. Reason: ${reviewNote}`
+    : `Your doctor withdrawal request has been ${status}.`;
   await sql`
     insert into notifications ${sql({
-      user_id: vetUserId,
+      user_id: doctorUserId,
       title,
       message,
-      type: "vet_withdrawal_review",
-      link: "/vet/earnings",
+      type: "medibondhu_doctor_withdrawal_review",
+      link: "/medibondhu/doctor/earnings",
       created_at: new Date().toISOString(),
     })}
   `;
 }
 
-/**
- * @param {Record<string, unknown>} row
- */
-function isVetProfileComplete(row) {
-  return Boolean(
-    toTextOrNull(row.full_name || row.name) &&
-      toTextOrNull(row.phone) &&
-      toTextOrNull(row.email) &&
-      toTextOrNull(row.district || row.location) &&
-      toTextOrNull(row.address || row.location) &&
-      toTextOrNull(row.specialization) &&
-      Number.isFinite(Number(row.experience_years ?? row.experience)) &&
-      Number(row.experience_years ?? row.experience) >= 0 &&
-      Number.isFinite(Number(row.consultation_fee ?? row.fee)) &&
-      Number(row.consultation_fee ?? row.fee) >= 0 &&
-      toTextOrNull(row.profile_image_url || row.avatar) &&
-      toTextOrNull(row.verification_document_url)
-  );
+async function hasMediDoctorWithdrawalsTable() {
+  const [row] = await sql`select to_regclass('public.medibondhu_doctor_withdrawals') as table_name`;
+  return Boolean(row?.table_name);
+}
+
+/** Calendar YYYY-MM-DD in Asia/Dhaka for an instant — must match MediBondhu patient booking date picker. */
+function slotDateYmdBangladeshFromUtcMs(utcMs) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(utcMs));
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  if (!y || !m || !d) return new Date(utcMs).toISOString().slice(0, 10);
+  return `${y}-${m}-${d}`;
+}
+
+const MEDI_HUMAN_ZEGO_PREFIX = "medi-human-";
+
+/** @param {string} apptId */
+function mediHumanZegoRoomId(apptId) {
+  return `${MEDI_HUMAN_ZEGO_PREFIX}${apptId}`;
+}
+
+/** @param {unknown} status */
+function terminalMediAppointmentStatus(status) {
+  const s = String(status || "").toLowerCase();
+  return s === "completed" || s === "cancelled" || s === "rejected";
 }
 
 /**
- * @param {Record<string, unknown>} row
+ * Allow joining / starting a few minutes before slot start and after slot end (grace).
+ * @param {Date|string|null|undefined} slotStart
+ * @param {Date|string|null|undefined} slotEnd
+ * @param {number} [nowMs]
  */
-function normalizeVetRow(row) {
-  return {
-    ...row,
-    user_id: row.user_id || row.id || null,
-    full_name: toTextOrNull(row.full_name) || toTextOrNull(row.name) || "Vet Doctor",
-    name: toTextOrNull(row.name) || toTextOrNull(row.full_name) || "Vet Doctor",
-    phone: toTextOrNull(row.phone) || null,
-    email: toTextOrNull(row.email) || null,
-    district: toTextOrNull(row.district) || toTextOrNull(row.location) || null,
-    address: toTextOrNull(row.address) || toTextOrNull(row.location) || null,
-    specialization: toTextOrNull(row.specialization) || "General Veterinary",
-    animal_types: Array.isArray(row.animal_types) ? row.animal_types.map((v) => String(v).trim()).filter(Boolean) : [],
-    experience: Number.isFinite(Number(row.experience_years))
-      ? Number(row.experience_years)
-      : Number.isFinite(Number(row.experience))
-        ? Number(row.experience)
-        : 0,
-    experience_years: Number.isFinite(Number(row.experience_years))
-      ? Number(row.experience_years)
-      : Number.isFinite(Number(row.experience))
-        ? Number(row.experience)
-        : 0,
-    fee: Number.isFinite(Number(row.fee)) ? Number(row.fee) : Number.isFinite(Number(row.consultation_fee)) ? Number(row.consultation_fee) : 500,
-    consultation_fee: Number.isFinite(Number(row.consultation_fee))
-      ? Number(row.consultation_fee)
-      : Number.isFinite(Number(row.fee))
-        ? Number(row.fee)
-        : 500,
-    location: toTextOrNull(row.location) || "Bangladesh",
-    available: row.available == null ? true : Boolean(row.available),
-    degree: toTextOrNull(row.degree) || "DVM",
-    avatar: toTextOrNull(row.avatar) || toTextOrNull(row.profile_image_url) || "",
-    profile_image_url: toTextOrNull(row.profile_image_url) || toTextOrNull(row.avatar) || "",
-    verification_document_url: toTextOrNull(row.verification_document_url) || null,
-    verification_status: toTextOrNull(row.verification_status) || "pending",
-    rejection_reason: toTextOrNull(row.rejection_reason) || null,
-    verified_by: row.verified_by || null,
-    verified_at: row.verified_at || null,
-    is_profile_complete: isVetProfileComplete(row),
-  };
+function isWithinMediTeleconsultWindow(slotStart, slotEnd, nowMs = Date.now()) {
+  if (!slotStart) return true;
+  const startMs = new Date(slotStart).getTime();
+  if (!Number.isFinite(startMs)) return true;
+  const endParsed = slotEnd ? new Date(slotEnd).getTime() : NaN;
+  const endMs = Number.isFinite(endParsed) ? endParsed : startMs + 60 * 60 * 1000;
+  const beforeMs = 15 * 60 * 1000;
+  const afterGraceMs = 120 * 60 * 1000;
+  return nowMs >= startMs - beforeMs && nowMs <= endMs + afterGraceMs;
 }
 
-async function resolveCanonicalVetUserId(actorId) {
-  const [profileByUser] = await sql`
-    select user_id from vet_profiles
-    where user_id = ${actorId}
-    limit 1
-  `;
-  if (profileByUser?.user_id) return String(profileByUser.user_id);
-
-  const [profileById] = await sql`
-    select user_id, id from vet_profiles
-    where id = ${actorId}
-    limit 1
-  `;
-  if (profileById?.user_id) return String(profileById.user_id);
-  if (profileById?.id) return String(profileById.id);
-
-  const [vetByUser] = await sql`
-    select user_id from vets
-    where user_id = ${actorId}
-    limit 1
-  `;
-  if (vetByUser?.user_id) return String(vetByUser.user_id);
-
-  const [vetById] = await sql`
-    select user_id, id from vets
-    where id = ${actorId}
-    limit 1
-  `;
-  if (vetById?.user_id) return String(vetById.user_id);
-  if (vetById?.id) return String(vetById.id);
-
-  return String(actorId);
-}
-
-async function getVetProfileRecordByActorId(actorId) {
-  const canonicalUserId = await resolveCanonicalVetUserId(actorId);
-  const [profileRow] = await sql`
-    select * from vet_profiles
-    where user_id = ${canonicalUserId}
-    limit 1
-  `;
-  if (profileRow) return profileRow;
-  const [vetRow] = await sql`
-    select * from vets
-    where user_id = ${canonicalUserId}
-    limit 1
-  `;
-  return vetRow || null;
-}
-
-async function upsertVetProfileAndDirectory(userId, patch) {
-  const canonicalUserId = await resolveCanonicalVetUserId(userId);
-  const nowIso = new Date().toISOString();
-  const [existingProfile] = await sql`
-    select * from vet_profiles where user_id = ${canonicalUserId} limit 1
-  `;
-  const [legacyProfile] = existingProfile
-    ? [null]
-    : await sql`select * from vet_profiles where id = ${userId} limit 1`;
-  const [existingVet] = await sql`
-    select * from vets where user_id = ${canonicalUserId} limit 1
-  `;
-  const [legacyVet] = existingVet ? [null] : await sql`select * from vets where id = ${userId} limit 1`;
-  const profileSource = existingProfile || legacyProfile;
-  const vetSource = existingVet || legacyVet;
-  const profilePatch = {
-    user_id: canonicalUserId,
-    full_name: patch.full_name ?? patch.name ?? profileSource?.full_name ?? vetSource?.full_name ?? vetSource?.name ?? null,
-    phone: patch.phone ?? profileSource?.phone ?? vetSource?.phone ?? null,
-    email: patch.email ?? profileSource?.email ?? vetSource?.email ?? null,
-    district: patch.district ?? profileSource?.district ?? vetSource?.district ?? vetSource?.location ?? null,
-    address: patch.address ?? profileSource?.address ?? vetSource?.address ?? vetSource?.location ?? null,
-    specialization: patch.specialization ?? profileSource?.specialization ?? vetSource?.specialization ?? null,
-    experience_years: patch.experience_years ?? patch.experience ?? profileSource?.experience_years ?? vetSource?.experience_years ?? vetSource?.experience ?? 0,
-    consultation_fee: patch.consultation_fee ?? patch.fee ?? profileSource?.consultation_fee ?? vetSource?.consultation_fee ?? vetSource?.fee ?? 500,
-    profile_image_url: patch.profile_image_url ?? patch.avatar ?? profileSource?.profile_image_url ?? vetSource?.profile_image_url ?? vetSource?.avatar ?? null,
-    verification_document_url: patch.verification_document_url ?? profileSource?.verification_document_url ?? vetSource?.verification_document_url ?? null,
-    verification_status: patch.verification_status ?? profileSource?.verification_status ?? vetSource?.verification_status ?? "pending",
-    rejection_reason: patch.rejection_reason ?? null,
-    verified_by: patch.verified_by ?? null,
-    verified_at: patch.verified_at ?? null,
-    updated_at: nowIso,
-  };
-  const [savedProfile] = profileSource
-    ? await sql`
-        update vet_profiles
-        set ${sql(profilePatch)}
-        where id = ${profileSource.id}
-        returning *
-      `
-    : await sql`
-        insert into vet_profiles ${sql({ id: canonicalUserId, ...profilePatch, created_at: nowIso })}
-        returning *
-      `;
-
-  const vetPatch = {
-    user_id: canonicalUserId,
-    name: profilePatch.full_name,
-    full_name: profilePatch.full_name,
-    phone: profilePatch.phone,
-    email: profilePatch.email,
-    district: profilePatch.district,
-    address: profilePatch.address,
-    location: patch.location || vetSource?.location || profilePatch.district || profilePatch.address || "Bangladesh",
-    specialization: profilePatch.specialization,
-    experience: profilePatch.experience_years,
-    experience_years: profilePatch.experience_years,
-    fee: profilePatch.consultation_fee,
-    consultation_fee: profilePatch.consultation_fee,
-    avatar: profilePatch.profile_image_url || "",
-    profile_image_url: profilePatch.profile_image_url || "",
-    verification_document_url: profilePatch.verification_document_url,
-    verification_status: profilePatch.verification_status,
-    rejection_reason: profilePatch.rejection_reason,
-    verified_by: profilePatch.verified_by,
-    verified_at: profilePatch.verified_at,
-    updated_at: nowIso,
-  };
-  await (vetSource
-    ? sql`
-        update vets
-        set ${sql(vetPatch)}
-        where id = ${vetSource.id}
-      `
-    : sql`
-        insert into vets ${sql({ id: canonicalUserId, ...vetPatch, created_at: nowIso })}
-      `);
-
-  return savedProfile;
-}
-
-/**
- * Keep approval queue rows synchronized with vet verification lifecycle.
- * @param {string} userId
- * @param {"pending"|"approved"|"rejected"} status
- * @param {{ reviewedBy?: string | null; reviewNotes?: string | null; details?: Record<string, unknown> }} opts
- */
-async function syncVetApprovalRequest(userId, status, opts = {}) {
-  const [latest] = await sql`
-    select id, details, payload
-    from approval_requests
-    where user_id = ${userId}
-      and request_type = 'vet_verification'
-    order by created_at desc
-    limit 1
-  `;
-  const nowIso = new Date().toISOString();
-  const normalizedNotes = toTextOrNull(opts.reviewNotes);
-  const normalizedDetails = opts.details && typeof opts.details === "object" ? opts.details : {};
-  const existingDetails =
-    latest?.details && typeof latest.details === "object"
-      ? latest.details
-      : latest?.payload && typeof latest.payload === "object"
-        ? latest.payload
-        : {};
-  const mergedDetails = { ...existingDetails, ...normalizedDetails };
-
-  if (latest?.id) {
-    const patch = {
-      status,
-      updated_at: nowIso,
-      details: mergedDetails,
-      payload: mergedDetails,
-      notes: normalizedNotes ?? (status === "approved" ? "Approved by admin" : status === "rejected" ? "Rejected by admin" : null),
-      review_notes: normalizedNotes ?? null,
-      reviewed_by: opts.reviewedBy || null,
-    };
-    await sql`
-      update approval_requests
-      set ${sql(patch)}
-      where id = ${latest.id}
+// ─── Public-ish (auth optional for directory) — still require logged user for MVP safety
+router.get(
+  "/hospitals",
+  requireUser,
+  asyncHandler(async (_req, res) => {
+    const rows = await sql`
+      select id, name, address, phone from medibondhu_hospitals order by name asc limit 200
     `;
-    return;
-  }
-
-  const row = {
-    user_id: userId,
-    request_type: "vet_verification",
-    status,
-    details: mergedDetails,
-    payload: mergedDetails,
-    notes: normalizedNotes ?? null,
-    review_notes: normalizedNotes ?? null,
-    reviewed_by: opts.reviewedBy || null,
-    created_at: nowIso,
-    updated_at: nowIso,
-  };
-  await sql`insert into approval_requests ${sql(row)}`;
-}
-
-function parseDataUrl(input) {
-  const raw = String(input || "");
-  const m = /^data:([^;]+);base64,(.+)$/i.exec(raw);
-  if (!m) return null;
-  return { mime: m[1], base64: m[2] };
-}
-
-async function uploadToCloudinary(dataUrl, folder, publicIdPrefix = "file") {
-  const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
-  const apiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
-  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
-  if (!cloudName || !apiKey || !apiSecret) {
-    const err = new Error("Cloudinary is not configured on server");
-    err.status = 503;
-    throw err;
-  }
-  const parsed = parseDataUrl(dataUrl);
-  if (!parsed) {
-    const err = new Error("Invalid file payload");
-    err.status = 400;
-    throw err;
-  }
-
-  const timestamp = Math.floor(Date.now() / 1000);
-  const nonce = Math.random().toString(36).slice(2, 10);
-  const publicId = `${publicIdPrefix}_${timestamp}_${nonce}`;
-  const paramsToSign = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-  const signature = (await import("node:crypto")).createHash("sha1").update(paramsToSign).digest("hex");
-  const form = new FormData();
-  form.append("file", dataUrl);
-  form.append("api_key", apiKey);
-  form.append("timestamp", String(timestamp));
-  form.append("signature", signature);
-  form.append("folder", folder);
-  form.append("public_id", publicId);
-  form.append("resource_type", "auto");
-
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-    method: "POST",
-    body: form,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body?.secure_url) {
-    const err = new Error(String(body?.error?.message || "Cloudinary upload failed"));
-    err.status = 502;
-    throw err;
-  }
-  return {
-    url: String(body.secure_url),
-    publicId: String(body.public_id || ""),
-  };
-}
-
-router.get(
-  "/vet/dashboard/bootstrap",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const t0 = nowMs();
-    await assertVetAccess(req.userId);
-    const canonicalVetUserId = await resolveCanonicalVetUserId(req.userId);
-    const limit = readLimit(req.query.limit, 25, 80);
-    const today = new Date().toISOString().slice(0, 10);
-    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
-      userId: req.userId,
-      parts: ["vet-dashboard-bootstrap", canonicalVetUserId, limit, today],
-    });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 1_000, async () => {
-      const [pendingRows, todayRows] = await Promise.all([
-      sql`
-        select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms,
-               b.consultation_method, b.booking_type, b.status, b.scheduled_date, b.scheduled_time, b.created_at, b.updated_at
-        from consultation_bookings b
-        left join vets v on v.id = b.vet_mock_id
-        where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
-          and status in ('pending', 'confirmed')
-        order by b.created_at desc
-        limit ${limit}
-      `,
-      sql`
-        select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms,
-               b.consultation_method, b.booking_type, b.status, b.scheduled_date, b.scheduled_time, b.created_at, b.updated_at
-        from consultation_bookings b
-        left join vets v on v.id = b.vet_mock_id
-        where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
-          and status in ('in_progress', 'completed')
-          and coalesce(b.scheduled_date, to_char(b.created_at, 'YYYY-MM-DD')) = ${today}
-        order by b.created_at desc
-        limit ${limit}
-      `,
-      ]);
-      return { pendingBookings: pendingRows, todayBookings: todayRows };
-    });
-    res.setHeader("x-fb-vet-dashboard-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, no-store");
-    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
-    res.json({ data: value });
+    res.json({ data: rows });
   })
 );
 
 router.get(
-  "/vet/consultations/bootstrap",
-  requireDatabase,
+  "/specialties",
+  requireUser,
+  asyncHandler(async (_req, res) => {
+    const rows = await sql`
+      select id, name, slug, sort_order
+      from medibondhu_specialties
+      where is_active = true
+      order by sort_order asc, name asc
+    `;
+    res.json({ data: rows });
+  })
+);
+
+// Product note: discrete availability slots remain; online bookings use pending→in_progress for Vet-like accept flow.
+router.get(
+  "/doctors",
   requireUser,
   asyncHandler(async (req, res) => {
-    const t0 = nowMs();
-    await assertVetAccess(req.userId);
-    const canonicalVetUserId = await resolveCanonicalVetUserId(req.userId);
-    const limit = readLimit(req.query.limit, 120, 250);
-    const offset = readOffset(req.query.offset);
-    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
-      userId: req.userId,
-      parts: ["vet-consultations-bootstrap", canonicalVetUserId, limit, offset],
-    });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 1_000, async () => {
-      const rows = await sql`
-      select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms, b.fee,
-             b.consultation_method, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.scheduled_date, b.scheduled_time
-      from consultation_bookings b
-      left join vets v on v.id = b.vet_mock_id
-      where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
-      order by b.created_at desc
-      offset ${offset}
-      limit ${limit + 1}
+    const limit = readLimit(req.query.limit, 40);
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const specialtyId =
+      typeof req.query.specialty_id === "string" && isUuid(req.query.specialty_id) ? req.query.specialty_id : null;
+    const specFrag = specialtyId ? sql`and d.specialty_id = ${specialtyId}::uuid` : sql``;
+    const qPat = q ? `%${q}%` : null;
+    const searchFrag =
+      qPat == null
+        ? sql``
+        : sql`and (
+            d.full_name ilike ${qPat}
+            or coalesce(d.qualification,'') ilike ${qPat}
+            or coalesce(s.name,'') ilike ${qPat}
+          )`;
+
+    const rows = await sql`
+      select d.id,
+        d.full_name,
+        d.qualification,
+        d.experience_years,
+        d.consultation_fee,
+        d.profile_photo_url,
+        d.about,
+        d.online_consultation,
+        d.chamber_consultation,
+        d.rating_avg,
+        d.specialty_id,
+        d.is_available,
+        s.name as specialty_name,
+        coalesce(h.name, '') as hospital_name,
+        coalesce(h.address, '') as hospital_address,
+        coalesce(d.chamber_address,'') as chamber_address,
+        exists (
+          select 1 from medibondhu_doctor_time_slots ts
+          where ts.doctor_id = d.id
+            and ts.booked = false
+            and ts.slot_end > now()
+        ) as has_open_slots
+      from medibondhu_doctors d
+      left join medibondhu_specialties s on s.id = d.specialty_id
+      left join medibondhu_hospitals h on h.id = d.hospital_id
+      where d.approval_status = 'approved' and d.is_available = true
+      ${specFrag}
+      ${searchFrag}
+      order by d.rating_avg desc nulls last, d.full_name asc
+      limit ${limit}
+    `;
+    res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/doctors/:id",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const id = String(req.params.id || "");
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid doctor id" });
+    const [row] = await sql`
+      select d.id,
+        d.full_name,
+        d.qualification,
+        d.experience_years,
+        d.consultation_fee,
+        d.profile_photo_url,
+        d.about,
+        d.online_consultation,
+        d.chamber_consultation,
+        d.rating_avg,
+        d.rating_count,
+        d.specialty_id,
+        d.hospital_id,
+        d.chamber_address,
+        d.medical_reg_number,
+        d.registration_body,
+        d.is_available,
+        s.name as specialty_name,
+        h.name as hospital_name,
+        h.address as hospital_address,
+        exists (
+          select 1 from medibondhu_doctor_time_slots ts
+          where ts.doctor_id = d.id
+            and ts.booked = false
+            and ts.slot_end > now()
+        ) as has_open_slots
+      from medibondhu_doctors d
+      left join medibondhu_specialties s on s.id = d.specialty_id
+      left join medibondhu_hospitals h on h.id = d.hospital_id
+      where d.id = ${id}::uuid and d.approval_status = 'approved'
+      limit 1
+    `;
+    if (!row) return res.status(404).json({ error: "Doctor not found" });
+    res.json({ data: row });
+  })
+);
+
+router.get(
+  "/doctors/:id/slots",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const doctorId = String(req.params.id || "");
+    const dateRaw = typeof req.query.date === "string" ? req.query.date.trim() : "";
+    if (!isUuid(doctorId)) return res.status(400).json({ error: "Invalid doctor id" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) return res.status(400).json({ error: "date required (YYYY-MM-DD)" });
+
+    /** BD calendar day from `slot_start`; bookable until window end (aligned with `has_open_slots`). */
+    const rows = await sql`
+      select id, doctor_id, slot_date, slot_start, slot_end, booked
+      from medibondhu_doctor_time_slots
+      where doctor_id = ${doctorId}::uuid
+        and ((slot_start at time zone 'Asia/Dhaka')::date = ${dateRaw}::date)
+        and booked = false
+        and slot_end > now()
+      order by slot_start asc
+    `;
+    res.json({ data: rows });
+  })
+);
+
+router.post(
+  "/appointments",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const { doctor_id, slot_id, consultation_type, chief_complaint } = req.body || {};
+    if (!isUuid(doctor_id) || !isUuid(slot_id)) return res.status(400).json({ error: "doctor_id and slot_id required" });
+
+    const ctype = consultation_type === "chamber" ? "chamber" : "online";
+    const complain = chief_complaint == null ? null : String(chief_complaint).slice(0, 2000);
+
+    try {
+      const result = await sql.begin(async (tx) => {
+        const [slot] = await tx`
+          select ts.id, ts.doctor_id, ts.booked, ts.slot_end, d.specialty_id
+          from medibondhu_doctor_time_slots ts
+          join medibondhu_doctors d on d.id = ts.doctor_id
+          where ts.id = ${slot_id}::uuid
+            and ts.doctor_id = ${doctor_id}::uuid
+            for update
+        `;
+        if (!slot) throw new Error("SLOT_NOT_FOUND");
+        if (slot.booked) throw new Error("SLOT_TAKEN");
+        const endMs =
+          slot.slot_end instanceof Date
+            ? slot.slot_end.getTime()
+            : Number.isFinite(Date.parse(slot.slot_end))
+              ? Date.parse(slot.slot_end)
+              : NaN;
+        if (Number.isFinite(endMs) && endMs <= Date.now()) throw new Error("SLOT_WINDOW_ENDED");
+
+        // Online visits start pending until the doctor accepts (join video → in_progress), like VetBondhu.
+        const initialStatus = ctype === "chamber" ? "confirmed" : "pending";
+        const [appt] = await tx`
+          insert into medibondhu_appointments ${sql({
+            patient_user_id: uid,
+            doctor_id,
+            slot_id,
+            specialty_id: slot.specialty_id,
+            consultation_type: ctype,
+            status: initialStatus,
+            payment_status: "unpaid",
+            chief_complaint: complain,
+        updated_at: new Date().toISOString(),
+      })}
+          returning *
+        `;
+        await tx`
+          update medibondhu_doctor_time_slots set booked = true where id = ${slot_id}::uuid
+        `;
+        return appt;
+      });
+      /** Patient bootstrap keyed by booking user; doctor inbox by practitioner user — both must invalidate. */
+      const [docRow] = await sql`
+        select user_id from medibondhu_doctors where id = ${doctor_id}::uuid limit 1
       `;
-      const pageRows = rows.slice(0, limit);
-      const withFlags = pageRows.map((r) => ({
-        ...r,
-        display_status: r.status === "in_progress" && r.leave_deadline_at ? "ending" : r.status,
-        can_rejoin: r.status === "in_progress" && (!r.leave_deadline_at || String(r.left_user_id || "") === String(req.userId)),
-      }));
-      const hasMore = rows.length > limit;
-      return {
-        consultations: withFlags,
-        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
-      };
-    });
-    res.setHeader("x-fb-vet-consultations-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, no-store");
-    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
-    res.json({ data: value });
+      invalidateByPrefix(`${CACHE_PREFIX}|u:${uid}|`);
+      if (docRow?.user_id) invalidateByPrefix(`${CACHE_PREFIX}|u:${String(docRow.user_id)}|`);
+
+      res.status(201).json({ data: result });
+    } catch (e) {
+      const m = String((e && e.message) || e);
+      if (m.includes("SLOT_TAKEN")) return res.status(409).json({ error: "Slot already booked" });
+      if (m.includes("SLOT_WINDOW_ENDED")) return res.status(400).json({ error: "This time slot has ended; choose another" });
+      if (m.includes("SLOT_NOT_FOUND")) return res.status(404).json({ error: "Slot not found" });
+      throw e;
+    }
   })
 );
 
 router.get(
-  "/bookings/:id/room-bootstrap",
-  requireDatabase,
+  "/appointments/bootstrap",
   requireUser,
   asyncHandler(async (req, res) => {
-    const t0 = nowMs();
-    const booking = await assertBookingParticipant(req.params.id, req.userId);
-    const messageLimit = readLimit(req.query.message_limit, 80, 200);
-    const [messages, participantProfiles, roleSet] = await Promise.all([
-      sql`
-        select m.id, m.booking_id, m.sender_id, coalesce(m.sender_name, p.name) as sender_name,
-               coalesce(m.message, m.body) as message, m.created_at
-        from consultation_messages m
-        left join profiles p on p.id = m.sender_id
-        where m.booking_id = ${req.params.id}
-        order by m.created_at asc
-        limit ${messageLimit}
-      `,
-      sql`
-        select id, name, email, phone, primary_role, avatar_url
-        from profiles
-        where id in ${sql([booking.patient_mock_id, booking.computed_vet_user_id].filter(Boolean))}
-      `,
-      getRequestRoleSet(req),
-    ]);
-    const participantIds = new Set([String(booking.patient_mock_id || ""), String(booking.computed_vet_user_id || "")]);
-    const isParticipant = participantIds.has(String(req.userId));
-    res.setHeader("x-fb-room-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, no-store");
+    const uid = String(req.userId || "");
+    const view = typeof req.query.view === "string" ? req.query.view : "patient";
+    const offset = readOffset(req.query.offset);
+    const lim = readLimit(req.query.limit, 50, 100);
+
+    if (view === "doctor") {
+      const doctorPk = await isDoctorApprovedUser(uid);
+      if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+
+      const cacheKey = makeCacheKey(CACHE_PREFIX, {
+        userId: uid,
+        parts: ["appt-doctor", doctorPk, String(offset), String(lim)],
+      });
+      const { value: payload } = await getOrSetCachedValue(cacheKey, 1500, async () => {
+        const appointments = await sql`
+          select a.*,
+            p.name as patient_name,
+            p.email as patient_email,
+            coalesce(d.full_name,'') as doctor_display_name,
+            ts.slot_date,
+            ts.slot_start,
+            ts.slot_end
+          from medibondhu_appointments a
+          join profiles p on p.id = a.patient_user_id
+          join medibondhu_doctors d on d.id = a.doctor_id
+          left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+          where a.doctor_id = ${doctorPk}::uuid
+          order by coalesce(ts.slot_start, a.created_at) desc
+          limit ${lim + 1} offset ${offset}
+        `;
+        const hasMore = appointments.length > lim;
+        const slice = hasMore ? appointments.slice(0, lim) : appointments;
+        return { appointments: slice, page: { hasMore, nextOffset: hasMore ? offset + lim : null } };
+      });
+
+      res.set("Cache-Control", "private, no-store");
+      return res.json({ data: payload });
+    }
+
+    const cacheKeyPatient = makeCacheKey(CACHE_PREFIX, {
+      userId: uid,
+      parts: ["appt-patient", String(offset), String(lim)],
+    });
+    const { value: payload } = await getOrSetCachedValue(cacheKeyPatient, 1500, async () => {
+      const appointments = await sql`
+        select a.*,
+          d.full_name as doctor_name,
+          d.profile_photo_url as doctor_photo_url,
+          s.name as specialty_name,
+          ts.slot_date,
+          ts.slot_start,
+          ts.slot_end
+        from medibondhu_appointments a
+        join medibondhu_doctors d on d.id = a.doctor_id
+        left join medibondhu_specialties s on s.id = a.specialty_id
+        left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+        where a.patient_user_id = ${uid}::uuid
+        order by coalesce(ts.slot_start, a.created_at) desc
+        limit ${lim + 1} offset ${offset}
+      `;
+      const hasMore = appointments.length > lim;
+      const slice = hasMore ? appointments.slice(0, lim) : appointments;
+      return { appointments: slice, page: { hasMore, nextOffset: hasMore ? offset + lim : null } };
+    });
+
+    res.set("Cache-Control", "private, no-store");
+    res.json({ data: payload });
+  })
+);
+
+router.get(
+  "/appointments/:id/room-bootstrap",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const apptId = String(req.params.id || "");
+    if (!isUuid(apptId)) return res.status(400).json({ error: "Invalid appointment id" });
+
+    const messageLimit = readLimit(req.query.message_limit, 80, 160);
+    const doctorPk = await isDoctorApprovedUser(uid);
+
+    const [row] = await sql`
+      select a.*,
+        d.full_name as doctor_name,
+        d.profile_photo_url as doctor_photo_url,
+        d.user_id as doctor_user_id,
+        s.name as specialty_name,
+        ts.slot_date,
+        ts.slot_start,
+        ts.slot_end
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join medibondhu_specialties s on s.id = a.specialty_id
+      left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+      where a.id = ${apptId}::uuid
+      limit 1
+    `;
+    if (!row) return res.status(404).json({ error: "Not found" });
+
+    const isPatient = String(row.patient_user_id) === uid;
+    const isDoctor = Boolean(doctorPk && String(row.doctor_id) === doctorPk);
+    const admin = await isAdminReq(req);
+    if (!isPatient && !isDoctor && !admin) return res.status(403).json({ error: "Forbidden" });
+
+    const ctype = String(row.consultation_type || "").toLowerCase();
+    if (ctype !== "online") {
+      return res.status(400).json({ error: "Video consultations are only available for online appointments" });
+    }
+
+    const st = String(row.status || "").toLowerCase();
+    const terminal = terminalMediAppointmentStatus(st);
+    const slotOk = isWithinMediTeleconsultWindow(row.slot_start, row.slot_end);
+    /** Video only after the doctor accepts (status in_progress); pending patients use the waiting room. */
+    const canJoinVideo = !terminal && slotOk && st === "in_progress";
+
+    const participantIds = [
+      String(row.patient_user_id || ""),
+      String(row.doctor_user_id || ""),
+    ].filter(Boolean);
+
+    const messages = await sql`
+      select m.id, m.appointment_id, m.sender_id, coalesce(p.name, '') as sender_name,
+             m.message, m.created_at
+      from medibondhu_appointment_messages m
+      left join profiles p on p.id = m.sender_id
+      where m.appointment_id = ${apptId}::uuid
+      order by m.created_at asc
+      limit ${messageLimit}
+    `;
+
+    const participants =
+      participantIds.length === 0
+        ? []
+        : await sql`
+          select id, name, email, phone, primary_role, avatar_url
+          from profiles
+          where id in ${sql(participantIds)}
+        `;
+
+    const roleSet = await getRequestRoleSet(req);
+    res.set("Cache-Control", "private, no-store");
     res.json({
       data: {
-        booking: normalizeBooking(booking),
+        appointment: row,
         messages,
-        participants: participantProfiles,
+        participants,
         permissions: {
-          isParticipant,
+          isPatient,
+          isDoctor,
           isAdmin: roleSet.has("admin"),
-          isVet: roleSet.has("vet") || String(booking.computed_vet_user_id || "") === String(req.userId),
-          canRejoin:
-            String(booking.status || "") === "in_progress" &&
-            (!booking.leave_deadline_at || String(booking.left_user_id || "") === String(req.userId)),
+          canJoinVideo,
+          zegoRoomId: mediHumanZegoRoomId(apptId),
         },
       },
     });
   })
 );
 
-router.get(
-  "/prescriptions/bootstrap",
-  requireDatabase,
+router.post(
+  "/appointments/:id/messages",
   requireUser,
   asyncHandler(async (req, res) => {
-    const t0 = nowMs();
-    const uid = req.userId;
-    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const limit = readLimit(req.query.limit, 40, 120);
-    const offset = readOffset(req.query.offset);
-    const mode = String(req.query.mode || "auto");
-    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
-      userId: req.userId,
-      parts: ["prescriptions-bootstrap", mode, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
-    });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 10_000, async () => {
-      const list =
-        mode === "vet"
-        ? await sql`
-            select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
-                   animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
-            from prescriptions
-            where coalesce(vet_user_id, vet_id) = ${canonicalVetUserId}
-            order by created_at desc
-            offset ${offset}
-            limit ${limit + 1}
-          `
-        : mode === "farmer"
-          ? await sql`
-              select ep.id, ep.vet_name, ep.advice, ep.created_at, ep.metadata
-              from e_prescriptions ep
-              where ep.patient_mock_id = ${uid}
-              order by ep.created_at desc
-              offset ${offset}
-              limit ${limit + 1}
-            `
-          : await sql`
-              select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
-                     animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
-              from prescriptions
-              where (${isAdmin ? sql`true` : sql`(coalesce(vet_user_id, vet_id) = ${canonicalVetUserId} or farmer_user_id = ${uid})`})
-              order by created_at desc
-              offset ${offset}
-              limit ${limit + 1}
-            `;
-      const hasMore = list.length > limit;
-      const pageRows = list.slice(0, limit);
-      return {
-        rows: pageRows,
-        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
-      };
-    });
-    res.setHeader("x-fb-prescriptions-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, max-age=10");
-    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
-    res.json({ data: value });
-  })
-);
+    const uid = String(req.userId || "");
+    const apptId = String(req.params.id || "");
+    const { message } = req.body || {};
+    if (!isUuid(apptId)) return res.status(400).json({ error: "Invalid appointment id" });
+    const text = typeof message === "string" ? message.trim().slice(0, 8000) : "";
+    if (!text) return res.status(400).json({ error: "Message required" });
 
-router.get(
-  "/bookings/bootstrap",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const t0 = nowMs();
-    const view = String(req.query.view || "patient");
-    const limit = readLimit(req.query.limit, 80, 200);
-    const offset = readOffset(req.query.offset);
-    const uid = req.userId;
-    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const cacheKey = makeCacheKey(MEDIBONDHU_CACHE_PREFIX, {
-      userId: req.userId,
-      parts: ["bookings-bootstrap", view, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
-    });
-    const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 8_000, async () => {
-      const consultations = await sql`
-      select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.vet_name, b.patient_name,
-             b.consultation_method, b.booking_type, b.scheduled_date, b.scheduled_time,
-             b.animal_type, b.symptoms, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.updated_at
-      from consultation_bookings b
-      left join vets v on v.id = b.vet_mock_id
-      where (
-        ${isAdmin
-          ? sql`true`
-          : view === "vet"
-            ? sql`coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}`
-            : sql`b.patient_mock_id = ${uid}`}
-      )
-      order by b.created_at desc
-      offset ${offset}
-      limit ${limit + 1}
-      `;
-      const [spent] = await sql`
-        select coalesce(sum(coalesce(payment_amount, 0)), 0) as total_spent
-        from consultation_bookings
-        where patient_mock_id = ${uid}
-          and status in ('completed', 'in_progress', 'confirmed')
-      `;
-      const hasMore = consultations.length > limit;
-      const pageRows = consultations.slice(0, limit);
-      return {
-        consultations: pageRows,
-        totalSpent: Number(spent?.total_spent || 0),
-        page: { limit, offset, hasMore, nextOffset: hasMore ? offset + limit : null },
-      };
-    });
-    res.setHeader("x-fb-bookings-bootstrap-ms", String(nowMs() - t0));
-    res.setHeader("Cache-Control", "private, max-age=8");
-    res.setHeader("x-fb-cache", cacheHit ? "hit" : "miss");
-    res.json({ data: value });
-  })
-);
-
-router.get(
-  "/vets",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const availableOnly = String(req.query.available || "").toLowerCase() === "true";
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const limit = readLimit(req.query.limit, 80, 200);
-    const rows = availableOnly
-      ? await sql`
-          select * from vets
-          where coalesce(available, true) = true
-            and (${isAdmin ? sql`true` : sql`coalesce(verification_status, 'pending') = 'approved'`})
-          order by created_at desc
-          limit ${limit}
-        `
-      : await sql`
-          select * from vets
-          where (${isAdmin ? sql`true` : sql`coalesce(verification_status, 'pending') = 'approved'`})
-          order by created_at desc
-          limit ${limit}
-        `;
-    res.json({ data: rows.map(normalizeVetRow) });
-  })
-);
-
-router.get(
-  "/vets/:id",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const [row] = await sql`select * from vets where id = ${req.params.id} limit 1`;
-    if (!row) {
-      res.status(404).json({ error: "Vet not found" });
-      return;
-    }
-    if (!isAdmin && String(row.verification_status || "pending") !== "approved") {
-      res.status(404).json({ error: "Vet not found" });
-      return;
-    }
-    res.json({ data: normalizeVetRow(row) });
-  })
-);
-
-router.get(
-  "/vet-profile/me",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
-    const vet = await getVetProfileRecordByActorId(req.userId);
-    if (!vet) {
-      res.status(404).json({ error: "Vet profile not found" });
-      return;
-    }
-    const normalized = normalizeVetRow(vet);
-    res.json({ data: normalized });
-  })
-);
-
-router.put(
-  "/vet-profile/me",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
-    const body = req.body || {};
-    const fullName = toTextOrNull(body.full_name) || toTextOrNull(body.name);
-    const phone = toTextOrNull(body.phone);
-    const incomingEmail = toTextOrNull(body.email);
-    const district = toTextOrNull(body.district);
-    const address = toTextOrNull(body.address);
-    const specialization = toTextOrNull(body.specialization);
-    const experienceYears = Number(body.experience_years);
-    const consultationFee = Number(body.consultation_fee);
-    const profileImageUrl = toTextOrNull(body.profile_image_url);
-    const verificationDocumentUrl = toTextOrNull(body.verification_document_url);
-
-    if (!fullName || !phone || !district || !specialization) {
-      res.status(400).json({ error: "full_name, phone, email, district and specialization are required" });
-      return;
-    }
-    if (!Number.isFinite(experienceYears) || experienceYears < 0) {
-      res.status(400).json({ error: "experience_years must be a non-negative number" });
-      return;
-    }
-    if (!Number.isFinite(consultationFee) || consultationFee < 0) {
-      res.status(400).json({ error: "consultation_fee must be a non-negative number" });
-      return;
-    }
-    if (!profileImageUrl || !verificationDocumentUrl) {
-      res.status(400).json({ error: "profile_image_url and verification_document_url are required" });
-      return;
-    }
-
-    const [profile] = await sql`
-      select id, location, email from profiles where id = ${req.userId} limit 1
+    const doctorPk = await isDoctorApprovedUser(uid);
+    const [row] = await sql`
+      select * from medibondhu_appointments where id = ${apptId}::uuid limit 1
     `;
-    const email = toTextOrNull(profile?.email) || incomingEmail;
-    if (!email) {
-      res.status(400).json({ error: "Account email is required" });
-      return;
+    if (!row) return res.status(404).json({ error: "Not found" });
+
+    const isPatient = String(row.patient_user_id) === uid;
+    const isDoctor = Boolean(doctorPk && String(row.doctor_id) === doctorPk);
+    const admin = await isAdminReq(req);
+    if (!isPatient && !isDoctor && !admin) return res.status(403).json({ error: "Forbidden" });
+
+    if (terminalMediAppointmentStatus(row.status)) {
+      return res.status(409).json({ error: "This appointment is closed" });
     }
-    const patch = {
-      user_id: req.userId,
-      name: fullName,
-      full_name: fullName,
-      phone,
-      email,
-      district,
-      address,
-      location: district || address || profile?.location || "Bangladesh",
-      specialization,
-      experience: Math.floor(experienceYears),
-      experience_years: Math.floor(experienceYears),
-      fee: consultationFee,
-      consultation_fee: consultationFee,
-      avatar: profileImageUrl,
-      profile_image_url: profileImageUrl,
-      verification_document_url: verificationDocumentUrl,
-      verification_status: "pending",
-      rejection_reason: null,
-      verified_by: null,
-      verified_at: null,
-      updated_at: new Date().toISOString(),
-    };
-    const saved = await upsertVetProfileAndDirectory(req.userId, patch);
-    await syncVetApprovalRequest(req.userId, "pending", {
-      details: {
-        profile_id: saved.id,
-        specialization: saved.specialization || null,
-        experience_years: saved.experience_years ?? saved.experience ?? 0,
-        consultation_fee: saved.consultation_fee ?? saved.fee ?? 0,
-        profile_image_url: saved.profile_image_url || null,
-        verification_document_url: saved.verification_document_url || null,
+
+    const [inserted] = await sql`
+      insert into medibondhu_appointment_messages ${sql({
+        appointment_id: apptId,
+        sender_id: uid,
+        message: text,
+      })}
+      returning id, appointment_id, sender_id, message, created_at
+    `;
+    const [senderProf] = await sql`select coalesce(name, '') as name from profiles where id = ${uid}::uuid limit 1`;
+    const sender_name = String(senderProf?.name || "");
+    res.status(201).json({ data: { ...inserted, sender_name } });
+  })
+);
+
+router.get(
+  "/appointments/:id",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const apptId = String(req.params.id || "");
+    if (!isUuid(apptId)) return res.status(400).json({ error: "Invalid appointment id" });
+
+    const doctorPk = await isDoctorApprovedUser(uid);
+    const [row] = await sql`
+      select a.*,
+        d.full_name as doctor_name,
+        d.profile_photo_url as doctor_photo_url,
+        s.name as specialty_name,
+        ts.slot_date,
+        ts.slot_start,
+        ts.slot_end
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join medibondhu_specialties s on s.id = a.specialty_id
+      left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+      where a.id = ${apptId}::uuid
+      limit 1
+    `;
+    if (!row) return res.status(404).json({ error: "Not found" });
+
+    const isPatient = String(row.patient_user_id) === uid;
+    const isDoc = doctorPk && String(row.doctor_id) === doctorPk;
+    const admin = await isAdminReq(req);
+    if (!isPatient && !isDoc && !admin) return res.status(403).json({ error: "Forbidden" });
+
+    res.json({ data: row });
+  })
+);
+
+router.patch(
+  "/appointments/:id",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const apptId = String(req.params.id || "");
+    const { status, cancellation_reason } = req.body || {};
+    if (!isUuid(apptId)) return res.status(400).json({ error: "Invalid appointment id" });
+
+    const [row] = await sql`
+      select a.*, ts.slot_start, ts.slot_end
+      from medibondhu_appointments a
+      left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+      where a.id = ${apptId}::uuid limit 1
+    `;
+    if (!row) return res.status(404).json({ error: "Appointment not found" });
+
+    const admin = await isAdminReq(req);
+
+    if (status === "cancelled") {
+      const isPatient = String(row.patient_user_id) === uid;
+      const doctorPk = await isDoctorApprovedUser(uid);
+      const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
+      if (!isPatient && !isDoctorOwn && !admin) return res.status(403).json({ error: "Forbidden" });
+
+      await sql.begin(async (tx) => {
+        await tx`
+          update medibondhu_appointments set
+            status = 'cancelled',
+            cancelled_by = ${isPatient ? "patient" : isDoctorOwn ? "doctor" : "admin"},
+            updated_at = now()
+          where id = ${apptId}::uuid
+        `;
+        if (row.slot_id) {
+          await tx`
+            update medibondhu_doctor_time_slots set booked = false where id = ${String(row.slot_id)}::uuid
+          `;
+        }
+      });
+
+      const [nextRow] = await sql`select * from medibondhu_appointments where id = ${apptId}::uuid`;
+      return res.json({ data: nextRow });
+    }
+
+    /** Doctor updates */
+    const allowedNext = ["confirmed", "rejected", "completed", "in_progress"];
+    const st = typeof status === "string" ? status : "";
+    if (!allowedNext.includes(st)) return res.status(400).json({ error: "Invalid status" });
+
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk || String(row.doctor_id) !== doctorPk) return res.status(403).json({ error: "Forbidden" });
+
+    const consultationType = String(row.consultation_type || "").toLowerCase();
+    const prevStatus = String(row.status || "").toLowerCase();
+
+    if (st === "in_progress") {
+      if (consultationType !== "online") {
+        return res.status(400).json({ error: "In-person visits do not use a video room. Mark complete after the clinic visit." });
+      }
+      if (prevStatus !== "confirmed" && prevStatus !== "pending") {
+        return res.status(400).json({ error: "Can only start a teleconsult from a pending or confirmed appointment" });
+      }
+      if (!isWithinMediTeleconsultWindow(row.slot_start, row.slot_end)) {
+        return res.status(400).json({ error: "Outside the scheduled consultation window" });
+      }
+    }
+
+    if (st === "completed" && !["confirmed", "pending", "in_progress"].includes(prevStatus)) {
+      return res.status(400).json({ error: "Cannot complete this appointment" });
+    }
+
+    let updated;
+    try {
+      [updated] = await sql`
+        update medibondhu_appointments
+        set
+          status = ${st},
+          talk_started_at = case
+            when ${st} = 'in_progress' and talk_started_at is null then now()
+            else talk_started_at
+          end,
+          talk_ended_at = case
+            when ${st} = 'completed' then coalesce(talk_ended_at, now())
+            else talk_ended_at
+          end,
+          updated_at = now()
+        where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
+        returning *
+      `;
+    } catch (e) {
+      const code = /** @type {{ code?: string; message?: string }} */ (e)?.code;
+      const msg = e instanceof Error ? e.message : String(e);
+      const missingTalkColumns =
+        code === "42703" &&
+        (msg.includes("talk_started_at") || msg.includes("talk_ended_at"));
+      if (!missingTalkColumns) throw e;
+
+      [updated] = await sql`
+        update medibondhu_appointments
+        set
+          status = ${st},
+          updated_at = now()
+        where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
+        returning *
+      `;
+    }
+    if (!updated) return res.status(404).json({ error: "Not updated" });
+
+    if (st === "rejected" && row.slot_id) {
+      await sql`
+        update medibondhu_doctor_time_slots set booked = false where id = ${String(row.slot_id)}::uuid
+      `;
+    }
+
+    res.json({
+      data: updated,
+      note: cancellation_reason ? String(cancellation_reason).slice(0, 500) : undefined,
+    });
+  })
+);
+
+// ─── Doctor profile & slots ─────────────────────────────────────────────
+
+router.get(
+  "/doctor/me",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const [d] = await sql`
+      select d.*,
+        s.name as specialty_name,
+        h.name as hospital_name
+      from medibondhu_doctors d
+      left join medibondhu_specialties s on s.id = d.specialty_id
+      left join medibondhu_hospitals h on h.id = d.hospital_id
+      where d.user_id = ${uid}::uuid limit 1
+    `;
+    res.json({ data: d || null });
+  })
+);
+
+router.post(
+  "/doctor/profile",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const b = req.body || {};
+    if (!(await doctorMayApplyMediProfile(req))) {
+      return res.status(403).json({ error: "Not allowed to submit doctor profile" });
+    }
+
+    const [existing] = await sql`
+      select id, verification_documents from medibondhu_doctors where user_id = ${uid}::uuid limit 1
+    `;
+
+    const verification_documents = Array.isArray(b.verification_documents)
+      ? normalizeVerificationDocuments(b.verification_documents)
+      : normalizeVerificationDocuments(existing?.verification_documents);
+
+    const medical_reg_number =
+      b.medical_reg_number == null ? null : String(b.medical_reg_number).trim().slice(0, 120) || null;
+    const registration_body =
+      b.registration_body == null ? null : String(b.registration_body).trim().slice(0, 400) || null;
+
+    const full_name = String(b.full_name || "Doctor").slice(0, 200);
+    const qualification = String(b.qualification || "").slice(0, 400) || null;
+    const experience_years = Math.max(0, Math.min(70, Number(b.experience_years) || 0));
+    const chamber_address = b.chamber_address == null ? null : String(b.chamber_address).slice(0, 600);
+    const consultation_fee = Math.max(0, Number(b.consultation_fee) || 0);
+    const profile_photo_url = b.profile_photo_url == null ? null : String(b.profile_photo_url).slice(0, 2048);
+    const about = b.about == null ? null : String(b.about).slice(0, 4000);
+    const online_consultation = Boolean(b.online_consultation ?? true);
+    const chamber_consultation = Boolean(b.chamber_consultation ?? true);
+    const specialty_id = isUuid(b.specialty_id) ? String(b.specialty_id) : null;
+    const hospital_id = isUuid(b.hospital_id) ? String(b.hospital_id) : null;
+    const updated_at = new Date().toISOString();
+
+    if (existing?.id) {
+      const id = existing.id;
+      const [upd] = await sql`
+        update medibondhu_doctors set
+          specialty_id = ${specialty_id},
+          hospital_id = ${hospital_id},
+          full_name = ${full_name},
+          qualification = ${qualification},
+          experience_years = ${experience_years},
+          chamber_address = ${chamber_address},
+          consultation_fee = ${consultation_fee},
+          profile_photo_url = ${profile_photo_url},
+          about = ${about},
+          online_consultation = ${online_consultation},
+          chamber_consultation = ${chamber_consultation},
+          medical_reg_number = ${medical_reg_number},
+          registration_body = ${registration_body},
+          verification_documents = ${sql.json(verification_documents)},
+          approval_status = 'pending',
+          updated_at = ${updated_at}
+        where id = ${String(id)}::uuid
+        returning *
+      `;
+      return res.json({ data: upd });
+    }
+
+    const [ins] = await sql`
+      insert into medibondhu_doctors (
+        user_id, specialty_id, hospital_id, full_name, qualification, experience_years,
+        chamber_address, consultation_fee, profile_photo_url, about,
+        online_consultation, chamber_consultation, medical_reg_number, registration_body,
+        verification_documents, approval_status, updated_at
+      ) values (
+        ${uid}::uuid,
+        ${specialty_id},
+        ${hospital_id},
+        ${full_name},
+        ${qualification},
+        ${experience_years},
+        ${chamber_address},
+        ${consultation_fee},
+        ${profile_photo_url},
+        ${about},
+        ${online_consultation},
+        ${chamber_consultation},
+        ${medical_reg_number},
+        ${registration_body},
+        ${sql.json(verification_documents)},
+        'pending',
+        ${updated_at}
+      )
+      returning *
+    `;
+    res.status(201).json({ data: ins });
+  })
+);
+
+router.patch(
+  "/doctor/profile",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    if (!(await doctorMayApplyMediProfile(req))) {
+      return res.status(403).json({ error: "Not allowed to update doctor profile" });
+    }
+
+    const [existing] = await sql`select id from medibondhu_doctors where user_id = ${uid}::uuid limit 1`;
+    if (!existing?.id) return res.status(404).json({ error: "Doctor profile not found" });
+
+    const b = req.body || {};
+    const patch = {};
+    if (b.full_name !== undefined) patch.full_name = String(b.full_name || "").slice(0, 200) || "Doctor";
+    if (b.qualification !== undefined) patch.qualification = String(b.qualification || "").slice(0, 400) || null;
+    if (b.experience_years !== undefined) {
+      patch.experience_years = Math.max(0, Math.min(70, Number(b.experience_years) || 0));
+    }
+    if (b.chamber_address !== undefined) {
+      patch.chamber_address = b.chamber_address == null ? null : String(b.chamber_address).slice(0, 600);
+    }
+    if (b.consultation_fee !== undefined) patch.consultation_fee = Math.max(0, Number(b.consultation_fee) || 0);
+    if (b.profile_photo_url !== undefined) {
+      patch.profile_photo_url = b.profile_photo_url == null ? null : String(b.profile_photo_url).slice(0, 2048);
+    }
+    if (b.about !== undefined) patch.about = b.about == null ? null : String(b.about).slice(0, 4000);
+    if (b.online_consultation !== undefined) patch.online_consultation = Boolean(b.online_consultation);
+    if (b.chamber_consultation !== undefined) patch.chamber_consultation = Boolean(b.chamber_consultation);
+    if (b.specialty_id !== undefined) {
+      patch.specialty_id = isUuid(b.specialty_id) ? String(b.specialty_id) : null;
+    }
+    if (b.hospital_id !== undefined) {
+      patch.hospital_id = isUuid(b.hospital_id) ? String(b.hospital_id) : null;
+    }
+    if (b.medical_reg_number !== undefined) {
+      patch.medical_reg_number =
+        b.medical_reg_number == null ? null : String(b.medical_reg_number).trim().slice(0, 120) || null;
+    }
+    if (b.registration_body !== undefined) {
+      patch.registration_body =
+        b.registration_body == null ? null : String(b.registration_body).trim().slice(0, 400) || null;
+    }
+    if (b.verification_documents !== undefined) {
+      patch.verification_documents = sql.json(normalizeVerificationDocuments(b.verification_documents));
+    }
+
+    if (!Object.keys(patch).length) return res.status(400).json({ error: "No fields to update" });
+
+    patch.approval_status = "pending";
+    patch.updated_at = new Date().toISOString();
+
+    const [upd] = await sql`
+      update medibondhu_doctors set ${sql(patch)}
+      where id = ${String(existing.id)}::uuid
+      returning *
+    `;
+    res.json({ data: upd });
+  })
+);
+
+router.post(
+  "/doctor/verification/upload",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    if (!(await doctorMayApplyMediProfile(req))) {
+      return res.status(403).json({ error: "Not allowed to upload verification documents" });
+    }
+
+    const documentType = String(req.body?.document_type || req.body?.documentType || "").toLowerCase();
+    if (!VERIFICATION_DOC_TYPES.has(documentType)) {
+      return res.status(400).json({
+        error: `document_type must be one of: ${[...VERIFICATION_DOC_TYPES].join(", ")}`,
+      });
+    }
+
+    const fileData = String(req.body?.file_data || "");
+    if (!fileData) return res.status(400).json({ error: "file_data is required" });
+
+    let uploaded;
+    try {
+      uploaded = await uploadToCloudinary(
+        fileData,
+        "medibondhu/doctor/verification",
+        `medi_doc_${documentType}_${uid}`,
+      );
+    } catch (error) {
+      const message = String(/** @type {Error & { status?: number }} */ (error)?.message || "");
+      const low = message.toLowerCase();
+      if (low.includes("cloudinary is not configured")) {
+        uploaded = { url: fileData, publicId: "", storage: "inline_data_url" };
+      } else if (low.includes("invalid file payload")) {
+        return res.status(400).json({ error: "Invalid file: choose a PDF or image from the file picker." });
+      } else throw error;
+    }
+
+    try {
+      let [docRow] = await sql`
+        select id, verification_documents from medibondhu_doctors where user_id = ${uid}::uuid limit 1
+      `;
+
+      if (!docRow?.id) {
+        const [p] = await sql`select name from profiles where id = ${uid}::uuid limit 1`;
+        const fullName = String(p?.name || "Doctor").trim().slice(0, 200) || "Doctor";
+        const [ins] = await sql`
+          insert into medibondhu_doctors (
+            user_id,
+            full_name,
+            approval_status,
+            verification_documents,
+            updated_at
+          )
+          values (
+            ${uid}::uuid,
+            ${fullName},
+            'pending',
+            ${sql.json([])},
+            now()
+          )
+          returning id, verification_documents
+        `;
+        docRow = ins;
+      }
+
+      const prev = normalizeVerificationDocuments(docRow.verification_documents);
+      const entry = {
+        type: documentType,
+        url: uploaded.url,
+        public_id: uploaded.publicId || "",
+        uploaded_at: new Date().toISOString(),
+      };
+      const next = [...prev.filter((d) => String(/** @type {{ type?: string }} */ (d).type) !== documentType), entry];
+
+      const [upd] = await sql`
+        update medibondhu_doctors
+        set verification_documents = ${sql.json(next)},
+            approval_status = 'pending',
+            updated_at = now()
+        where user_id = ${uid}::uuid
+        returning id, verification_documents
+      `;
+
+      res.status(201).json({ data: { ...entry, doctor_id: upd?.id } });
+    } catch (e) {
+      const code = /** @type {{ code?: string; message?: string }} */ (e)?.code;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (
+        code === "42703" ||
+        (msg.includes("verification_documents") && msg.toLowerCase().includes("column"))
+      ) {
+        return res.status(503).json({
+          error:
+            "Database is missing MediBondhu doctor columns (e.g. verification_documents). From the backend folder run: npm run db:ensure",
+        });
+      }
+      throw e;
+    }
+  })
+);
+
+router.get(
+  "/doctor/time-slots",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Only approved doctors can view slots" });
+
+    const fromRaw = typeof req.query.from === "string" ? req.query.from.trim() : "";
+    const toRaw = typeof req.query.to === "string" ? req.query.to.trim() : "";
+    const defaultFrom = slotDateYmdBangladeshFromUtcMs(Date.now());
+    const defaultTo = slotDateYmdBangladeshFromUtcMs(Date.now() + 42 * 86400000 * 1000);
+    const fromD = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : defaultFrom;
+    const toD = /^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? toRaw : defaultTo;
+
+    let rows;
+    try {
+      rows = await sql`
+        select
+          ts.*,
+          ap.id as appointment_id,
+          ap.consultation_type,
+          ap.status as appointment_status,
+          ap.patient_user_id,
+          ap.talk_started_at,
+          ap.talk_ended_at,
+          p.name as patient_name,
+          p.email as patient_email,
+          case
+            when ap.id is null then null
+            when ap.talk_started_at is not null then greatest(
+              0,
+              floor(extract(epoch from (coalesce(ap.talk_ended_at, now()) - ap.talk_started_at)) / 60)::int
+            )
+            else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
+          end as consultation_minutes
+        from medibondhu_doctor_time_slots ts
+        left join lateral (
+          select a.*
+          from medibondhu_appointments a
+          where a.slot_id = ts.id
+          order by a.created_at desc
+          limit 1
+        ) ap on true
+        left join profiles p on p.id = ap.patient_user_id
+        where ts.doctor_id = ${doctorPk}::uuid
+          and ((ts.slot_start at time zone 'Asia/Dhaka')::date between ${fromD}::date and ${toD}::date)
+        order by ts.slot_start asc
+        limit 500
+      `;
+    } catch (e) {
+      const code = /** @type {{ code?: string; message?: string }} */ (e)?.code;
+      const msg = e instanceof Error ? e.message : String(e);
+      const missingTalkColumns =
+        code === "42703" &&
+        (msg.includes("talk_started_at") || msg.includes("talk_ended_at"));
+      if (!missingTalkColumns) throw e;
+
+      // Backward compatible fallback for environments where schema migration has not run yet.
+      rows = await sql`
+        select
+          ts.*,
+          ap.id as appointment_id,
+          ap.consultation_type,
+          ap.status as appointment_status,
+          ap.patient_user_id,
+          null::timestamptz as talk_started_at,
+          null::timestamptz as talk_ended_at,
+          p.name as patient_name,
+          p.email as patient_email,
+          case
+            when ap.id is null then null
+            else greatest(0, floor(extract(epoch from (ts.slot_end - ts.slot_start)) / 60)::int)
+          end as consultation_minutes
+        from medibondhu_doctor_time_slots ts
+        left join lateral (
+          select a.*
+          from medibondhu_appointments a
+          where a.slot_id = ts.id
+          order by a.created_at desc
+          limit 1
+        ) ap on true
+        left join profiles p on p.id = ap.patient_user_id
+        where ts.doctor_id = ${doctorPk}::uuid
+          and ((ts.slot_start at time zone 'Asia/Dhaka')::date between ${fromD}::date and ${toD}::date)
+        order by ts.slot_start asc
+        limit 500
+      `;
+    }
+    res.json({ data: rows });
+  })
+);
+
+router.post(
+  "/doctor/time-slots/bulk",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Only approved doctors can add slots" });
+
+    const slots = Array.isArray(req.body?.slots) ? req.body.slots : [];
+    if (!slots.length || slots.length > 200) return res.status(400).json({ error: "slots[] required (max 200)" });
+
+    const nowMs = Date.now();
+    let pastSkipped = 0;
+    const rows = slots
+      .map((s) => {
+        const ss = typeof s.slot_start === "string" ? s.slot_start : "";
+        const se = typeof s.slot_end === "string" ? s.slot_end : "";
+        const ds = Date.parse(ss);
+        const de = Date.parse(se);
+        if (!Number.isFinite(ds) || !Number.isFinite(de) || de <= ds) return null;
+        if (de <= nowMs) {
+          pastSkipped += 1;
+          return null;
+        }
+        const slot_start = new Date(ds).toISOString();
+        const slot_end = new Date(de).toISOString();
+        const slot_date = slotDateYmdBangladeshFromUtcMs(ds);
+        return {
+          doctor_id: doctorPk,
+          slot_date,
+          slot_start,
+          slot_end,
+          booked: false,
+        };
+      })
+      .filter(Boolean);
+
+    if (!rows.length) {
+      return res.status(201).json({
+        data: {
+          inserted_count: 0,
+          requested_count: slots.length,
+          duplicates_skipped: 0,
+          past_skipped: pastSkipped,
+        },
+      });
+    }
+
+    const inserted = await sql`
+      insert into medibondhu_doctor_time_slots ${sql(rows)}
+      on conflict (doctor_id, slot_start) do nothing
+      returning id
+    `;
+    const insertedCount = inserted.length;
+    const requestedCount = rows.length;
+    res.status(201).json({
+      data: {
+        inserted_count: insertedCount,
+        requested_count: slots.length,
+        duplicates_skipped: Math.max(0, requestedCount - insertedCount),
+        past_skipped: pastSkipped,
       },
     });
-    res.json({ data: normalizeVetRow(saved) });
   })
 );
 
-router.post(
-  "/vet-profile/upload",
-  requireDatabase,
+router.delete(
+  "/doctor/time-slots/:id",
   requireUser,
   asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
-    const purpose = String(req.body?.purpose || "document").toLowerCase();
-    const fileData = String(req.body?.file_data || "");
-    if (!fileData) {
-      res.status(400).json({ error: "file_data is required" });
-      return;
-    }
-    const folder = purpose === "profile_image" ? "vet/profile" : "vet/document";
-    const prefix = purpose === "profile_image" ? "profile" : "document";
-    try {
-      const uploaded = await uploadToCloudinary(fileData, folder, `vet_${prefix}_${req.userId}`);
-      res.status(201).json({ data: uploaded });
-      return;
-    } catch (error) {
-      const message = String(error?.message || "");
-      if (message.toLowerCase().includes("cloudinary is not configured")) {
-        // Dev-safe fallback: keep profile updates working when cloud storage
-        // credentials are not set in local environment.
-        res.status(201).json({
-          data: {
-            url: fileData,
-            publicId: "",
-            storage: "inline_data_url",
-          },
-        });
-        return;
-      }
-      throw error;
-    }
+    const uid = String(req.userId || "");
+    const sid = String(req.params.id || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk || !isUuid(sid)) return res.status(400).json({ error: "Invalid" });
+
+    const [del] = await sql`
+      delete from medibondhu_doctor_time_slots
+      where id = ${sid}::uuid and doctor_id = ${doctorPk}::uuid and booked = false
+      returning id
+    `;
+    if (!del) return res.status(404).json({ error: "Slot not found or already booked" });
+    res.json({ data: { ok: true } });
   })
 );
+
+// ─── Prescriptions (human module) ───────────────────────────────────────
 
 router.get(
-  "/admin/vet-profiles",
-  requireDatabase,
+  "/prescriptions/bootstrap",
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
+    const uid = String(req.userId || "");
+    const mode = req.query.mode === "doctor" ? "doctor" : "patient";
+
+    if (mode === "doctor") {
+      const doctorPk = await isDoctorApprovedUser(uid);
+      if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+      const rows = await sql`
+        select pr.*,
+          coalesce(ap.chief_complaint,'') as chief_complaint
+        from medibondhu_prescriptions pr
+        left join medibondhu_appointments ap on ap.id = pr.appointment_id
+        where pr.doctor_id = ${doctorPk}::uuid
+        order by pr.created_at desc
+        limit 80
+      `;
+      return res.json({ data: { prescriptions: rows, page: { hasMore: false, nextOffset: null } } });
     }
-    const status = toTextOrNull(req.query.status);
+
     const rows = await sql`
-      select
-        vp.*,
-        p.name as account_name,
-        p.email as account_email
-      from vet_profiles vp
-      left join profiles p on p.id = vp.user_id
-      where (${status ? sql`vp.verification_status = ${status}` : sql`true`})
-      order by vp.created_at desc
+      select pr.*,
+        d.full_name as doctor_name,
+        ap.status as appointment_status,
+        ts.slot_start
+      from medibondhu_prescriptions pr
+      join medibondhu_doctors d on d.id = pr.doctor_id
+      left join medibondhu_appointments ap on ap.id = pr.appointment_id
+      left join medibondhu_doctor_time_slots ts on ts.id = ap.slot_id
+      where pr.patient_user_id = ${uid}::uuid
+      order by pr.created_at desc
+      limit 80
     `;
-    res.json({ data: rows.map(normalizeVetRow) });
-  })
-);
-
-router.post(
-  "/admin/vet-profiles/:id/approve",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
-    }
-    const current = await getVetProfileRecordByActorId(req.params.id);
-    if (!current) {
-      res.status(404).json({ error: "Vet profile not found" });
-      return;
-    }
-    const targetUserId = current.user_id || current.id;
-    const updated = await upsertVetProfileAndDirectory(targetUserId, {
-      verification_status: "approved",
-      rejection_reason: null,
-      verified_by: req.userId,
-      verified_at: new Date().toISOString(),
-    });
-    if (!updated) {
-      res.status(404).json({ error: "Vet profile not found" });
-      return;
-    }
-    await sql`
-      insert into user_capabilities ${sql({
-        user_id: updated.user_id || updated.id,
-        capability_code: "can_consult_as_vet",
-        is_enabled: true,
-        granted_by: req.userId,
-      })}
-      on conflict (user_id, capability_code) do update
-      set is_enabled = true, granted_by = ${req.userId}
-    `;
-    await sql`
-      insert into user_roles ${sql({
-        user_id: updated.user_id || updated.id,
-        role: "vet",
-      })}
-      on conflict (user_id, role) do nothing
-    `;
-    await sql`
-      update profiles
-      set ${sql({
-        primary_role: "vet",
-        updated_at: new Date().toISOString(),
-      })}
-      where id = ${updated.user_id || updated.id}
-    `;
-    await syncVetApprovalRequest(updated.user_id || updated.id, "approved", {
-      reviewedBy: req.userId,
-      reviewNotes: "Vet profile approved",
-    });
-    res.json({ data: normalizeVetRow(updated) });
-  })
-);
-
-router.post(
-  "/admin/vet-profiles/:id/reject",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
-    }
-    const current = await getVetProfileRecordByActorId(req.params.id);
-    if (!current) {
-      res.status(404).json({ error: "Vet profile not found" });
-      return;
-    }
-    const reason = toTextOrNull(req.body?.rejection_reason) || "Profile verification was rejected";
-    const targetUserId = current.user_id || current.id;
-    const updated = await upsertVetProfileAndDirectory(targetUserId, {
-      verification_status: "rejected",
-      rejection_reason: reason,
-      verified_by: req.userId,
-      verified_at: new Date().toISOString(),
-    });
-    if (!updated) {
-      res.status(404).json({ error: "Vet profile not found" });
-      return;
-    }
-    await sql`
-      insert into user_capabilities ${sql({
-        user_id: updated.user_id || updated.id,
-        capability_code: "can_consult_as_vet",
-        is_enabled: false,
-        granted_by: req.userId,
-      })}
-      on conflict (user_id, capability_code) do update
-      set is_enabled = false, granted_by = ${req.userId}
-    `;
-    await syncVetApprovalRequest(updated.user_id || updated.id, "rejected", {
-      reviewedBy: req.userId,
-      reviewNotes: reason,
-    });
-    res.json({ data: normalizeVetRow(updated) });
+    res.json({ data: { prescriptions: rows, page: { hasMore: false, nextOffset: null } } });
   })
 );
 
 router.get(
-  "/vets/:id/available-slots",
-  requireDatabase,
+  "/prescriptions/:id",
   requireUser,
   asyncHandler(async (req, res) => {
-    const date = String(req.query.date || "").trim();
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      res.status(400).json({ error: "date query is required (YYYY-MM-DD)" });
-      return;
+    const uid = String(req.userId || "");
+    const pid = String(req.params.id || "");
+    if (!isUuid(pid)) return res.status(400).json({ error: "Invalid id" });
+
+    const doctorPk = await isDoctorApprovedUser(uid);
+    const [pr] = await sql`
+      select * from medibondhu_prescriptions where id = ${pid}::uuid limit 1
+    `;
+    if (!pr) return res.status(404).json({ error: "Not found" });
+    const isPatient = String(pr.patient_user_id) === uid;
+    const isDoc = doctorPk && String(pr.doctor_id) === doctorPk;
+    const admin = await isAdminReq(req);
+    if (!isPatient && !isDoc && !admin) return res.status(403).json({ error: "Forbidden" });
+
+    const items = await sql`
+      select * from medibondhu_prescription_items where prescription_id = ${pid}::uuid order by created_at asc
+    `;
+    res.json({ data: { ...pr, items } });
+  })
+);
+
+router.post(
+  "/prescriptions",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Not an approved doctor" });
+
+    const { appointment_id, patient_user_id, diagnosis, advice, follow_up_date, items } = req.body || {};
+    if (!isUuid(patient_user_id)) return res.status(400).json({ error: "patient_user_id required" });
+
+    if (appointment_id && isUuid(appointment_id)) {
+      const [ap] = await sql`
+        select * from medibondhu_appointments
+        where id = ${appointment_id}::uuid and doctor_id = ${doctorPk}::uuid limit 1
+      `;
+      if (!ap) return res.status(400).json({ error: "Appointment does not belong to this doctor" });
     }
 
-    const [vet] = await sql`select id, user_id from vets where id = ${req.params.id} limit 1`;
-    if (!vet) {
-      res.status(404).json({ error: "Vet not found" });
-      return;
-    }
-    const vetUserRef = vet.user_id || vet.id;
+    const itemRows = Array.isArray(items) ? items.slice(0, 50) : [];
 
-    const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
-    const availability = await sql`
-      select day_of_week, start_time, end_time, is_active
-      from vet_availability
-      where user_id = ${vetUserRef}
-        and coalesce(is_active, true) = true
-        and day_of_week = ${dayOfWeek}
-      order by start_time asc
+    const prRow = await sql.begin(async (tx) => {
+      const ins = await tx`
+        insert into medibondhu_prescriptions ${sql({
+          appointment_id: appointment_id && isUuid(appointment_id) ? appointment_id : null,
+          doctor_id: doctorPk,
+          patient_user_id,
+          diagnosis: diagnosis == null ? null : String(diagnosis).slice(0, 4000),
+          advice: advice == null ? null : String(advice).slice(0, 4000),
+          follow_up_date: follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date)) ? String(follow_up_date) : null,
+          status: "issued",
+      updated_at: new Date().toISOString(),
+        })}
+      returning *
     `;
+      const row = ins[0];
+      if (!row?.id) throw new Error("PRESCRIPTION_INSERT_FAILED");
 
-    const bookedRows = await sql`
-      select scheduled_time
-      from consultation_bookings
-      where vet_mock_id = ${vet.id}
-        and scheduled_date = ${date}
-        and status in ('pending', 'confirmed', 'in_progress')
-    `;
-    const booked = new Set(bookedRows.map((r) => normalizeSlotLabel(r.scheduled_time)).filter(Boolean));
-
-    const slots = [];
-    for (const row of availability) {
-      const start = toMinutes(String(row.start_time || ""));
-      const end = toMinutes(String(row.end_time || ""));
-      if (start == null || end == null || end <= start) continue;
-      for (let m = start; m + 30 <= end; m += 30) {
-        const label = toTimeLabel(m);
-        if (!booked.has(label)) slots.push(label);
+      for (const it of itemRows) {
+        const medication_name = String(it?.medication_name || it?.name || "").trim().slice(0, 400);
+        if (!medication_name) continue;
+        await tx`
+          insert into medibondhu_prescription_items ${sql({
+            prescription_id: row.id,
+            medication_name,
+            dosage: it?.dosage == null ? null : String(it.dosage).slice(0, 400),
+            notes: it?.notes == null ? null : String(it.notes).slice(0, 2000),
+          })}
+        `;
       }
-    }
+      return row;
+    });
 
-    const uniq = Array.from(new Set(slots));
-    res.json({ data: uniq, meta: { day_of_week: dayOfWeek } });
+    res.status(201).json({ data: prRow });
   })
 );
 
 router.get(
-  "/vet-earnings/summary",
-  requireDatabase,
+  "/doctor-earnings/summary",
   requireUser,
   asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
-    const summary = await computeVetEarningsSummary(req.userId);
+    const uid = String(req.userId || "");
+    const admin = await isAdminReq(req);
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk && !admin) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+
+    const actorUserId = doctorPk ? uid : String(req.query.doctor_user_id || "");
+    if (!isUuid(actorUserId)) return res.status(400).json({ error: "doctor_user_id required for admin view" });
+
+    const summary = await computeDoctorEarningsSummary(actorUserId);
     const historyLimit = Math.min(Math.max(Number(req.query.history_limit) || 30, 1), 100);
     const historyRows = await sql`
-      select id, patient_name, fee, created_at, completed_at, animal_type
-      from consultation_bookings
-      where vet_user_id = ${req.userId}
-        and status = 'completed'
-      order by coalesce(completed_at, created_at) desc
+      select
+        a.id,
+        coalesce(pp.name, pp.email, 'Patient') as patient_name,
+        coalesce(d.consultation_fee, 0) as fee,
+        a.created_at,
+        a.updated_at as completed_at
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join profiles pp on pp.id = a.patient_user_id
+      where d.user_id = ${actorUserId}
+        and a.status = 'completed'
+      order by a.updated_at desc
       limit ${historyLimit}
     `;
     res.json({
@@ -1116,7 +1408,7 @@ router.get(
           fee: toMoney(r.fee || 0),
           created_at: r.created_at,
           completed_at: r.completed_at,
-          animal_type: r.animal_type || null,
+          animal_type: null,
         })),
       },
     });
@@ -1124,42 +1416,53 @@ router.get(
 );
 
 router.get(
-  "/vet-withdrawals",
-  requireDatabase,
+  "/doctor-withdrawals",
   requireUser,
   asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
-    const rows = await sql`
-      select
-        id,
-        request_amount,
-        gross_earnings,
-        platform_fee,
-        net_earnings,
-        available_balance,
-        status,
-        note,
-        review_note,
-        reviewed_by,
-        reviewed_at,
-        paid_at,
-        created_at,
-        updated_at
-      from vet_withdrawals
-      where vet_user_id = ${req.userId}
-      order by created_at desc
-      limit 200
-    `;
-    res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    try {
+      const rows = await sql`
+        select
+          id,
+          request_amount,
+          gross_earnings,
+          platform_fee,
+          net_earnings,
+          available_balance,
+          status,
+          note,
+          review_note,
+          reviewed_by,
+          reviewed_at,
+          paid_at,
+          created_at,
+          updated_at
+        from medibondhu_doctor_withdrawals
+        where doctor_user_id = ${uid}
+        order by created_at desc
+        limit 200
+      `;
+      res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
+    } catch (e) {
+      const code = /** @type {{ code?: string }} */ (e)?.code;
+      if (code !== "42P01") throw e;
+      res.json({
+        data: [],
+        note: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
   })
 );
 
 router.post(
-  "/vet-withdrawals",
-  requireDatabase,
+  "/doctor-withdrawals",
   requireUser,
   asyncHandler(async (req, res) => {
-    await assertVetAccess(req.userId);
+    const uid = String(req.userId || "");
+    const doctorPk = await isDoctorApprovedUser(uid);
+    if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
     const requestAmount = Number(req.body?.request_amount);
     const note = toTextOrNull(req.body?.note);
     if (!Number.isFinite(requestAmount) || requestAmount <= 0) {
@@ -1167,14 +1470,19 @@ router.post(
       return;
     }
     const amount = toMoney(requestAmount);
-    const summary = await computeVetEarningsSummary(req.userId);
+    const summary = await computeDoctorEarningsSummary(uid);
     if (amount > summary.available_balance) {
       res.status(400).json({ error: "Requested amount exceeds available balance" });
       return;
     }
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
+    }
     const [created] = await sql`
-      insert into vet_withdrawals ${sql({
-        vet_user_id: req.userId,
+      insert into medibondhu_doctor_withdrawals ${sql({
+        doctor_user_id: uid,
         request_amount: amount,
         gross_earnings: summary.gross_earnings,
         platform_fee: summary.platform_fee,
@@ -1193,25 +1501,25 @@ router.post(
 );
 
 router.get(
-  "/admin/vet-withdrawals",
-  requireDatabase,
+  "/admin/doctor-withdrawals",
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
     }
     const status = toTextOrNull(req.query.status);
     const rows = await sql`
       select
-        vw.*,
-        p.name as vet_name,
-        p.email as vet_email
-      from vet_withdrawals vw
-      left join profiles p on p.id = vw.vet_user_id
-      where (${status ? sql`vw.status = ${status}` : sql`true`})
-      order by vw.created_at desc
+        dw.*,
+        p.name as doctor_name,
+        p.email as doctor_email
+      from medibondhu_doctor_withdrawals dw
+      left join profiles p on p.id = dw.doctor_user_id
+      where (${status ? sql`dw.status = ${status}` : sql`true`})
+      order by dw.created_at desc
       limit 300
     `;
     res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
@@ -1219,50 +1527,65 @@ router.get(
 );
 
 router.get(
-  "/admin/vet-withdrawals/:id/details",
-  requireDatabase,
+  "/admin/doctor-withdrawals/:id/details",
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
     }
     const [request] = await sql`
-      select vw.*, p.name as vet_name, p.email as vet_email, p.phone as vet_phone, p.location as vet_location
-      from vet_withdrawals vw
-      left join profiles p on p.id = vw.vet_user_id
-      where vw.id = ${req.params.id}
+      select dw.*, p.name as doctor_name, p.email as doctor_email, p.phone as doctor_phone, p.location as doctor_location
+      from medibondhu_doctor_withdrawals dw
+      left join profiles p on p.id = dw.doctor_user_id
+      where dw.id = ${req.params.id}
       limit 1
     `;
-    if (!request) {
-      res.status(404).json({ error: "Withdrawal request not found" });
-      return;
-    }
-    const summary = await computeVetEarningsSummary(request.vet_user_id);
+    if (!request) return res.status(404).json({ error: "Withdrawal request not found" });
+
+    const summary = await computeDoctorEarningsSummary(request.doctor_user_id);
     const consultations = await sql`
-      select id, patient_name, animal_type, fee, created_at, completed_at
-      from consultation_bookings
-      where vet_user_id = ${request.vet_user_id}
-        and status = 'completed'
-      order by coalesce(completed_at, created_at) desc
+      select
+        a.id,
+        coalesce(pp.name, pp.email, 'Patient') as patient_name,
+        coalesce(d.consultation_fee, 0) as fee,
+        a.created_at,
+        a.updated_at as completed_at
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      left join profiles pp on pp.id = a.patient_user_id
+      where d.user_id = ${request.doctor_user_id}
+        and a.status = 'completed'
+      order by a.updated_at desc
       limit 120
     `;
-    const vetProfileBase = await getVetProfileRecordByActorId(request.vet_user_id);
-    const [accountProfile] = await sql`select * from profiles where id = ${request.vet_user_id} limit 1`;
-    const vetProfile = vetProfileBase
-      ? {
-          ...vetProfileBase,
-          name: vetProfileBase.name || accountProfile?.name || request.vet_name,
-          email: vetProfileBase.email || accountProfile?.email || request.vet_email,
-          phone: vetProfileBase.phone || accountProfile?.phone || request.vet_phone,
-          location: vetProfileBase.location || accountProfile?.location || request.vet_location,
-        }
-      : accountProfile || null;
+    const [doctorProfile] = await sql`
+      select
+        d.id,
+        d.user_id,
+        d.full_name,
+        d.medical_reg_number,
+        d.registration_body,
+        d.approval_status,
+        d.chamber_address,
+        d.consultation_fee,
+        d.qualification,
+        d.experience_years,
+        p.email,
+        p.phone,
+        p.location
+      from medibondhu_doctors d
+      left join profiles p on p.id = d.user_id
+      where d.user_id = ${request.doctor_user_id}
+      order by d.updated_at desc
+      limit 1
+    `;
     const requestHistory = await sql`
       select id, request_amount, status, note, review_note, created_at, reviewed_at
-      from vet_withdrawals
-      where vet_user_id = ${request.vet_user_id}
+      from medibondhu_doctor_withdrawals
+      where doctor_user_id = ${request.doctor_user_id}
       order by created_at desc
       limit 30
     `;
@@ -1271,7 +1594,7 @@ router.get(
         request,
         summary,
         consultations: consultations.map((c) => ({ ...c, fee: toMoney(c.fee || 0) })),
-        vet_profile: vetProfile ? normalizeVetRow(vetProfile) : null,
+        doctor_profile: doctorProfile || null,
         request_history: requestHistory.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })),
       },
     });
@@ -1279,27 +1602,21 @@ router.get(
 );
 
 router.post(
-  "/admin/vet-withdrawals/:id/approve",
-  requireDatabase,
+  "/admin/doctor-withdrawals/:id/approve",
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
     }
-    const [current] = await sql`select * from vet_withdrawals where id = ${req.params.id} limit 1`;
-    if (!current) {
-      res.status(404).json({ error: "Withdrawal request not found" });
-      return;
-    }
-    if (String(current.status) !== "pending") {
-      res.status(409).json({ error: "Only pending requests can be approved" });
-      return;
-    }
+    const [current] = await sql`select * from medibondhu_doctor_withdrawals where id = ${req.params.id} limit 1`;
+    if (!current) return res.status(404).json({ error: "Withdrawal request not found" });
+    if (String(current.status) !== "pending") return res.status(409).json({ error: "Only pending requests can be approved" });
     const note = toTextOrNull(req.body?.note) || toTextOrNull(current.note);
     const [updated] = await sql`
-      update vet_withdrawals
+      update medibondhu_doctor_withdrawals
       set ${sql({
         status: "approved",
         review_note: note,
@@ -1310,33 +1627,27 @@ router.post(
       where id = ${req.params.id}
       returning *
     `;
-    await createWithdrawalReviewNotification(updated.vet_user_id, updated.id, "approved", updated.review_note);
+    await createDoctorWithdrawalReviewNotification(updated.doctor_user_id, updated.id, "approved", updated.review_note);
     res.json({ data: updated });
   })
 );
 
 router.post(
-  "/admin/vet-withdrawals/:id/reject",
-  requireDatabase,
+  "/admin/doctor-withdrawals/:id/reject",
   requireUser,
   asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      res.status(403).json({ error: "Admin access required" });
-      return;
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    if (!(await hasMediDoctorWithdrawalsTable())) {
+      return res.status(503).json({
+        error: "Doctor withdrawals table is missing. Run backend schema ensure to enable withdrawals.",
+      });
     }
-    const [current] = await sql`select * from vet_withdrawals where id = ${req.params.id} limit 1`;
-    if (!current) {
-      res.status(404).json({ error: "Withdrawal request not found" });
-      return;
-    }
-    if (String(current.status) !== "pending") {
-      res.status(409).json({ error: "Only pending requests can be rejected" });
-      return;
-    }
+    const [current] = await sql`select * from medibondhu_doctor_withdrawals where id = ${req.params.id} limit 1`;
+    if (!current) return res.status(404).json({ error: "Withdrawal request not found" });
+    if (String(current.status) !== "pending") return res.status(409).json({ error: "Only pending requests can be rejected" });
     const note = toTextOrNull(req.body?.note) || "Rejected by admin";
     const [updated] = await sql`
-      update vet_withdrawals
+      update medibondhu_doctor_withdrawals
       set ${sql({
         status: "rejected",
         review_note: note,
@@ -1347,708 +1658,186 @@ router.post(
       where id = ${req.params.id}
       returning *
     `;
-    await createWithdrawalReviewNotification(updated.vet_user_id, updated.id, "rejected", updated.review_note);
+    await createDoctorWithdrawalReviewNotification(updated.doctor_user_id, updated.id, "rejected", updated.review_note);
     res.json({ data: updated });
   })
 );
 
+// ─── Admin (human MediBondhu) ───────────────────────────────────────────
+
 router.get(
-  "/bookings",
-  requireDatabase,
+  "/admin/hospitals",
   requireUser,
   asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const id = typeof req.query.id === "string" ? req.query.id : "";
-    const patientId = typeof req.query.patient_mock_id === "string" ? req.query.patient_mock_id : "";
-    const vetMockFilter = typeof req.query.vet_mock_id === "string" ? req.query.vet_mock_id : "";
-    const vetUserFilter = typeof req.query.vet_user_id === "string" ? req.query.vet_user_id : "";
-    const status = typeof req.query.status === "string" ? req.query.status : "";
-    const statusIn =
-      typeof req.query.status_in === "string"
-        ? req.query.status_in
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [];
-    const createdGte = typeof req.query.created_gte === "string" ? req.query.created_gte : "";
-    const limit = Math.min(Number(req.query.limit) || 500, 1000);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
-    const ascending = String(req.query.ascending || "").toLowerCase() === "true";
-
-    if (id) {
-      const row = isAdmin ? await getBookingById(id) : await assertBookingParticipant(id, uid);
-      if (!row) {
-        res.status(404).json({ error: "Consultation not found" });
-        return;
-      }
-      res.json({ data: normalizeBooking(row) });
-      return;
-    }
-
-    if (!isAdmin && patientId && patientId !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const sort = ascending ? sql`asc` : sql`desc`;
-    const rows = await sql`
-      select
-        b.id, b.patient_mock_id, b.vet_id, b.vet_user_id, b.vet_mock_id, b.vet_name, b.patient_name,
-        b.booking_type, b.consultation_method, b.scheduled_date, b.scheduled_time, b.scheduled_at,
-        b.animal_type, b.animal_age, b.animal_gender, b.symptoms, b.additional_notes,
-        b.payment_status, b.payment_amount, b.fee, b.status, b.leave_deadline_at, b.left_user_id,
-        b.completed_at, b.created_at, b.updated_at,
-        coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) as computed_vet_user_id
-      from consultation_bookings b
-      left join vets v on v.id = b.vet_mock_id
-      where (${patientId ? sql`b.patient_mock_id = ${patientId}` : sql`true`})
-        and (${vetMockFilter ? sql`(coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${vetMockFilter} or b.vet_mock_id = ${vetMockFilter})` : sql`true`})
-        and (${vetUserFilter ? sql`coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${vetUserFilter}` : sql`true`})
-        and (${status ? sql`b.status = ${status}` : sql`true`})
-        and (${statusIn.length ? sql`b.status in ${sql(statusIn)}` : sql`true`})
-        and (${createdGte ? sql`b.created_at >= ${createdGte}` : sql`true`})
-        and (${isAdmin ? sql`true` : sql`(b.patient_mock_id = ${uid} or coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${uid})`})
-      order by b.created_at ${sort}
-      offset ${offset}
-      limit ${limit}
-    `;
-    res.json({ data: rows.map(normalizeBooking), meta: { limit, offset } });
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const rows = await sql`select * from medibondhu_hospitals order by name asc limit 200`;
+    res.json({ data: rows });
   })
 );
 
 router.get(
-  "/spent-summary",
-  requireDatabase,
+  "/admin/specialties",
   requireUser,
   asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const patientIdQuery = toTextOrNull(req.query.patient_mock_id);
-    const patientId = isAdmin && patientIdQuery ? patientIdQuery : uid;
-    const status = toTextOrNull(req.query.status);
-    const statusIn = String(req.query.status_in || "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter((s) => BOOKING_STATUS.has(s));
-    const [summary] = await sql`
-      select
-        coalesce(sum(coalesce(payment_amount, 0)), 0) as total_spent,
-        count(*)::int as consultation_count
-      from consultation_bookings
-      where patient_mock_id = ${patientId}
-        and (${status ? sql`status = ${status}` : sql`true`})
-        and (${statusIn.length ? sql`status in ${sql(statusIn)}` : sql`true`})
-    `;
-    res.json({
-      data: {
-        patient_mock_id: patientId,
-        total_spent: Number(summary?.total_spent || 0),
-        consultation_count: Number(summary?.consultation_count || 0),
-      },
-    });
-  })
-);
-
-router.get(
-  "/bookings/:id",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const row = isAdmin ? await getBookingById(req.params.id) : await assertBookingParticipant(req.params.id, req.userId);
-    if (!row) {
-      res.status(404).json({ error: "Consultation not found" });
-      return;
-    }
-    res.json({ data: normalizeBooking(row) });
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const rows = await sql`select * from medibondhu_specialties order by sort_order asc, name asc`;
+    res.json({ data: rows });
   })
 );
 
 router.post(
-  "/bookings",
-  requireDatabase,
+  "/admin/hospitals",
   requireUser,
   asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
     const b = req.body || {};
-    const vetMockId = typeof b.vet_mock_id === "string" ? b.vet_mock_id : "";
-    if (!isUuid(vetMockId)) {
-      res.status(400).json({ error: "vet_mock_id is required" });
-      return;
-    }
-    const rawMethod = String(b.consultation_method || "").trim().toLowerCase();
-    const method = rawMethod === "instant" || rawMethod === "scheduled" ? "chat" : rawMethod;
-    if (!["video", "audio", "chat"].includes(method)) {
-      res.status(400).json({ error: "consultation_method must be video, audio, or chat" });
-      return;
-    }
-    const bookingType = String(b.booking_type || "instant").trim().toLowerCase();
-    if (!["instant", "scheduled"].includes(bookingType)) {
-      res.status(400).json({ error: "booking_type must be instant or scheduled" });
-      return;
-    }
-    const animalType = toTextOrNull(b.animal_type);
-    const symptoms = toTextOrNull(b.symptoms);
-    if (!animalType || !symptoms) {
-      res.status(400).json({ error: "animal_type and symptoms are required" });
-      return;
-    }
-    const [vetRow] = await sql`select id, user_id from vets where id = ${vetMockId} limit 1`;
-    if (!vetRow) {
-      res.status(400).json({ error: "Invalid vet_mock_id" });
-      return;
-    }
-    const resolvedVetUserId = vetRow.user_id || (await resolveVetUserId(vetMockId));
-    const normalizedStatus = "pending";
-    const scheduledDate = toTextOrNull(b.scheduled_date);
-    const scheduledTime = toTextOrNull(b.scheduled_time);
-    if (bookingType === "scheduled" && (!scheduledDate || !scheduledTime)) {
-      res.status(400).json({ error: "scheduled_date and scheduled_time are required for scheduled booking" });
-      return;
-    }
-    const scheduledAt =
-      scheduledDate && scheduledTime && scheduledTime.toLowerCase() !== "now"
-        ? new Date(`${scheduledDate} ${scheduledTime}`).toString() !== "Invalid Date"
-          ? new Date(`${scheduledDate} ${scheduledTime}`).toISOString()
-          : null
-        : null;
-    const row = {
-      ...b,
-      patient_mock_id: req.userId,
-      vet_mock_id: vetMockId,
-      consultation_method: method,
-      booking_type: bookingType,
-      animal_type: animalType,
-      symptoms,
-      vet_user_id: resolvedVetUserId || null,
-      vet_id: resolvedVetUserId || null,
-      status: normalizedStatus,
-      scheduled_date: scheduledDate || new Date().toISOString().slice(0, 10),
-      scheduled_time: scheduledTime || "Now",
-      scheduled_at: scheduledAt,
-    };
-    const [created] = await sql`
-      insert into consultation_bookings ${sql(row)}
-      returning *
-    `;
-    res.status(201).json({ data: created });
-  })
-);
-
-router.patch(
-  "/bookings/:id",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const current = isAdmin ? await getBookingById(req.params.id) : await assertBookingParticipant(req.params.id, uid);
-    if (!current) {
-      res.status(404).json({ error: "Consultation not found" });
-      return;
-    }
-    const body = { ...(req.body || {}) };
-    delete body.id;
-    delete body.patient_mock_id;
-    delete body.vet_user_id;
-    delete body.vet_id;
-    delete body.vet_mock_id;
-    delete body.fee;
-    delete body.payment_status;
-    delete body.payment_amount;
-    delete body.patient_name;
-    delete body.vet_name;
-    delete body.animal_type;
-    delete body.animal_age;
-    delete body.animal_gender;
-    delete body.symptoms;
-    delete body.consultation_method;
-    delete body.booking_type;
-    delete body.scheduled_date;
-    delete body.scheduled_time;
-    delete body.scheduled_at;
-
-    const isVetParticipant = current.computed_vet_user_id === uid || current.vet_mock_id === uid;
-    const isPatientParticipant = current.patient_mock_id === uid;
-    if (!isAdmin && isVetParticipant) {
-      // Active consultation lifecycle updates must work for assigned vet accounts,
-      // even if profile approval metadata is temporarily out of sync.
-      await assertVetAccess(uid);
-    }
-    const allowedForAdmin = new Set([
-      "status",
-      "leave_deadline_at",
-      "left_user_id",
-      "additional_notes",
-      "notes",
-      "meeting_link",
-      "consultation_notes",
-      "diagnosis",
-      "treatment_plan",
-      "updated_at",
-    ]);
-    const allowedForVet = new Set([
-      "status",
-      "leave_deadline_at",
-      "left_user_id",
-      "additional_notes",
-      "notes",
-      "meeting_link",
-      "consultation_notes",
-      "diagnosis",
-      "treatment_plan",
-    ]);
-    const allowedForPatient = new Set(["status", "leave_deadline_at", "left_user_id", "additional_notes", "notes"]);
-    const patch = {};
-    const allowed = isAdmin ? allowedForAdmin : isVetParticipant ? allowedForVet : allowedForPatient;
-    for (const [key, value] of Object.entries(body)) {
-      if (allowed.has(key)) patch[key] = value;
-    }
-
-    if (patch.status) {
-      const nextStatus = String(patch.status);
-      const prevStatus = String(current.status || "");
-      if (!BOOKING_STATUS.has(nextStatus)) {
-        res.status(400).json({ error: "Invalid status value" });
-        return;
-      }
-      if (nextStatus === prevStatus) {
-        delete patch.status;
-      } else {
-        let ok = false;
-        if (isAdmin) ok = true;
-        else if (isVetParticipant) {
-          ok =
-            ((prevStatus === "pending" || prevStatus === "confirmed") && (nextStatus === "in_progress" || nextStatus === "cancelled")) ||
-            (prevStatus === "in_progress" && (nextStatus === "completed" || nextStatus === "cancelled"));
-        } else if (isPatientParticipant) {
-          ok =
-            ((prevStatus === "pending" || prevStatus === "confirmed" || prevStatus === "in_progress") &&
-              nextStatus === "cancelled") ||
-            (prevStatus === "in_progress" && nextStatus === "completed");
-        }
-        if (!ok) {
-          res.status(403).json({ error: "Invalid status transition" });
-          return;
-        }
-        if (nextStatus === "completed") patch.completed_at = new Date().toISOString();
-      }
-    }
-
-    if (!Object.keys(patch).length) {
-      res.json({ data: current || null });
-      return;
-    }
-
-    const [updated] = await sql`
-      update consultation_bookings
-      set ${sql({ ...patch, updated_at: new Date().toISOString() })}
-      where id = ${req.params.id}
-      returning *
-    `;
-    res.json({ data: updated || null });
-  })
-);
-
-router.get(
-  "/bookings/:id/messages",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertBookingParticipant(req.params.id, req.userId);
-    const limit = readLimit(req.query.limit, 120, 300);
-    const rows = await sql`
-      select
-        m.id,
-        m.booking_id,
-        m.sender_id,
-        coalesce(m.sender_name, p.name) as sender_name,
-        coalesce(m.message, m.body) as message,
-        m.created_at
-      from consultation_messages m
-      left join profiles p on p.id = m.sender_id
-      where m.booking_id = ${req.params.id}
-      order by m.created_at asc
-      limit ${limit}
-    `;
-    res.json({ data: rows, meta: { limit } });
-  })
-);
-
-router.post(
-  "/bookings/:id/messages",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const booking = await assertBookingParticipant(req.params.id, req.userId);
-    const bookingStatus = String(booking.status || "");
-    if (bookingStatus === "completed" || bookingStatus === "cancelled") {
-      res.status(409).json({ error: "Cannot send messages to terminal consultation" });
-      return;
-    }
-    const b = req.body || {};
-    const text = String(b.message || b.body || "").trim();
-    if (!text) {
-      res.status(400).json({ error: "message is required" });
-      return;
-    }
-    const [p] = await sql`select name from profiles where id = ${req.userId} limit 1`;
-    const [created] = await sql`
-      insert into consultation_messages ${sql({
-        booking_id: req.params.id,
-        sender_id: req.userId,
-        sender_name: b.sender_name || p?.name || "User",
-        message: text,
-        body: text,
+    const name = String(b.name || "").trim();
+    if (!name) return res.status(400).json({ error: "name required" });
+    const [row] = await sql`
+      insert into medibondhu_hospitals ${sql({
+        name,
+        address: b.address == null ? null : String(b.address).slice(0, 1000),
+        phone: b.phone == null ? null : String(b.phone).slice(0, 40),
+        updated_at: new Date().toISOString(),
       })}
       returning *
     `;
-    res.status(201).json({ data: created });
+    res.status(201).json({ data: row });
+  })
+);
+
+router.post(
+  "/admin/specialties",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const b = req.body || {};
+    const name = String(b.name || "").trim();
+    if (!name) return res.status(400).json({ error: "name required" });
+    const slug = String(b.slug || name.toLowerCase().replace(/\s+/g, "-")).slice(0, 120);
+    const [row] = await sql`
+      insert into medibondhu_specialties ${sql({
+        name,
+        slug,
+        sort_order: Number(b.sort_order) || 0,
+        is_active: b.is_active !== false,
+      })}
+      on conflict (slug) do update set
+        name = excluded.name,
+        sort_order = excluded.sort_order,
+        is_active = excluded.is_active
+      returning *
+    `;
+    res.status(201).json({ data: row });
   })
 );
 
 router.get(
-  "/availability",
-  requireDatabase,
+  "/admin/doctors",
   requireUser,
   asyncHandler(async (req, res) => {
-    const userId = typeof req.query.user_id === "string" && req.query.user_id ? req.query.user_id : req.userId;
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const st = typeof req.query.status === "string" ? req.query.status.trim() : "";
     const rows = await sql`
-      select * from vet_availability
-      where user_id = ${userId}
-      order by day_of_week asc nulls last, start_time asc, created_at asc
+      select d.*, s.name as specialty_name, p.email as account_email
+      from medibondhu_doctors d
+      left join medibondhu_specialties s on s.id = d.specialty_id
+      left join profiles p on p.id = d.user_id
+      where (${st ? sql`d.approval_status = ${st}` : sql`true`})
+      order by d.created_at desc
+      limit 300
     `;
     res.json({ data: rows });
   })
 );
 
 router.post(
-  "/availability/bulk",
-  requireDatabase,
+  "/admin/doctors/:id/approve",
   requireUser,
   asyncHandler(async (req, res) => {
-    await assertApprovedVetAccess(req.userId);
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    await sql`delete from vet_availability where user_id = ${req.userId}`;
-    for (const r of rows) {
-      await sql`
-        insert into vet_availability ${sql({
-          user_id: req.userId,
-          day_of_week: r.day_of_week,
-          day:
-            Number.isInteger(r.day_of_week) && r.day_of_week >= 0 && r.day_of_week <= 6
-              ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][r.day_of_week]
-              : null,
-          start_time: r.start_time,
-          end_time: r.end_time,
-          is_active: r.is_active ?? true,
-        })}
-      `;
-    }
-    res.json({ data: null });
-  })
-);
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id || "");
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid id" });
 
-router.delete(
-  "/availability/:id",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertApprovedVetAccess(req.userId);
-    await sql`delete from vet_availability where id = ${req.params.id} and user_id = ${req.userId}`;
-    res.json({ data: null });
-  })
-);
-
-router.delete(
-  "/availability",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertApprovedVetAccess(req.userId);
-    await sql`delete from vet_availability where user_id = ${req.userId}`;
-    res.json({ data: null });
-  })
-);
-
-router.get(
-  "/prescriptions",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const id = typeof req.query.id === "string" ? req.query.id : "";
-    if (id) {
-      const [one] = await sql`select * from prescriptions where id = ${id} limit 1`;
-      if (!one) {
-        res.status(404).json({ error: "Prescription not found" });
-        return;
-      }
-      if (!isAdmin && one.vet_user_id !== uid && one.farmer_user_id !== uid) {
-        res.status(403).json({ error: "Forbidden" });
-        return;
-      }
-      res.json({ data: one });
-      return;
-    }
-
-    const vetUserId = typeof req.query.vet_user_id === "string" ? req.query.vet_user_id : "";
-    const farmerUserId = typeof req.query.farmer_user_id === "string" ? req.query.farmer_user_id : "";
-    const limit = readLimit(req.query.limit, 80, 200);
-    const rows = await sql`
-      select
-        id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
-        animal_type, symptoms, diagnosis, severity, follow_up_required, follow_up_date,
-        status, language, created_at, updated_at
-      from prescriptions
-      where (${isAdmin ? sql`true` : sql`(vet_user_id = ${uid} or farmer_user_id = ${uid})`})
-        and (${vetUserId ? sql`vet_user_id = ${vetUserId}` : sql`true`})
-        and (${farmerUserId ? sql`farmer_user_id = ${farmerUserId}` : sql`true`})
-      order by created_at desc
-      limit ${limit}
-    `;
-    res.json({ data: rows, meta: { limit } });
-  })
-);
-
-async function syncIssuedPrescriptionToEprescription(prescriptionRow) {
-  if (!prescriptionRow?.farmer_user_id) return;
-  const payload = {
-    patient_mock_id: prescriptionRow.farmer_user_id,
-    vet_id: prescriptionRow.vet_user_id,
-    vet_name: prescriptionRow.vet_name,
-    advice: prescriptionRow.care_instructions || prescriptionRow.diagnosis || prescriptionRow.notes || "",
-    title: prescriptionRow.diagnosis || "Prescription",
-    body: prescriptionRow.symptoms || "",
-    status: "active",
-    metadata: {
-      prescription_id: prescriptionRow.id,
-      consultation_id: prescriptionRow.consultation_id || null,
-      language: prescriptionRow.language || "en",
-    },
-  };
-  const [existingEp] = await sql`
-    select id from e_prescriptions
-    where patient_mock_id = ${prescriptionRow.farmer_user_id}
-      and metadata->>'prescription_id' = ${prescriptionRow.id}
-    limit 1
-  `;
-  if (existingEp?.id) {
-    await sql`
-      update e_prescriptions
-      set ${sql({ ...payload, updated_at: new Date().toISOString() })}
-      where id = ${existingEp.id}
-    `;
-  } else {
-    await sql`
-      insert into e_prescriptions ${sql(payload)}
-    `;
-  }
-}
-
-router.post(
-  "/prescriptions",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    await assertApprovedVetAccess(req.userId);
-    const b = req.body || {};
-    const status = String(b.status || "draft").trim().toLowerCase();
-    const language = String(b.language || "en").trim().toLowerCase();
-    if (!["draft", "issued"].includes(status)) {
-      res.status(400).json({ error: "status must be draft or issued" });
-      return;
-    }
-    if (!["en", "bn"].includes(language)) {
-      res.status(400).json({ error: "language must be en or bn" });
-      return;
-    }
-    if (b.consultation_id && !isUuid(b.consultation_id)) {
-      res.status(400).json({ error: "consultation_id must be a valid UUID" });
-      return;
-    }
-
-    let consultation = null;
-    if (b.consultation_id) {
-      consultation = await getBookingById(b.consultation_id);
-      if (!consultation) {
-        res.status(400).json({ error: "consultation_id not found" });
-        return;
-      }
-    }
-
-    const farmerUserId = consultation?.patient_mock_id || b.farmer_user_id || null;
-    if (farmerUserId && !isUuid(farmerUserId)) {
-      res.status(400).json({ error: "farmer_user_id must be a valid UUID" });
-      return;
-    }
-    const row = {
-      ...b,
-      vet_user_id: req.userId,
-      vet_id: b.vet_id || req.userId,
-      consultation_id: consultation?.id || b.consultation_id || null,
-      farmer_user_id: farmerUserId,
-      farmer_name: b.farmer_name || consultation?.patient_name || "Farmer",
-      animal_type: b.animal_type || consultation?.animal_type || null,
-      symptoms: b.symptoms || consultation?.symptoms || null,
-      status,
-      language,
-      updated_at: new Date().toISOString(),
-    };
-    const [created] = await sql`
-      insert into prescriptions ${sql(row)}
-      returning *
-    `;
-
-    // Keep patient-facing list populated once issued.
-    if (created?.status === "issued") {
-      await syncIssuedPrescriptionToEprescription(created);
-    }
-
-    res.status(201).json({ data: created });
-  })
-);
-
-router.post(
-  "/prescriptions/:id/issue",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const [row] = await sql`select * from prescriptions where id = ${req.params.id} limit 1`;
-    if (!row) {
-      res.status(404).json({ error: "Prescription not found" });
-      return;
-    }
-    if (!isAdmin && row.vet_user_id !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    if (String(row.status || "").toLowerCase() === "issued") {
-      res.json({ data: row });
-      return;
-    }
-    if (String(row.status || "").toLowerCase() !== "draft") {
-      res.status(409).json({ error: "Only draft prescriptions can be issued" });
-      return;
-    }
     const [updated] = await sql`
-      update prescriptions
+      update medibondhu_doctors
       set ${sql({
-        status: "issued",
+        approval_status: "approved",
+        rejection_reason: null,
+        verified_by: req.userId,
+        verified_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })}
-      where id = ${req.params.id}
+      where id = ${id}::uuid
       returning *
     `;
-    await syncIssuedPrescriptionToEprescription(updated);
+    if (!updated) return res.status(404).json({ error: "Doctor not found" });
+
+    if (updated.user_id) {
+      await sql`
+        insert into user_roles ${sql({ user_id: updated.user_id, role: "doctor" })}
+        on conflict (user_id, role) do nothing
+      `;
+      await sql`
+        insert into user_capabilities ${sql({
+          user_id: updated.user_id,
+          capability_code: "can_practice_human",
+          is_enabled: true,
+          granted_by: req.userId,
+        })}
+        on conflict (user_id, capability_code) do update
+        set is_enabled = true, granted_by = ${req.userId}
+      `;
+    }
+
+    res.json({ data: updated });
+  })
+);
+
+router.post(
+  "/admin/doctors/:id/reject",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const id = String(req.params.id || "");
+    const reason = String(req.body?.rejection_reason || "Rejected").slice(0, 500);
+    if (!isUuid(id)) return res.status(400).json({ error: "Invalid id" });
+
+    const [updated] = await sql`
+      update medibondhu_doctors
+      set ${sql({
+        approval_status: "rejected",
+        rejection_reason: reason,
+        verified_by: req.userId,
+        verified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })}
+      where id = ${id}::uuid
+      returning *
+    `;
+    if (!updated) return res.status(404).json({ error: "Doctor not found" });
     res.json({ data: updated });
   })
 );
 
 router.get(
-  "/prescriptions/:id",
-  requireDatabase,
+  "/admin/appointments",
   requireUser,
   asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const [row] = await sql`select * from prescriptions where id = ${req.params.id} limit 1`;
-    if (!row) {
-      res.status(404).json({ error: "Prescription not found" });
-      return;
-    }
-    if (!isAdmin && row.vet_user_id !== uid && row.farmer_user_id !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    res.json({ data: row });
-  })
-);
-
-router.get(
-  "/prescriptions/:id/items",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const [parent] = await sql`select vet_user_id, farmer_user_id from prescriptions where id = ${req.params.id} limit 1`;
-    if (!parent) {
-      res.status(404).json({ error: "Prescription not found" });
-      return;
-    }
-    if (!isAdmin && parent.vet_user_id !== uid && parent.farmer_user_id !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const limit = readLimit(req.query.limit, 150, 300);
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const lim = readLimit(req.query.limit, 100, 300);
     const rows = await sql`
-      select id, prescription_id, medicine_name, medicine_type, dosage, dosage_unit, frequency, dose_pattern,
-             timing, route, duration_days, purpose, label, notes, created_at
-      from prescription_items
-      where prescription_id = ${req.params.id}
-      order by created_at asc
-      limit ${limit}
+      select a.*,
+        d.full_name as doctor_name,
+        p.name as patient_name,
+        p.email as patient_email
+      from medibondhu_appointments a
+      join medibondhu_doctors d on d.id = a.doctor_id
+      join profiles p on p.id = a.patient_user_id
+      order by a.created_at desc
+      limit ${lim}
     `;
-    res.json({ data: rows, meta: { limit } });
-  })
-);
-
-router.post(
-  "/prescriptions/:id/items/bulk",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const [parent] = await sql`select vet_user_id from prescriptions where id = ${req.params.id} limit 1`;
-    if (!parent) {
-      res.status(404).json({ error: "Prescription not found" });
-      return;
-    }
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    if (!isAdmin) {
-      await assertApprovedVetAccess(req.userId);
-    }
-    if (!isAdmin && parent.vet_user_id !== req.userId) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    for (const r of rows) {
-      await sql`
-        insert into prescription_items ${sql({
-          ...r,
-          prescription_id: req.params.id,
-          label: r.label || r.medicine_name || null,
-        })}
-      `;
-    }
-    res.status(201).json({ data: null });
-  })
-);
-
-router.get(
-  "/e-prescriptions",
-  requireDatabase,
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const uid = req.userId;
-    const isAdmin = await requestHasAnyRole(req, ["admin"]);
-    const patientId = typeof req.query.patient_mock_id === "string" ? req.query.patient_mock_id : uid;
-    if (!isAdmin && patientId !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    const limit = readLimit(req.query.limit, 100, 300);
-    const rows = await sql`
-      select id, patient_mock_id, vet_id, vet_name, advice, title, body, status, metadata, created_at, updated_at
-      from e_prescriptions
-      where patient_mock_id = ${patientId}
-      order by created_at desc
-      limit ${limit}
-    `;
-    res.json({ data: rows, meta: { limit } });
+    res.json({ data: rows });
   })
 );
 

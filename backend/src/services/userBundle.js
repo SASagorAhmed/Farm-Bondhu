@@ -55,7 +55,7 @@ export async function buildUserBundle(userId) {
   const roles = Array.isArray(access.roles) ? access.roles : [];
 
   /** Highest-priority app role in user_roles (avoids stale profiles.primary_role when e.g. vet + farmer both exist). */
-  const ROLE_PRIORITY = ["admin", "vet", "vendor", "buyer", "farmer"];
+  const ROLE_PRIORITY = ["admin", "vet", "doctor", "vendor", "buyer", "farmer"];
   let primaryRole =
     roles.length > 0
       ? ROLE_PRIORITY.find((r) => roles.includes(r)) || roles[0]
@@ -74,6 +74,11 @@ export async function buildUserBundle(userId) {
   const rawLevel = teamRow?.al || teamRow?.ar;
   const adminLevel = rawLevel && TEAM_LEVELS.has(rawLevel) ? rawLevel : null;
 
+  const farmerOpenMedibondhu =
+    profile.farmer_open_medibondhu === undefined || profile.farmer_open_medibondhu === null
+      ? true
+      : Boolean(profile.farmer_open_medibondhu);
+
   return {
     id: profile.id,
     name: profile.name,
@@ -82,6 +87,7 @@ export async function buildUserBundle(userId) {
     roles,
     adminLevel,
     capabilities: Array.from(defaultCaps),
+    farmerOpenMedibondhu,
     avatar: profile.avatar_url || undefined,
     phone: profile.phone || undefined,
     location: profile.location || undefined,
