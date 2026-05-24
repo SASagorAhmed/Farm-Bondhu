@@ -16,6 +16,9 @@ import {
 import {
   legColumnsFromMask,
   lengthEndsFromMask,
+  maskHindBandTailEndX,
+  maskRearEnvelopeXAtY,
+  maskStrictTailBoundaryX,
   maskRowExtent,
   withersFromMask,
   type CowBodyMask,
@@ -63,6 +66,7 @@ const MIN_ZONE_SCORE_FRAC = 0.35;
 const MIN_LEG_SEP_FRAC = 0.12;
 const CENTER_BELLY_LO = 0.35;
 const CENTER_BELLY_HI = 0.65;
+const TAIL_FALLBACK_FROM_HIND_FRAC = 0.12;
 
 function pt(x: number, y: number): Point2D {
   return { x, y };
@@ -460,6 +464,311 @@ function maskPixelCountInBBox(mask: CowBodyMask, bbox: BBox): number {
 
 function maskIsUsable(mask: CowBodyMask, bbox: BBox): boolean {
   return maskPixelCountInBBox(mask, bbox) > bbox.width * bbox.height * 0.04;
+}
+
+/**
+ * After cloud head direction: keep mask/photo leg column pixels, swap Front/Hind + L1/L2 order only.
+ */
+export function applyCloudFacingToKeypoints(
+  local: CowKeypoints,
+  facing: CowFacing,
+  headBbox: BBox | null
+): CowKeypoints {
+  const reassigned = reassignKeypointsForHeadSide(local, facing);
+  const dir = reassigned.detected?.bodyDirection ?? cowBodyDirectionFromFacing(facing);
+  return attachBodyDirectionToKeypoints(reassigned, facing, {
+    ...dir,
+    headBbox: headBbox ?? dir.headBbox ?? null,
+    directionIssueKey: null,
+  });
+}
+
+export interface LengthShoulderRearResult {
+  shoulder: Point2D;
+  rear: Point2D;
+  detected: boolean;
+}
+
+function maskRowAtY(
+  bodyMask: CowBodyMask | undefined,
+  bbox: BBox,
+  y: number
+): { left: number; right: number } | null {
+  if (!bodyMask) return null;
+  const ext = maskRowExtent(bodyMask, y);
+  if (!ext || ext.right - ext.left < bbox.width * 0.2) return null;
+  return ext;
+}
+
+function clampLengthPointsToFacingBody(
+  facing: CowFacing | null | undefined,
+  shoulderX: number,
+  rearX: number,
+  bbox: BBox,
+  bodyMask: CowBodyMask | undefined,
+  y: number
+): { shoulderX: number; rearX: number } {
+  if (!bodyMask || (facing !== "head_left" && facing !== "head_right")) {
+    return { shoulderX, rearX };
+  }
+  const ext = maskRowAtY(bodyMask, bbox, y);
+  if (!ext) return { shoulderX, rearX };
+
+  const minSep = Math.max(12, bbox.width * 0.12);
+  let nextShoulder = shoulderX;
+  let nextRear = rearX;
+
+  if (facing === "head_left") {
+    nextShoulder = Math.max(ext.left, nextShoulder);
+    nextRear = Math.max(ext.right, nextRear);
+    if (nextRear - nextShoulder < minSep) {
+      nextRear = Math.max(nextRear, nextShoulder + minSep);
+    }
+  } else {
+    nextShoulder = Math.min(ext.right, nextShoulder);
+    nextRear = Math.min(ext.left, nextRear);
+    if (nextShoulder - nextRear < minSep) {
+      nextRear = nextShoulder - minSep;
+    }
+  }
+
+  const xMin = bbox.x + PAD;
+  const xMax = bbox.x + bbox.width - PAD;
+  nextShoulder = Math.max(xMin, Math.min(xMax, nextShoulder));
+  if (facing === "head_left") {
+    nextRear = Math.max(xMin, nextRear);
+  } else {
+    nextRear = Math.max(xMin, Math.min(xMax, nextRear));
+  }
+  return { shoulderX: nextShoulder, rearX: nextRear };
+}
+
+function headLeftRearBodyEndX(
+  bodyMask: CowBodyMask,
+  bbox: BBox,
+  y: number
+): number | null {
+  const bboxRightX = bbox.x + bbox.width - PAD;
+  const row = maskRowAtY(bodyMask, bbox, y);
+  const candidates = [
+    bboxRightX,
+    row?.right ?? null,
+    maskRearEnvelopeXAtY(bodyMask, bbox, y, "right"),
+    maskHindBandTailEndX(bodyMask, bbox, "right"),
+    maskStrictTailBoundaryX(bodyMask, bbox, "right"),
+  ].filter((v): v is number => v !== null);
+  if (candidates.length === 0) return null;
+  return Math.max(...candidates);
+}
+
+function enforceRearTailBoundary(
+  rearX: number,
+  facing: CowFacing | null | undefined,
+  bbox: BBox,
+  bodyMask: CowBodyMask | undefined,
+  y: number
+): number {
+  if (facing !== "head_left") return rearX;
+  if (!bodyMask) return rearX;
+  const headLeftRear = headLeftRearBodyEndX(bodyMask, bbox, y);
+  if (headLeftRear === null) return rearX;
+  return Math.max(rearX, headLeftRear);
+}
+
+function tailFallbackFromLeg2(
+  facing: CowFacing,
+  bbox: BBox,
+  leg2FallbackX: number
+): number {
+  const xMin = bbox.x + PAD;
+  const xMax = bbox.x + bbox.width - PAD;
+  const shift = bbox.width * TAIL_FALLBACK_FROM_HIND_FRAC;
+  const raw =
+    facing === "head_left" ? leg2FallbackX + shift : leg2FallbackX - shift;
+  return Math.max(xMin, Math.min(xMax, raw));
+}
+
+/** Tail-side body edge X for C2 (hind-band extremity, row edge, then leg2-guided tail fallback). */
+export function tailEndX(
+  facing: CowFacing | null | undefined,
+  bbox: BBox,
+  y: number,
+  bodyMask: CowBodyMask | undefined,
+  leg2FallbackX: number
+): number {
+  if (facing === "head_left") {
+    if (bodyMask) {
+      const headLeftRear = headLeftRearBodyEndX(bodyMask, bbox, y);
+      if (headLeftRear !== null) return headLeftRear;
+    }
+    return tailFallbackFromLeg2(facing, bbox, leg2FallbackX);
+  }
+  if (facing === "head_right") {
+    if (bodyMask) {
+      const hindEnd = maskHindBandTailEndX(bodyMask, bbox, "left");
+      if (hindEnd !== null) return hindEnd;
+      const ext = maskRowAtY(bodyMask, bbox, y);
+      if (ext) return ext.left;
+    }
+    return tailFallbackFromLeg2(facing, bbox, leg2FallbackX);
+  }
+  return leg2FallbackX;
+}
+
+/** Shoulder / withers on head side at length row. */
+export function headSideShoulderX(
+  facing: CowFacing | null | undefined,
+  bbox: BBox,
+  y: number,
+  leg1X: number,
+  bodyMask: CowBodyMask | undefined
+): number {
+  if (bodyMask) {
+    const withers = withersFromMask(bodyMask, bbox);
+    if (withers) return withers.centerX;
+  }
+  const ext = maskRowAtY(bodyMask, bbox, y);
+  const midX = bbox.x + bbox.width * 0.5;
+  const headMargin = bbox.width * 0.06;
+  if (facing === "head_left" && ext) {
+    return Math.max(ext.left, Math.min(leg1X, midX - headMargin));
+  }
+  if (facing === "head_right" && ext) {
+    return Math.min(ext.right, Math.max(leg1X, midX + headMargin));
+  }
+  return leg1X;
+}
+
+/** Nudge C1 shoulder toward the head along the length span (default 20%). */
+export const SHOULDER_HEAD_NUDGE_FRAC = 0.2;
+
+export function nudgeShoulderTowardHead(
+  shoulderX: number,
+  rearX: number,
+  facing: CowFacing | null | undefined,
+  bbox: BBox,
+  xMin: number,
+  xMax: number
+): number {
+  if (facing !== "head_left" && facing !== "head_right") {
+    return shoulderX;
+  }
+  const span = Math.abs(rearX - shoulderX);
+  const nudge = span * SHOULDER_HEAD_NUDGE_FRAC;
+  let x = facing === "head_left" ? shoulderX - nudge : shoulderX + nudge;
+  const minSep = Math.max(12, bbox.width * 0.12);
+  if (facing === "head_left") {
+    x = Math.max(xMin, Math.min(x, rearX - minSep));
+  } else {
+    x = Math.min(xMax, Math.max(x, rearX + minSep));
+  }
+  return x;
+}
+
+/** Body length: C1 shoulder (nudged toward head) → C2 rear (tail-side body end). lines.length.a = shoulder, b = rear. */
+export function lengthShoulderRearPoints(
+  bbox: BBox,
+  keypoints: Pick<CowKeypoints, "leg1" | "leg2" | "detected">,
+  bodyMask?: CowBodyMask,
+  lengthYOverride?: number
+): LengthShoulderRearResult {
+  const lengthY = lengthYOverride ?? bbox.y + bbox.height * LENGTH_Y_FRAC;
+  const xMin = bbox.x + PAD;
+  const xMax = bbox.x + bbox.width - PAD;
+  const y = Math.max(bbox.y + PAD, Math.min(bbox.y + bbox.height - PAD, lengthY));
+
+  const facing = keypoints.detected?.facing ?? null;
+  let shoulderX = headSideShoulderX(facing, bbox, y, keypoints.leg1.x, bodyMask);
+  let rearX = tailEndX(facing, bbox, y, bodyMask, keypoints.leg2.x);
+  rearX = enforceRearTailBoundary(rearX, facing, bbox, bodyMask, y);
+
+  if (facing === "head_left") {
+    rearX = Math.max(rearX, xMin);
+  } else {
+    rearX = Math.max(xMin, Math.min(xMax, rearX));
+  }
+  shoulderX = nudgeShoulderTowardHead(shoulderX, rearX, facing, bbox, xMin, xMax);
+  ({ shoulderX, rearX } = clampLengthPointsToFacingBody(
+    facing,
+    shoulderX,
+    rearX,
+    bbox,
+    bodyMask,
+    y
+  ));
+  if (facing === "head_left") {
+    rearX = Math.max(rearX, xMax);
+  }
+
+  let shoulder = pt(shoulderX, y);
+  let rear = pt(rearX, y);
+
+  if (facing === "head_left") {
+    if (shoulder.x > rear.x) {
+      const tmp = shoulder;
+      shoulder = rear;
+      rear = tmp;
+    }
+  } else if (facing === "head_right") {
+    if (shoulder.x < rear.x) {
+      const tmp = shoulder;
+      shoulder = rear;
+      rear = tmp;
+    }
+  } else if (shoulder.x === rear.x) {
+    shoulder = pt(bbox.x + bbox.width * LENGTH_START_FRAC, y);
+    rear = pt(bbox.x + bbox.width * LENGTH_END_FRAC, y);
+  }
+
+  const minSep = Math.max(12, bbox.width * 0.12);
+  const detected =
+    (keypoints.detected?.legs ?? false) && Math.abs(rear.x - shoulder.x) >= minSep;
+
+  return { shoulder, rear, detected };
+}
+
+/** Keep keypoint length fields aligned with weight line C1/C2 (l2=shoulder, l1=rear). */
+export function syncLengthKeypointsFromLines(
+  kp: CowKeypoints,
+  length: { a: Point2D; b: Point2D }
+): CowKeypoints {
+  return {
+    ...kp,
+    l1: { ...length.b },
+    l2: { ...length.a },
+    detected: {
+      ...kp.detected,
+      legs: kp.detected?.legs ?? false,
+      lowerChest: kp.detected?.lowerChest ?? false,
+      topChest: kp.detected?.topChest ?? false,
+      length: true,
+      facing: kp.detected?.facing,
+      bodyDirection: kp.detected?.bodyDirection,
+    },
+  };
+}
+
+/** Keep keypoint chest fields aligned with weight line Ch1/Ch2. */
+export function syncChestKeypointsFromLines(
+  kp: CowKeypoints,
+  chest: { a: Point2D; b: Point2D }
+): CowKeypoints {
+  const chestCenterX = (chest.a.x + chest.b.x) / 2;
+  return {
+    ...kp,
+    topChest: { ...chest.a },
+    lowerChest: { ...chest.b },
+    chestCenterX,
+    detected: {
+      ...kp.detected,
+      legs: kp.detected?.legs ?? false,
+      lowerChest: kp.detected?.lowerChest ?? true,
+      topChest: kp.detected?.topChest ?? true,
+      length: kp.detected?.length ?? false,
+      facing: kp.detected?.facing,
+      bodyDirection: kp.detected?.bodyDirection,
+    },
+  };
 }
 
 /** Re-assign Leg1/Leg2 and L1/L2 (tail/head) after user corrects head side on Step 1. */
@@ -1139,6 +1448,19 @@ export function detectCowKeypoints(
       leg2 = assigned.leg2;
     }
 
+    const lenSR = lengthShoulderRearPoints(
+      bbox,
+      {
+        leg1,
+        leg2,
+        detected: { facing: legFacing, legs: legsDetected },
+      },
+      useMask ? bodyMask : undefined,
+      lengthY
+    );
+    lengthEnds = { l1: lenSR.rear, l2: lenSR.shoulder, detected: lenSR.detected };
+    lengthDetected = lenSR.detected;
+
     let topChest = pt(chestCenterX, topY);
     let lowerChest = pt(chestCenterX, lower.y);
     if (useMask) {
@@ -1238,27 +1560,27 @@ export function resolveStep1Keypoints(
     leg2,
     topChest: { ...lines.chest.a },
     lowerChest: { ...lines.chest.b },
-    l1: { ...lines.length.a },
-    l2: { ...lines.length.b },
+    l1: { ...lines.length.b },
+    l2: { ...lines.length.a },
     chestCenterX,
     detected: { legs: false, lowerChest: false, topChest: false, length: false },
   };
 }
 
-/** Build chest + length lines from detected keypoints (L1 = tail, L2 = head). */
-export function proposeLinesFromKeypoints(bbox: BBox, keypoints: CowKeypoints): CowLines {
+/** Build chest + length lines from keypoints (length = shoulder → rear). */
+export function proposeLinesFromKeypoints(
+  bbox: BBox,
+  keypoints: CowKeypoints,
+  bodyMask?: CowBodyMask
+): CowLines {
   const cx = keypoints.chestCenterX;
   const chest: CowLines["chest"] = {
     a: { x: cx, y: keypoints.topChest.y },
     b: { x: cx, y: keypoints.lowerChest.y },
   };
-  const facing = keypoints.detected?.facing ?? null;
-  const ordered =
-    facing != null
-      ? attachBodyDirectionToKeypoints(keypoints, facing)
-      : keypoints;
+  const { shoulder, rear } = lengthShoulderRearPoints(bbox, keypoints, bodyMask);
   return {
     chest,
-    length: { a: { ...ordered.l1 }, b: { ...ordered.l2 } },
+    length: { a: { ...shoulder }, b: { ...rear } },
   };
 }
