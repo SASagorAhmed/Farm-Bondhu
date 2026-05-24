@@ -358,6 +358,7 @@ const App = () => (
                   <Route path="settings" element={<Settings />} />
                   <Route path="inbox" element={<LazyPage><BuyerInbox /></LazyPage>} />
                   <Route path="chat/:conversationId" element={<LazyPage><ChatDetail /></LazyPage>} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                   <Route path=":id" element={<LazyPage><ProductDetail /></LazyPage>} />
                 </Route>
                 <Route path="/cart" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
@@ -405,6 +406,7 @@ const App = () => (
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="notifications" element={<Notifications contextFilter={["vet", "general"]} />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                 </Route>
 
                 {/* ============ MEDIBONDHU — human outpatient; VetBondhu (/vetbondhu) is animal telemed ============ */}
@@ -509,6 +511,7 @@ const App = () => (
                   <Route path="room/:bookingId" element={<VetBondhuConsultationRoom />} />
                   <Route path="consultations" element={<LazyPage><VetbondhuConsultations /></LazyPage>} />
                   <Route path="prescriptions" element={<VetBondhuPrescriptions />} />
+                  <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["vetbondhu", "vet", "medibondhu", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
