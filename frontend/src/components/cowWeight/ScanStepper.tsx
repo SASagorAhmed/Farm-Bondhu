@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { COW_WEIGHT_THEME } from "@/lib/cowWeight/cowWeightTheme";
 import type { ScanStepId } from "@/lib/cowWeight/types";
 
 interface ScanStepperProps {
@@ -19,10 +20,14 @@ export default function ScanStepper({ current, labels }: ScanStepperProps) {
             key={step}
             className={cn(
               "flex items-center gap-1 text-xs sm:text-sm px-2 py-1.5 rounded-md flex-1 min-w-[52px] justify-center",
-              active && "bg-primary text-primary-foreground font-medium",
               done && "bg-secondary/20 text-secondary",
               !active && !done && "text-muted-foreground bg-muted/40"
             )}
+            style={
+              active
+                ? { backgroundColor: COW_WEIGHT_THEME.farm, color: "#ffffff", fontWeight: 500 }
+                : undefined
+            }
           >
             {done ? <Check className="h-4 w-4 shrink-0" /> : <span className="font-mono text-sm">{step}</span>}
             <span className="truncate hidden sm:inline">{label}</span>

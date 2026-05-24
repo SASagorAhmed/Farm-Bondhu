@@ -4,8 +4,11 @@ import type { CowBodyDirection } from "@/lib/cowWeight/cowDirection";
 import type { BBox, CowKeypoints, CowLines, LineSegment, Point2D, ScanStepId } from "@/lib/cowWeight/types";
 import { stepShowsBbox, stepShowsChest, stepShowsLength, stepShowsReference, stepAllowsDrag } from "@/lib/cowWeight/scanMetrics";
 import { clampLinesToBBox } from "@/lib/cowWeight/proposeLines";
+import { heightLineFromBBox } from "@/lib/cowWeight/geometry2d";
 import { resolveStep1Keypoints } from "@/lib/cowWeight/cowKeypoints";
 import type { DetectionMode } from "@/lib/cowWeight/types";
+import { cowWeightOrientationPill } from "@/components/cowWeight/cowWeightCalloutStyles";
+import { COW_WEIGHT_THEME } from "@/lib/cowWeight/cowWeightTheme";
 
 type DragTarget =
   | { kind: "chest"; end: "a" | "b" }
@@ -62,6 +65,10 @@ interface CowWeightOverlayProps {
   bodyOutline?: Point2D[] | null;
   /** Short label for outline source (Step 1). */
   outlineSourceLabel?: string | null;
+  /** Plan D grid distance (150–250 cm) shown on ground line. */
+  cameraDistanceCm?: number | null;
+  groundDistanceDetected?: boolean;
+  showGroundDistanceLabel?: boolean;
 }
 
 const CHEST_COLOR = "#0a6b74";
@@ -101,6 +108,9 @@ export default function CowWeightOverlay({
   headBbox,
   bodyOutline,
   outlineSourceLabel,
+  cameraDistanceCm,
+  groundDistanceDetected = true,
+  showGroundDistanceLabel = true,
 }: CowWeightOverlayProps) {
   const { t } = useLanguage();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -115,6 +125,10 @@ export default function CowWeightOverlay({
   const canDragLines = editable && stepAllowsDrag(activeStep) && !onReferenceTapMode;
   const canDragStep1Kp =
     editable && activeStep === 1 && !onReferenceTapMode && !!onKeypointsChange;
+  const canDragStep1Chest =
+    editable && activeStep === 1 && !onReferenceTapMode && !!onLinesChange;
+  const canDragStep1Length =
+    editable && activeStep === 1 && !onReferenceTapMode && !!onLinesChange;
 
   const bx = bbox.x;
   const by = bbox.y;
@@ -195,25 +209,23 @@ export default function CowWeightOverlay({
       const kp = step1Kp;
       addPt({ kind: "leg1" }, kp.leg1);
       addPt({ kind: "leg2" }, kp.leg2);
-      addPt({ kind: "topChest" }, kp.topChest);
-      addPt({ kind: "lowerChest" }, kp.lowerChest);
-    }
-    if (!canDragLines) {
-      hits.sort((a, b) => a.d - b.d);
-      if (hits.length && hits[0].d < hitRadius) return hits[0].t;
-      return null;
     }
     const add = (kind: "chest" | "length" | "reference", line: LineSegment, end: "a" | "b") => {
       const pt = end === "a" ? line.a : line.b;
       hits.push({ t: { kind, end }, d: Math.hypot(pt.x - p.x, pt.y - p.y) });
     };
-    if (stepShowsChest(activeStep)) {
+    if (canDragStep1Chest || (canDragLines && stepShowsChest(activeStep))) {
       add("chest", lines.chest, "a");
       add("chest", lines.chest, "b");
     }
-    if (stepShowsLength(activeStep)) {
+    if (canDragStep1Length || (canDragLines && stepShowsLength(activeStep))) {
       add("length", lines.length, "a");
       add("length", lines.length, "b");
+    }
+    if (!canDragLines && !canDragStep1Chest && !canDragStep1Length) {
+      hits.sort((a, b) => a.d - b.d);
+      if (hits.length && hits[0].d < hitRadius) return hits[0].t;
+      return null;
     }
     if (lines.reference && showReference && stepShowsReference(activeStep, true)) {
       add("reference", lines.reference, "a");
@@ -226,12 +238,7 @@ export default function CowWeightOverlay({
 
   const updateLine = (target: DragTarget, p: Point2D) => {
     if (!target) return;
-    if (
-      target.kind === "leg1" ||
-      target.kind === "leg2" ||
-      target.kind === "topChest" ||
-      target.kind === "lowerChest"
-    ) {
+    if (target.kind === "leg1" || target.kind === "leg2") {
       if (!onKeypointsChange) return;
       const base = step1Kp;
       const next: CowKeypoints = {
@@ -239,10 +246,7 @@ export default function CowWeightOverlay({
         detected: { ...base.detected },
       };
       if (target.kind === "leg1") next.leg1 = p;
-      else if (target.kind === "leg2") next.leg2 = p;
-      else if (target.kind === "topChest") next.topChest = p;
-      else if (target.kind === "lowerChest") next.lowerChest = p;
-      next.chestCenterX = (next.topChest.x + next.lowerChest.x) / 2;
+      else next.leg2 = p;
       onKeypointsChange(next);
       return;
     }
@@ -252,7 +256,7 @@ export default function CowWeightOverlay({
     else if (target.kind === "reference" && next.reference) {
       next.reference = { ...next.reference, [target.end]: p };
     }
-    onLinesChange(clampLinesToBBox(next, bbox));
+    onLinesChange(clampLinesToBBox(next, bbox, keypoints?.detected?.facing ?? null));
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -328,8 +332,8 @@ export default function CowWeightOverlay({
 
   const frameW = displaySize.w > 0 ? displaySize.w : "100%";
   const frameH = displaySize.h > 0 ? displaySize.h : undefined;
-  const bboxClipId = useId().replace(/:/g, "");
   const headArrowMarkerId = useId().replace(/:/g, "");
+  const groundDistMarkerId = useId().replace(/:/g, "");
 
   const bodyOutlinePath = useMemo(() => {
     if (!bodyOutline || bodyOutline.length < 3) return null;
@@ -340,6 +344,77 @@ export default function CowWeightOverlay({
     return d;
   }, [bodyOutline]);
 
+  const renderGroundDistanceArrow = () => {
+    if (!showGroundDistanceLabel) return null;
+    const groundY = by + bh;
+    const frameBottomY = imageHeight;
+    const gap = frameBottomY - groundY;
+    if (gap < 12) return null;
+
+    const arrowX = Math.min(bx + bw * 0.88, imageWidth - 20);
+    const strokeColor = groundDistanceDetected ? "#22c55e" : "#b45309";
+    const labelColor = groundDistanceDetected ? "#15803d" : "#b45309";
+    const cmDisplay = groundDistanceDetected
+      ? String(cameraDistanceCm ?? 180)
+      : "180";
+    const cmLabel = groundDistanceDetected
+      ? `${cameraDistanceCm ?? 180} cm`
+      : t("cowWeight.scan.groundOverlayAvg").replace("{cm}", "180");
+    const midY = (groundY + frameBottomY) / 2;
+    const shaftFontSize = Math.max(11, labelFontSize * 0.4);
+
+    return (
+      <g
+        pointerEvents="none"
+        aria-label={t("cowWeight.scan.groundDistanceArrowAria").replace("{cm}", cmDisplay)}
+      >
+        <defs>
+          <marker
+            id={groundDistMarkerId}
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="5"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M0,0 L10,5 L0,10 Z" fill={labelColor} />
+          </marker>
+        </defs>
+        <line
+          x1={arrowX}
+          y1={groundY}
+          x2={arrowX}
+          y2={frameBottomY - 4}
+          stroke={strokeColor}
+          strokeWidth={2.5}
+          markerEnd={`url(#${groundDistMarkerId})`}
+        />
+        <line
+          x1={arrowX - 6}
+          y1={groundY}
+          x2={arrowX + 6}
+          y2={groundY}
+          stroke={strokeColor}
+          strokeWidth={2}
+        />
+        <text
+          x={arrowX + 8}
+          y={midY}
+          dominantBaseline="middle"
+          fill={labelColor}
+          fontSize={shaftFontSize}
+          fontWeight="700"
+          stroke="#fff"
+          strokeWidth={textStrokeW * 0.3}
+          paintOrder="stroke"
+        >
+          {cmLabel}
+        </text>
+      </g>
+    );
+  };
+
   const renderStep1Keypoints = () => {
     if (activeStep !== 1) return null;
     const kp = step1Kp;
@@ -349,9 +424,20 @@ export default function CowWeightOverlay({
     const bandX1 = bx + bw * 0.04;
     const bandX2 = bx + bw * 0.96;
 
-    const headPt = kp.l2;
-    const tailPt = kp.l1;
-    const lengthMidY = (headPt.y + tailPt.y) / 2;
+    const lengthMidY = (lines.length.a.y + lines.length.b.y) / 2;
+    const headPt =
+      headDirection?.headBbox != null
+        ? {
+            x: headDirection.headBbox.x + headDirection.headBbox.width / 2,
+            y: headDirection.headBbox.y + headDirection.headBbox.height / 2,
+          }
+        : kp.l2;
+    const tailPt =
+      headDirection?.tailSide === "left"
+        ? { x: bx + bw * 0.88, y: lengthMidY }
+        : headDirection?.tailSide === "right"
+          ? { x: bx + bw * 0.12, y: lengthMidY }
+          : { x: lines.length.b.x, y: lengthMidY };
     const headSide = headDirection?.headSide;
     const tailSide =
       headDirection?.tailSide ??
@@ -384,9 +470,6 @@ export default function CowWeightOverlay({
     return (
       <>
         <defs>
-          <clipPath id={bboxClipId}>
-            <rect x={bx} y={by} width={bw} height={bh} />
-          </clipPath>
           <marker
             id={headArrowMarkerId}
             markerWidth="10"
@@ -399,7 +482,7 @@ export default function CowWeightOverlay({
             <path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b" />
           </marker>
         </defs>
-        <g key="step1-keypoints" pointerEvents="none" clipPath={`url(#${bboxClipId})`}>
+        <g key="step1-keypoints" pointerEvents="none">
           <line
             x1={kp.leg1.x}
             y1={legGuideTop}
@@ -450,26 +533,8 @@ export default function CowWeightOverlay({
             strokeOpacity={0.85}
             strokeDasharray="8 5"
           />
-          <line
-            x1={kp.topChest.x}
-            y1={kp.topChest.y}
-            x2={kp.lowerChest.x}
-            y2={kp.lowerChest.y}
-            stroke={KEYPOINT_PREVIEW_CHEST}
-            strokeWidth={3}
-            strokeDasharray="6 4"
-            strokeOpacity={0.95}
-          />
-          <line
-            x1={kp.l1.x}
-            y1={kp.l1.y}
-            x2={kp.l2.x}
-            y2={kp.l2.y}
-            stroke={LENGTH_COLOR}
-            strokeWidth={3}
-            strokeDasharray="6 4"
-            strokeOpacity={0.85}
-          />
+          {drawLine(lines.chest, CHEST_COLOR, "step1-chest")}
+          {drawLine(lines.length, LENGTH_COLOR, "step1-length")}
           <line
             x1={arrowFromX}
             y1={arrowFromY}
@@ -508,10 +573,30 @@ export default function CowWeightOverlay({
             LEG_GUIDE_COLOR,
             canDragStep1Kp
           )}
-          {drawLabeledPoint(kp.topChest, "C1", KEYPOINT_PREVIEW_CHEST, canDragStep1Kp)}
-          {drawLabeledPoint(kp.lowerChest, "C2", KEYPOINT_PREVIEW_CHEST, canDragStep1Kp)}
-          {drawLabeledPoint(kp.l1, "L1", LENGTH_COLOR, false)}
-          {drawLabeledPoint(kp.l2, "L2", LENGTH_COLOR, false)}
+          {drawLabeledPoint(
+            lines.chest.a,
+            t("cowWeight.scan.chestCh1"),
+            CHEST_COLOR,
+            canDragStep1Chest
+          )}
+          {drawLabeledPoint(
+            lines.chest.b,
+            t("cowWeight.scan.chestCh2"),
+            CHEST_COLOR,
+            canDragStep1Chest
+          )}
+          {drawLabeledPoint(
+            lines.length.a,
+            t("cowWeight.scan.lengthC1Shoulder"),
+            LENGTH_COLOR,
+            canDragStep1Length
+          )}
+          {drawLabeledPoint(
+            lines.length.b,
+            t("cowWeight.scan.lengthC2Rear"),
+            LENGTH_COLOR,
+            canDragStep1Length
+          )}
         </g>
       </>
     );
@@ -521,7 +606,7 @@ export default function CowWeightOverlay({
     <div ref={wrapRef} className="relative w-full min-h-[320px] flex justify-center items-start">
       <div
         ref={frameRef}
-        className="relative rounded-lg overflow-hidden border bg-muted/30 max-w-full"
+        className="relative rounded-lg overflow-visible border bg-muted/30 max-w-full"
         style={{
           width: frameW,
           height: frameH,
@@ -598,19 +683,77 @@ export default function CowWeightOverlay({
 
           {renderStep1Keypoints()}
 
+          {stepShowsBbox(activeStep) && (
+            <>
+              <line
+                x1={bx}
+                y1={by + bh}
+                x2={bx + bw}
+                y2={by + bh}
+                stroke="#22c55e"
+                strokeWidth={2.5}
+                pointerEvents="none"
+              />
+              {showGroundDistanceLabel && (
+                <text
+                  x={bx + bw / 2}
+                  y={by + bh + labelFontSize * 0.55}
+                  textAnchor="middle"
+                  fill={groundDistanceDetected ? "#15803d" : "#b45309"}
+                  fontSize={Math.max(12, labelFontSize * 0.45)}
+                  fontWeight="700"
+                  stroke="#fff"
+                  strokeWidth={textStrokeW * 0.35}
+                  paintOrder="stroke"
+                  pointerEvents="none"
+                >
+                  {groundDistanceDetected
+                    ? `${cameraDistanceCm ?? 180} cm`
+                    : t("cowWeight.scan.groundOverlayAvg").replace("{cm}", "180")}
+                </text>
+              )}
+              {renderGroundDistanceArrow()}
+            </>
+          )}
+
           {stepShowsChest(activeStep) && (
             <>
               {drawLine(lines.chest, CHEST_COLOR, "chest")}
-              {drawLabeledPoint(lines.chest.a, "C1", CHEST_COLOR, activeStep === 2)}
-              {drawLabeledPoint(lines.chest.b, "C2", CHEST_COLOR, activeStep === 2)}
+              {drawLabeledPoint(lines.chest.a, "Ch1", CHEST_COLOR, activeStep === 2)}
+              {drawLabeledPoint(lines.chest.b, "Ch2", CHEST_COLOR, activeStep === 2)}
+            </>
+          )}
+
+          {(stepShowsChest(activeStep) || stepShowsLength(activeStep) || activeStep >= 5) && (
+            <>
+              {(() => {
+                const h = heightLineFromBBox({ x: bx, y: by, width: bw, height: bh, confidence: bbox.confidence });
+                return (
+                  <>
+                    {drawLine(h, "#0ea5e9", "height")}
+                    {drawLabeledPoint(h.a, "L1", "#0ea5e9", false)}
+                    {drawLabeledPoint(h.b, "L2", "#0ea5e9", false)}
+                  </>
+                );
+              })()}
             </>
           )}
 
           {stepShowsLength(activeStep) && (
             <>
               {drawLine(lines.length, LENGTH_COLOR, "length")}
-              {drawLabeledPoint(lines.length.a, "L1", LENGTH_COLOR, activeStep === 3)}
-              {drawLabeledPoint(lines.length.b, "L2", LENGTH_COLOR, activeStep === 3)}
+              {drawLabeledPoint(
+                lines.length.a,
+                t("cowWeight.scan.lengthC1Shoulder"),
+                LENGTH_COLOR,
+                activeStep === 3
+              )}
+              {drawLabeledPoint(
+                lines.length.b,
+                t("cowWeight.scan.lengthC2Rear"),
+                LENGTH_COLOR,
+                activeStep === 3
+              )}
             </>
           )}
 
@@ -674,7 +817,10 @@ export default function CowWeightOverlay({
               )}
             </div>
             {orientationLabel && (
-              <div className="absolute top-2 right-2 bg-amber-500/95 text-amber-950 text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-md shadow max-w-[min(100%,220px)] text-right">
+              <div
+                className={cowWeightOrientationPill}
+                style={{ backgroundColor: `${COW_WEIGHT_THEME.blue}F2` }}
+              >
                 {orientationLabel}
               </div>
             )}

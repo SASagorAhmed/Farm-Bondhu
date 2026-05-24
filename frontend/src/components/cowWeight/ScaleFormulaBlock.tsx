@@ -28,6 +28,8 @@ export default function ScaleFormulaBlock({
 
   const v = scaleFormulaVars(metrics, bboxHeightPx, bboxWidthPx);
   const isPlanC = metrics.scaleMethod === "reference_100cm" && v.refPx;
+  const isPlanD =
+    metrics.scaleMethod === "plan_d_pinhole" || metrics.scaleMethod === "plan_d_pinhole_stick";
 
   const scaleLines: string[] = [];
   if (isPlanC) {
@@ -35,6 +37,15 @@ export default function ScaleFormulaBlock({
       applyVars(t("cowWeight.scan.formulaScaleC"), {
         refPx: v.refPx ?? "—",
         cmPerPixel: v.cmPerPixel,
+      })
+    );
+  } else if (isPlanD && v.cameraDistanceCm != null) {
+    scaleLines.push(
+      applyVars(t("cowWeight.scan.formulaScaleD"), {
+        cameraDistanceCm: v.cameraDistanceCm,
+        r1: v.r1 ?? v.chestCmPerPixel,
+        r2: v.r2 ?? v.lengthCmPerPixel,
+        bodyHeightCm: v.bodyHeightCm ?? "—",
       })
     );
   } else {

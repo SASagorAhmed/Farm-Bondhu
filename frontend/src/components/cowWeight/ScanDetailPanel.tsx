@@ -1,13 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import ScaleFormulaBlock from "@/components/cowWeight/ScaleFormulaBlock";
+import CowWeightRetakeAlert from "@/components/cowWeight/CowWeightRetakeAlert";
+import { cowWeightCalloutMistakesTip, cowWeightCalloutMistakesTipStyle } from "@/components/cowWeight/cowWeightCalloutStyles";
+import { cowWeightAccentStyle } from "@/lib/cowWeight/cowWeightTheme";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { ScanMetrics, BBox } from "@/lib/cowWeight/types";
 import { bboxSummary } from "@/lib/cowWeight/scanMetrics";
+
+export type ScanDetailMistakesTone = "retake" | "tip";
 
 interface ScanDetailPanelProps {
   title: string;
   description: string;
   mistakes?: string;
+  mistakesTone?: ScanDetailMistakesTone;
   metrics?: ScanMetrics | null;
   bbox?: BBox;
   model?: string;
@@ -23,6 +30,7 @@ export default function ScanDetailPanel({
   title,
   description,
   mistakes,
+  mistakesTone = "tip",
   metrics,
   bbox,
   model,
@@ -33,22 +41,27 @@ export default function ScanDetailPanel({
   showScaleFormulas = false,
   extra,
 }: ScanDetailPanelProps) {
+  const { t } = useLanguage();
   const box = bbox ? bboxSummary(bbox) : null;
 
   return (
     <Card className="h-full">
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg">{title}</CardTitle>
+        <CardTitle className={`text-lg ${mistakesTone === "retake" ? "font-bold" : ""}`}>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-base">
         <p className="text-muted-foreground leading-relaxed text-[15px] sm:text-base">{description}</p>
 
-        {model && box && (
+        {mistakesTone === "retake" && <CowWeightRetakeAlert />}
+
+        {box && (
           <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-sm font-mono">
-            <div className="flex justify-between gap-2">
-              <span className="text-muted-foreground">AI model</span>
-              <span>{model}</span>
-            </div>
+            {model && (
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">AI model</span>
+                <span>{model}</span>
+              </div>
+            )}
             <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">BBox (px)</span>
               <span>
@@ -56,9 +69,22 @@ export default function ScanDetailPanel({
               </span>
             </div>
             <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">x1, y1</span>
+              <span>
+                {box.x1}, {box.y1}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">x2, y2 (ground)</span>
+              <span>
+                {box.x2}, {box.y2}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">Confidence</span>
               <Badge variant={box.confidencePct >= 50 ? "secondary" : "outline"}>{box.confidencePct}%</Badge>
             </div>
+            <p className="text-[11px] text-muted-foreground pt-1">{t("cowWeight.scan.detailAuditNote")}</p>
           </div>
         )}
 
@@ -93,7 +119,9 @@ export default function ScanDetailPanel({
                 <hr />
                 <div className="flex justify-between">
                   <span>Live weight (est.)</span>
-                  <span className="font-bold text-primary">{metrics.estimatedLiveWeightKg} kg</span>
+                  <span className="font-bold" style={cowWeightAccentStyle("farm")}>
+                    {metrics.estimatedLiveWeightKg} kg
+                  </span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
                   <span>Edible meat (55%)</span>
@@ -105,7 +133,9 @@ export default function ScanDetailPanel({
               <Badge variant="outline" className="text-xs">
                 {metrics.scaleMethod === "reference_100cm"
                   ? "Scale: 1m reference"
-                  : "Scale: chest from height, length from width (Plan B)"}
+                  : metrics.scaleMethod === "plan_d_pinhole" || metrics.scaleMethod === "plan_d_pinhole_stick"
+                    ? `Scale: Plan D (${metrics.cameraDistanceCm ?? 180} cm, r1=${metrics.r1 ?? "—"})`
+                    : "Scale: Plan D / legacy"}
               </Badge>
             )}
           </div>
@@ -125,8 +155,10 @@ export default function ScanDetailPanel({
           />
         )}
 
-        {mistakes && (
-          <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">{mistakes}</p>
+        {mistakesTone === "tip" && mistakes && (
+          <p className={cowWeightCalloutMistakesTip} style={cowWeightCalloutMistakesTipStyle}>
+            {mistakes}
+          </p>
         )}
 
         {extra}
