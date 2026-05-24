@@ -1,6 +1,8 @@
 import type { BBox, CowKeypoints, CowLines, LegCenters, LineSegment, Point2D } from "./types";
 import { proposeLinesFromKeypoints } from "./cowKeypoints";
 import { lineLengthPx } from "./imageUtils";
+import { groundLineY } from "./geometry2d";
+import type { CowFacing } from "./cowDirection";
 
 const PAD = 4;
 /** Top chest fallback when keypoints missing. */
@@ -33,14 +35,27 @@ function clampPoint(p: Point2D, bbox: BBox, pad = PAD): Point2D {
   };
 }
 
-export function clampLinesToBBox(lines: CowLines, bbox: BBox): CowLines {
+export function clampLinesToBBox(
+  lines: CowLines,
+  bbox: BBox,
+  facing?: CowFacing | null
+): CowLines {
   const chest = {
     a: clampPoint(lines.chest.a, bbox),
     b: clampPoint(lines.chest.b, bbox),
   };
+  const x1 = bbox.x + PAD;
+  const y1 = bbox.y + PAD;
+  const y2 = bbox.y + bbox.height - PAD;
   const length = {
     a: clampPoint(lines.length.a, bbox),
-    b: clampPoint(lines.length.b, bbox),
+    b:
+      facing === "head_left"
+        ? {
+            x: Math.max(x1, lines.length.b.x),
+            y: Math.max(y1, Math.min(y2, lines.length.b.y)),
+          }
+        : clampPoint(lines.length.b, bbox),
   };
   const next: CowLines = { chest, length };
   if (lines.reference) {
@@ -82,9 +97,11 @@ function buildChestLineRaw(
   const { x, y, height } = bbox;
   const chestTop = y + height * CHEST_TOP_FRAC;
   let chestBottom = y + height * CHEST_BOTTOM_FRAC;
+  const groundY = groundLineY(bbox);
+  chestBottom = Math.min(chestBottom, groundY - PAD);
   const minChestSpan = height * MIN_CHEST_SPAN_FRAC;
   if (chestBottom - chestTop < minChestSpan) {
-    chestBottom = Math.min(y + height - PAD, chestTop + minChestSpan);
+    chestBottom = Math.min(groundY - PAD, chestTop + minChestSpan);
   }
   const cx = chestXBetweenLegs(bbox, legCenters);
   return { a: pt(cx, chestTop), b: pt(cx, chestBottom) };
@@ -146,7 +163,11 @@ export function proposeLinesFromBBox(
     legCentersOrKeypoints && "topChest" in legCentersOrKeypoints ? legCentersOrKeypoints : null;
 
   if (keypoints) {
-    return clampLinesToBBox(proposeLinesFromKeypoints(bbox, keypoints), bbox);
+    return clampLinesToBBox(
+      proposeLinesFromKeypoints(bbox, keypoints),
+      bbox,
+      keypoints.detected?.facing ?? null
+    );
   }
 
   const legCenters =

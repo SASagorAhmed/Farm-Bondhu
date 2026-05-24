@@ -7,7 +7,11 @@ import {
 
 /** Same line setup as first Detect Live estimate — not full keypoint repropose. */
 export function canonicalLinesFromAnalysis(analysis: CowAnalysisResult): CowLines {
-  let lines = clampLinesToBBox(analysis.lines, analysis.bbox);
+  let lines = clampLinesToBBox(
+    analysis.lines,
+    analysis.bbox,
+    analysis.keypoints?.detected?.facing ?? null
+  );
   if (
     shouldReproposeChest(
       lines.chest,
