@@ -27,8 +27,8 @@ export const ICON_COLORS = {
   dollar: "#F59E0B",
   trendingDown: "#F59E0B",
 
-  // Marketplace & Commerce
-  marketplace: "#0EA5E9",  // Sky Blue
+  // Marketplace & Commerce (vendor/seller — sky blue; buyer uses MARKETPLACE_THEME)
+  marketplace: "#0EA5E9",
   cart: "#0EA5E9",
   store: "#0EA5E9",
   package: "#0EA5E9",

@@ -293,31 +293,55 @@
     color: white !important;
   }
 
-  /* Marketplace sidebar nav hover: Sky Blue #0EA5E9 */
+  /* Marketplace nav item hover (legacy) */
   .marketplace-nav-item:hover,
   .marketplace-nav-item:hover * {
     color: white !important;
-    background-color: #0EA5E9 !important;
+    background-color: #E91E8C !important;
   }
   .marketplace-nav-item:hover svg {
     color: white !important;
   }
 
-  /* Override shadcn sidebar-accent hover for Marketplace menu buttons */
-  .marketplace-sidebar [data-sidebar="menu-button"]:hover {
-    background-color: rgba(14, 165, 233, 0.12) !important;
-    color: #0EA5E9 !important;
+  /* Buyer marketplace sidebar: Cartup magenta pink #E91E8C */
+  .marketplace-sidebar [data-sidebar="menu-button"]:hover,
+  .buyer-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(233, 30, 140, 0.12) !important;
+    color: #E91E8C !important;
   }
-  .marketplace-sidebar [data-sidebar="menu-button"]:hover svg {
-    color: #0EA5E9 !important;
+  .marketplace-sidebar [data-sidebar="menu-button"]:hover svg,
+  .buyer-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #E91E8C !important;
   }
   .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"],
-  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
-    background-color: #0EA5E9 !important;
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover,
+  .buyer-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .buyer-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #E91E8C !important;
     color: white !important;
   }
   .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
-  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+  .marketplace-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg,
+  .buyer-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .buyer-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
+    color: white !important;
+  }
+
+  /* Vendor sidebar: original sky blue #0EA5E9 */
+  .vendor-sidebar [data-sidebar="menu-button"]:hover {
+    background-color: rgba(14, 165, 233, 0.12) !important;
+    color: #0EA5E9 !important;
+  }
+  .vendor-sidebar [data-sidebar="menu-button"]:hover svg {
+    color: #0EA5E9 !important;
+  }
+  .vendor-sidebar [data-sidebar="menu-button"][data-active="true"],
+  .vendor-sidebar [data-sidebar="menu-button"][data-active="true"]:hover {
+    background-color: #0EA5E9 !important;
+    color: white !important;
+  }
+  .vendor-sidebar [data-sidebar="menu-button"][data-active="true"] svg,
+  .vendor-sidebar [data-sidebar="menu-button"][data-active="true"]:hover svg {
     color: white !important;
   }
 
