@@ -108,7 +108,7 @@ Implemented in [`CowWeightScan.tsx`](../../pages/dashboard/cowWeight/CowWeightSc
 
 | Step | Short name | User action |
 |------|------------|-------------|
-| 1 | Detect | Review green bbox, Leg1/Leg2, C1/C2, L1/L2, facing badge; retake if wrong |
+| 1 | Detect | Review green bbox, Leg1/Leg2, C1/C2 (shoulder→body end), L1/L2, facing badge; C2 rear = tail-side back edge, Hind = leg2 |
 | 2 | Chest | Drag C1 (top chest) and C2 (lower chest); vertical chest width line |
 | 3 | Length | Drag L1 and L2; horizontal body length line |
 | 4 | Scale | Bbox/standoff default; optional 1m stick (auto or tap R1/R2) |

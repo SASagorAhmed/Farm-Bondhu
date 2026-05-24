@@ -171,25 +171,26 @@ flowchart TB
     RH[resolveHeadBboxFromVision]
   end
 
-  subgraph yolo [Browser YOLO mask CV]
-    FK[detectCowKeypoints forcedFacing]
-    LEG[assignLegsFromSemanticPoints paths]
+  subgraph yolo [Browser YOLO mask CV after cloud]
+    FK[detectCowKeypoints local only]
+    AF[applyCloudFacingToKeypoints]
     CH[chest mask heuristics]
   end
 
   HS --> MF
-  MF -->|facing head_left or head_right| FK
+  MF -->|facing head_left or head_right| AF
+  FK --> AF
   HB --> RH
   RH --> ScanHeadBox[Scan headBbox state]
   SO --> Standoff[standoffEstimate]
-  FK --> LEG
-  FK --> CH
-  FK --> Overlay[CowWeightOverlay markers]
+  AF --> CH
+  AF --> Overlay[CowWeightOverlay markers]
 ```
 
 - **`mergeVisionWithLocal`:** If `headSide` is left/right and `confidence ≥ 0.5`, source = `"vision"` and facing = `head_left` / `head_right`.
-- **`detectCowKeypoints(..., { forcedFacing, directionSource: "vision" })`:** Runs existing left/right leg and length ordering **once** with cloud facing; does not re-run local `resolveBodyHeadDirection` for facing when forced.
-- **Failure:** API error or low confidence → `forcedFacing` null → keypoints use **local-only** direction (same as before cloud assist).
+- **`detectCowKeypoints(..., { forcedFacing: null })`:** Mask/photo leg columns and chest pixels are detected **without** cloud facing (stable X/Y).
+- **`applyCloudFacingToKeypoints`:** After cloud, swaps Front/Hind (`leg1`/`leg2`) and L1/L2 head/tail order via [`reassignKeypointsForHeadSide`](cowKeypoints.ts) — does **not** re-run facing-dependent leg photo search.
+- **Failure:** API error or low confidence → `forcedFacing` null → keypoints stay **local-only** direction.
 
 ---
 
