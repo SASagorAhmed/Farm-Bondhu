@@ -5,11 +5,38 @@ import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
 import { requireAdmin } from "../../middleware/requireAdmin.js";
 import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
+import { uploadToCloudinary } from "../../services/cloudinaryUpload.js";
+import { validateProductPayload } from "../../validators/product.js";
+import { requestHasAnyRole } from "../../services/medibondhuAccess.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const nowMs = () => Number(process.hrtime.bigint() / 1000000n);
 const MARKETPLACE_CACHE_PREFIX = "marketplace";
+
+const PHARMACY_CATEGORIES = ["medicine", "vaccines", "supplements"];
+const FARM_CATEGORIES = [
+  "feed", "poultry feed", "cattle feed", "equipment", "pest control", "pest_control",
+  "livestock", "eggs", "meat", "milk", "dairy", "produce", "organic", "grooming", "packaging",
+];
+
+function normalizeCategory(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveSortClause(sort) {
+  switch (String(sort || "newest")) {
+    case "price_asc":
+      return sql`order by price asc nulls last, created_at desc`;
+    case "price_desc":
+      return sql`order by price desc nulls last, created_at desc`;
+    case "rating":
+      return sql`order by rating desc nulls last, created_at desc`;
+    case "newest":
+    default:
+      return sql`order by created_at desc`;
+  }
+}
 
 router.use((req, res, next) => {
   if (req.method === "GET") return next();
@@ -232,26 +259,66 @@ router.get(
   asyncHandler(async (req, res) => {
     const sellerName = req.query.seller_name;
     const sellerId = req.query.seller_id;
+    const category = normalizeCategory(req.query.category);
+    const lane = normalizeCategory(req.query.lane);
+    const inStock = req.query.in_stock === "true";
+    const sort = String(req.query.sort || "newest");
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const cacheKey = makeCacheKey(MARKETPLACE_CACHE_PREFIX, {
       userId: "anon",
-      parts: ["products", sellerName || "", sellerId || "", limit],
+      parts: ["products", sellerName || "", sellerId || "", category, lane, inStock ? "1" : "0", sort, limit],
     });
     const { value: rows, cacheHit } = await getOrSetCachedValue(cacheKey, 15_000, async () => {
       if (sellerName) {
         return sql`
           select * from products where seller_name = ${sellerName}
-          order by created_at desc limit ${limit}
+          ${resolveSortClause(sort)} limit ${limit}
         `;
       }
       if (sellerId && typeof sellerId === "string") {
         return sql`
           select * from products where seller_id = ${sellerId}
-          order by created_at desc limit ${limit}
+          ${resolveSortClause(sort)} limit ${limit}
+        `;
+      }
+
+      const laneList =
+        lane === "pharmacy" ? PHARMACY_CATEGORIES : lane === "farm" ? FARM_CATEGORIES : null;
+
+      if (laneList && category) {
+        return sql`
+          select * from products
+          where lower(trim(coalesce(category, ''))) in ${sql(laneList)}
+            and lower(trim(coalesce(category, ''))) = ${category}
+            ${inStock ? sql`and coalesce(stock, 0) > 0` : sql``}
+          ${resolveSortClause(sort)} limit ${limit}
+        `;
+      }
+      if (laneList) {
+        return sql`
+          select * from products
+          where lower(trim(coalesce(category, ''))) in ${sql(laneList)}
+            ${inStock ? sql`and coalesce(stock, 0) > 0` : sql``}
+          ${resolveSortClause(sort)} limit ${limit}
+        `;
+      }
+      if (category) {
+        return sql`
+          select * from products
+          where lower(trim(coalesce(category, ''))) = ${category}
+            ${inStock ? sql`and coalesce(stock, 0) > 0` : sql``}
+          ${resolveSortClause(sort)} limit ${limit}
+        `;
+      }
+      if (inStock) {
+        return sql`
+          select * from products
+          where coalesce(stock, 0) > 0
+          ${resolveSortClause(sort)} limit ${limit}
         `;
       }
       return sql`
-        select * from products order by created_at desc limit ${limit}
+        select * from products ${resolveSortClause(sort)} limit ${limit}
       `;
     });
     res.setHeader("Cache-Control", "public, s-maxage=45, max-age=20");
@@ -331,15 +398,59 @@ router.get(
 const sellerChain = [requireDatabase, requireUser];
 
 router.post(
+  "/products/upload-image",
+  ...sellerChain,
+  asyncHandler(async (req, res) => {
+    const fileData = String(req.body?.image || req.body?.file_data || "");
+    if (!fileData) {
+      res.status(400).json({ error: "image is required" });
+      return;
+    }
+    try {
+      const uploaded = await uploadToCloudinary(fileData, "marketplace/products", `product_${req.userId}`);
+      res.status(201).json({ data: { url: uploaded.url } });
+    } catch (error) {
+      const message = String(error?.message || "");
+      if (message.toLowerCase().includes("cloudinary is not configured")) {
+        res.status(201).json({ data: { url: fileData, storage: "inline_data_url" } });
+        return;
+      }
+      throw error;
+    }
+  })
+);
+
+router.post(
   "/products",
   ...sellerChain,
   asyncHandler(async (req, res) => {
-    const b = { ...req.body, seller_id: req.userId };
-    const [created] = await sql`
-      insert into products ${sql(b)}
-      returning *
-    `;
-    res.status(201).json({ data: created });
+    const body = { ...req.body };
+    delete body.seller_id;
+    let validated;
+    try {
+      validated = validateProductPayload(body);
+    } catch (error) {
+      res.status(error.status || 400).json({ error: error.message });
+      return;
+    }
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) delete validated.is_verified_seller;
+    const b = { ...validated, seller_id: req.userId };
+    try {
+      const [created] = await sql`
+        insert into products ${sql(b)}
+        returning *
+      `;
+      res.status(201).json({ data: created });
+    } catch (error) {
+      if (error?.code === "42703") {
+        res.status(503).json({
+          error: 'Database schema is outdated (missing product columns). From the backend folder run: npm run db:ensure',
+        });
+        return;
+      }
+      throw error;
+    }
   })
 );
 
@@ -348,7 +459,7 @@ router.patch(
   ...sellerChain,
   asyncHandler(async (req, res) => {
     const [existing] = await sql`
-      select seller_id from products where id = ${req.params.id} limit 1
+      select * from products where id = ${req.params.id} limit 1
     `;
     if (!existing) {
       res.status(404).json({ error: "Not found" });
@@ -358,10 +469,23 @@ router.patch(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const patch = { ...req.body };
-    delete patch.seller_id;
+    let validated;
+    try {
+      const body = { ...req.body };
+      delete body.seller_id;
+      validated = validateProductPayload(body, { partial: true, existing });
+    } catch (error) {
+      res.status(error.status || 400).json({ error: error.message });
+      return;
+    }
+    if (!Object.keys(validated).length) {
+      res.status(400).json({ error: "No valid fields to update" });
+      return;
+    }
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) delete validated.is_verified_seller;
     const [updated] = await sql`
-      update products set ${sql(patch)} where id = ${req.params.id} returning *
+      update products set ${sql(validated)}, updated_at = now() where id = ${req.params.id} returning *
     `;
     res.json({ data: updated });
   })
