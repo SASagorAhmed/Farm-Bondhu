@@ -12,8 +12,7 @@ dist
 dist-ssr
 *.local
 
-# Cow YOLO ONNX (run npm run cow:models:seg locally)
-public/models/*.onnx
+# Temp Ultralytics export scratch (ONNX in public/models/ is tracked for Vercel deploy)
 .cow-model-export/
 
 # Editor directories and files

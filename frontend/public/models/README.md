@@ -8,7 +8,7 @@ From `frontend/` (requires **Python 3** on PATH):
 npm run cow:models:seg
 ```
 
-This exports `yolov8n-seg.onnx` (~12 MB) into this folder via Ultralytics. ONNX files are gitignored; each developer runs the script once.
+This exports `yolov8n-seg.onnx` (~12 MB) into this folder via Ultralytics. **`yolov8n-seg.onnx` is committed to Git** so Vercel production serves the same model as local dev. Re-run export and commit if you replace the model file.
 
 **Windows:** Install [Python 3](https://www.python.org/downloads/) and ensure `python` works in a terminal. The script runs `pip install ultralytics onnx` automatically.
 

@@ -52,6 +52,7 @@ Project root: `frontend`
 - Framework preset: Vite
 - Build command: `npm run build`
 - Output directory: `dist`
+- Cow Weight ONNX: `frontend/public/models/yolov8n-seg.onnx` is tracked in Git and copied to `dist/models/` on build. After updating the model, commit and redeploy frontend.
 
 ### Frontend smoke tests
 
@@ -60,6 +61,7 @@ Project root: `frontend`
 - At least 2-3 data pages load (dashboard/marketplace/etc.).
 - No CORS errors in browser console.
 - Network calls go to `https://<backend-domain>.vercel.app/api/...`.
+- Cow Weight: `https://<frontend-domain>/models/yolov8n-seg.onnx` returns **200** (not 404).
 
 ---
 
