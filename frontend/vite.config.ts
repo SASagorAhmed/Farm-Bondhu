@@ -16,7 +16,6 @@ export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     include: [
       "fabric",
-      "@toast-ui/react-image-editor",
       "tui-image-editor",
       "tui-color-picker",
     ],

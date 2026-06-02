@@ -21,6 +21,7 @@
 
 | Date | Summary |
 |------|---------|
+| 2026-06-02 | Removed the legacy Toast React wrapper dependency to keep Vercel npm installs compatible with React 18 |
 | 2026-05-24 | Offline draft banner: clear "Saved offline on this device" copy, list with Open, auto-clear localStorage after cloud sync |
 | 2026-05-24 | Initial A–Z doc created |
 | 2026-05-24 | Live crop via native `cropX`/`cropY` (`fabricImageCrop.ts`); removed clipPath approach |
@@ -68,7 +69,7 @@ flowchart TB
   photoEditorApply --> Product["Products / Shop / Profile"]
 ```
 
-**Important:** `usesFabricEngine()` always returns `true`. `PhotoEditorWorkspace` lazy-loads **only** `FabricDesignWorkspace`. Toast and Konva code remains for legacy draft import and dead-code cleanup candidates — do not route new users to them.
+**Important:** `usesFabricEngine()` always returns `true`. `PhotoEditorWorkspace` lazy-loads **only** `FabricDesignWorkspace`. Toast React wrapper code was removed after the Fabric migration; Toast/Konva draft types remain only for legacy draft import and cleanup candidates.
 
 ---
 
@@ -84,7 +85,7 @@ flowchart TB
 | i18n | `useLanguage()` → `seller.photoEditor.*` keys (EN + BN) |
 | Backend | Express marketplace router + PostgreSQL JSONB |
 | Image upload (export) | Cloudinary via `uploadProductImage`, `uploadShopAsset` |
-| Legacy (npm, unrouted) | `@toast-ui/react-image-editor`, Konva types in `types.ts` |
+| Legacy formats | Toast/Konva draft types in `types.ts`; no Toast React wrapper is installed |
 
 **State model:** Fabric canvas is the source of truth for design content. React state holds UI chrome (active tool, selection id, title, crop slider values synced from selected image). Undo/redo is a Fabric JSON snapshot stack, not React state.
 
@@ -217,11 +218,11 @@ Base: `frontend/src/features/photoEditor/`
 | `fabricEditor.css` | Workspace layout styles |
 | `fabricImageCrop.test.ts` | Unit tests for crop math |
 
-### engines/toast/ (legacy, unrouted)
+### engines/toast/ (legacy helpers)
 
 | File | Role |
 |------|------|
-| `ToastImageWorkspace.tsx` | Full Toast UI editor — **not imported by App.tsx** |
+| `ToastImageWorkspace.tsx` | Removed; the active route lazy-loads Fabric only |
 | `toastExport.ts` | Toast PNG export |
 | `toastTheme.ts` | Toast UI theme overrides |
 | `createBlankCanvas.ts` | Blank canvas for Toast init |
@@ -675,13 +676,13 @@ Selection chrome color matches theme via `applyObjectChrome()` in `fabricCanvasH
 
 | Item | Status |
 |------|--------|
-| `ToastImageWorkspace.tsx` | Complete alternate editor; **not routed** — keep for reference until removal task |
+| `ToastImageWorkspace.tsx` | Removed; active routes use Fabric only |
 | Konva hooks (`usePhotoEditorStore`, `usePhotoEditorHistory`) | Dead for Fabric path |
 | Konva components (`PhotoEditorCanvas`, etc.) | Dead for Fabric path |
-| `@toast-ui/react-image-editor` in package.json | Legacy dep — do not remove without audit |
+| `@toast-ui/react-image-editor` in package.json | Removed because its React 17 peer dependency breaks strict npm installs on React 18 |
 | Toast i18n keys (`toastUploadPhoto`, etc.) | Still in translations for legacy strings |
 
-**Do not delete legacy code without an explicit cleanup task** — some old drafts may still reference Toast/Konva formats.
+**Do not delete legacy draft type/import helpers without an explicit cleanup task** — some old drafts may still reference Toast/Konva formats.
 
 ---
 
@@ -746,8 +747,7 @@ npx vitest run src/features/photoEditor/engines/fabric/
 | Package | Version | Role |
 |---------|---------|------|
 | `fabric` | ^7.4.0 | Active canvas engine |
-| `@toast-ui/react-image-editor` | ^3.15.2 | Legacy (unrouted) |
-| `tui-image-editor` | ^3.15.3 | Legacy peer |
+| `tui-image-editor` | ^3.15.3 | Legacy format support/reference only; no React wrapper route |
 
 ---
 
