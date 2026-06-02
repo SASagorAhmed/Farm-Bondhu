@@ -480,25 +480,115 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
         return { data: null, error: null };
       }
 
-      if (this.op === "select" && this.table === "conversations" && !this.expectOne && !this.expectMaybeOne) {
-        const sellerEq = this.filters.find((f): f is Extract<Filter, { type: "eq" }> => f.type === "eq" && f.column === "seller_id");
-        const orF = this.filters.find((f): f is Extract<Filter, { type: "or" }> => f.type === "or");
-        const path = sellerEq || orF ? "/v1/compat/from" : "/v1/compat/from/admin";
-        const payload: Record<string, unknown> = {
-          action: "select",
-          table: "conversations",
-          mode: orF ? "participant_inbox" : sellerEq ? "seller_inbox" : "admin_all",
-        };
-        let { res, body } = await apiJson(path, { method: "POST", body: JSON.stringify(payload) });
-        if (res.status === 403 && path === "/v1/compat/from/admin") {
-          const fallbackPayload = { action: "select", table: "conversations", mode: "participant_inbox" };
-          const fallback = await apiJson("/v1/compat/from", { method: "POST", body: JSON.stringify(fallbackPayload) });
-          res = fallback.res;
-          body = fallback.body;
+      if (this.table === "conversations") {
+        if (this.op === "select" && (this.expectOne || this.expectMaybeOne)) {
+          const buyerId = this.getEq("buyer_id");
+          const sellerId = this.getEq("seller_id");
+          const productId = this.getEq("product_id");
+          const id = this.getEq("id");
+          const payload =
+            buyerId && sellerId && productId
+              ? { action: "select", table: "conversations", mode: "find", buyer_id: buyerId, seller_id: sellerId, product_id: productId }
+              : id
+                ? { action: "select", table: "conversations", mode: "by_id", id }
+                : null;
+          if (!payload) return { data: null, error: new Error("conversations select requires buyer/seller/product or id filters") };
+          const { res, body } = await apiJson("/v1/compat/from", { method: "POST", body: JSON.stringify(payload) });
+          if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+          return { data: (body as { data?: unknown }).data ?? null, error: null };
         }
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
-        const rows = (body as { data?: unknown[] }).data;
-        return { data: Array.isArray(rows) ? rows : [], error: null };
+
+        if (this.op === "select" && !this.expectOne && !this.expectMaybeOne) {
+          const sellerEq = this.filters.find((f): f is Extract<Filter, { type: "eq" }> => f.type === "eq" && f.column === "seller_id");
+          const orF = this.filters.find((f): f is Extract<Filter, { type: "or" }> => f.type === "or");
+          const path = sellerEq || orF ? "/v1/compat/from" : "/v1/compat/from/admin";
+          const payload: Record<string, unknown> = {
+            action: "select",
+            table: "conversations",
+            mode: orF ? "participant_inbox" : sellerEq ? "seller_inbox" : "admin_all",
+          };
+          let { res, body } = await apiJson(path, { method: "POST", body: JSON.stringify(payload) });
+          if (res.status === 403 && path === "/v1/compat/from/admin") {
+            const fallbackPayload = { action: "select", table: "conversations", mode: "participant_inbox" };
+            const fallback = await apiJson("/v1/compat/from", { method: "POST", body: JSON.stringify(fallbackPayload) });
+            res = fallback.res;
+            body = fallback.body;
+          }
+          if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+          const rows = (body as { data?: unknown[] }).data;
+          return { data: Array.isArray(rows) ? rows : [], error: null };
+        }
+
+        if (this.op === "insert" && this.insertRow) {
+          const row = (Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow) as Record<string, unknown>;
+          const { res, body } = await apiJson("/v1/compat/from", {
+            method: "POST",
+            body: JSON.stringify({
+              action: "insert",
+              table: "conversations",
+              buyer_id: row.buyer_id,
+              seller_id: row.seller_id,
+              product_id: row.product_id,
+            }),
+          });
+          if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Could not start conversation.")) };
+          const data = (body as { data?: unknown }).data ?? null;
+          return { data: this.wantReturning || this.expectOne ? data : null, error: null };
+        }
+
+        if (this.op === "update" && this.updatePatch) {
+          const id = this.getEq("id");
+          if (!id) return { data: null, error: new Error("conversations update requires .eq('id', ...)") };
+          const { res, body } = await apiJson("/v1/compat/from", {
+            method: "POST",
+            body: JSON.stringify({ action: "update", table: "conversations", id, patch: this.updatePatch }),
+          });
+          if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+          return { data: (body as { data?: unknown }).data ?? null, error: null };
+        }
+      }
+
+      if (this.table === "chat_messages") {
+        if (this.op === "select") {
+          const conversationId = this.getEq("conversation_id");
+          if (!conversationId) return { data: null, error: new Error("chat_messages requires .eq('conversation_id', ...)") };
+          const { res, body } = await apiJson("/v1/compat/from", {
+            method: "POST",
+            body: JSON.stringify({ action: "select", table: "chat_messages", conversation_id: conversationId }),
+          });
+          if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+          let rows = ((body as { data?: unknown[] }).data || []) as Record<string, unknown>[];
+          const ord = this.filters.find((f): f is Extract<Filter, { type: "order" }> => f.type === "order");
+          if (ord?.column === "created_at") {
+            rows = [...rows].sort((a, b) => {
+              const ta = new Date(String(a.created_at || 0)).getTime();
+              const tb = new Date(String(b.created_at || 0)).getTime();
+              return ord.ascending ? ta - tb : tb - ta;
+            });
+          }
+          const lim = this.filters.find((f): f is Extract<Filter, { type: "limit" }> => f.type === "limit");
+          if (lim) rows = rows.slice(0, lim.n);
+          if (this.expectOne || this.expectMaybeOne) return { data: rows[0] || null, error: null };
+          return { data: rows, error: null };
+        }
+
+        if (this.op === "insert" && this.insertRow) {
+          const row = (Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow) as Record<string, unknown>;
+          const conversationId = row.conversation_id;
+          if (!conversationId) return { data: null, error: new Error("chat_messages insert requires conversation_id") };
+          const { conversation_id: _cid, sender_id: _sid, ...rest } = row;
+          const { res, body } = await apiJson("/v1/compat/from", {
+            method: "POST",
+            body: JSON.stringify({
+              action: "insert",
+              table: "chat_messages",
+              conversation_id: conversationId,
+              row: rest,
+            }),
+          });
+          if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Failed to send message.")) };
+          return { data: (body as { data?: unknown }).data ?? null, error: null };
+        }
       }
 
       if (this.op === "select" && this.table === "products") {
@@ -524,7 +614,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           method: "POST",
           body: JSON.stringify(this.insertRow),
         });
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Failed to add product")) };
         return { data: (body as { data: unknown }).data, error: null };
       }
       if (this.op === "update" && this.table === "products") {
@@ -533,7 +623,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           method: "PATCH",
           body: JSON.stringify(this.updatePatch || {}),
         });
-        if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+        if (!res.ok) return { data: null, error: new Error(messageFromApiJson(body, res, "Failed to update product")) };
         return { data: (body as { data: unknown }).data, error: null };
       }
       if (this.op === "delete" && this.table === "products") {
@@ -698,6 +788,16 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
             const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions`, {
               method: "POST",
               body: JSON.stringify(this.insertRow),
+            });
+            if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
+            return { data: (body as { data?: unknown }).data ?? null, error: null };
+          }
+          if (this.op === "update" && this.updatePatch) {
+            const id = this.getEq("id");
+            if (!id) return { data: null, error: new Error("prescriptions update requires .eq('id', ...)") };
+            const { res, body } = await apiJson(`/v1/${this.consultationNamespace}/prescriptions/${id}`, {
+              method: "PATCH",
+              body: JSON.stringify(this.updatePatch),
             });
             if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
             return { data: (body as { data?: unknown }).data ?? null, error: null };
@@ -1154,6 +1254,20 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
 
   private async buildCompatBody(uid: string | undefined): Promise<Record<string, unknown> | null> {
     const t = this.table;
+    const inAdminArea =
+      typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
+    const lim = this.filters.find((f): f is Extract<Filter, { type: "limit" }> => f.type === "limit");
+    const adminListLimit = Math.min(Math.max(lim?.n ?? 500, 1), 1000);
+
+    if (inAdminArea && this.op === "select" && !this.expectOne) {
+      if (t === "shops") {
+        return { action: "select", table: "shops", mode: "admin_all", limit: adminListLimit, __admin: true };
+      }
+      if (t === "products" && !this.getEq("seller_id") && !this.getEq("id")) {
+        return { action: "select", table: "products", mode: "admin_all", limit: adminListLimit, __admin: true };
+      }
+    }
+
     if (!uid && t !== "profiles" && t !== "community_posts" && t !== "learning_guides") return null;
 
     if (t === "profiles" && this.op === "select") {

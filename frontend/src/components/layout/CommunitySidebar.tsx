@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutGrid, PenSquare, HelpCircle, AlertTriangle, Bookmark, User, LogOut, Menu, PanelLeftClose,
-  MessageSquareText, UserCircle, Settings, Clock,
+  MessageSquareText, UserCircle, Settings, Clock, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -48,6 +48,7 @@ export default function CommunitySidebar() {
 
   const COMMUNITY_BOTTOM: NavItem[] = [
     { title: t("sidebar.profile"), url: profilePath, icon: UserCircle, iconColor: ICON_COLORS.profile },
+    { title: t("sidebar.helpSupport"), url: "/community/support", icon: Headphones, iconColor: CB },
     { title: t("sidebar.settings"), url: "/community/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
   ];
 
@@ -96,7 +97,7 @@ export default function CommunitySidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vetbondhu", "medibondhu", "learning"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="community" collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

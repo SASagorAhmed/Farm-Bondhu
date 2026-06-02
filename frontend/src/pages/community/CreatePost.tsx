@@ -14,6 +14,7 @@ import { CATEGORY_LABELS, ANIMAL_LABELS } from "@/components/community/PostCard"
 import LinkPreview, { type LinkPreviewData } from "@/components/community/LinkPreview";
 import SharedPostEmbed, { type SharedPostData } from "@/components/community/SharedPostEmbed";
 import { extractFirstUrl } from "@/lib/urlUtils";
+import { useAdminPreviewMode } from "@/hooks/useAdminPreviewMode";
 
 const POST_TYPES = [
   { value: "question", label: "Question", emoji: "❓", desc: "Ask for help" },
@@ -32,6 +33,7 @@ const PRIORITIES = [
 
 export default function CreatePost() {
   const { user } = useAuth();
+  const { readOnly } = useAdminPreviewMode();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const shareId = searchParams.get("share");
@@ -254,7 +256,7 @@ export default function CreatePost() {
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => navigate("/community")} className="rounded-full">Cancel</Button>
-              <Button onClick={handleSubmit} disabled={submitting} className="bg-teal-500 hover:bg-teal-600 text-white rounded-full px-6">
+              <Button onClick={handleSubmit} disabled={submitting || readOnly} className="bg-teal-500 hover:bg-teal-600 text-white rounded-full px-6">
                 {submitting ? "Posting..." : sharedPost ? "Share Post" : "Publish Post"}
               </Button>
             </div>

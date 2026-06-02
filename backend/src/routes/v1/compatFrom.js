@@ -9,11 +9,56 @@ import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
 import { requireAdmin } from "../../middleware/requireAdmin.js";
+import { upsertShopFromApprovalRequest } from "../../services/shopFromApproval.js";
+import { invalidateByPrefix } from "../../services/responseCache.js";
+import { ensureConversationAnchorProductShare } from "../../services/chatAnchorProduct.js";
+import {
+  MarketplaceChatOpenError,
+  openMarketplaceConversation,
+} from "../../services/marketplaceChatOpen.js";
+import {
+  CHAT_CONTACT_BLOCKED_MESSAGE,
+  getChatSendRestriction,
+  recordChatContactViolation,
+  scanMarketplaceChatText,
+  userHasAdminRole,
+} from "../../services/chatContactGuard.js";
+import { conversationHasPendingReport } from "../../services/adminModerationReports.js";
+import { assertPreviewWriteAllowed, isSuperAdminUser } from "../../services/adminTeam.js";
+
+const MARKETPLACE_CACHE_PREFIX = "marketplace";
+
+function invalidateMarketplaceChatCache(buyerId, sellerId) {
+  if (buyerId) invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|u:${buyerId}|`);
+  if (sellerId) invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|u:${sellerId}|`);
+}
+
+function isSelfShopConversation(conversation) {
+  const buyer = String(conversation?.buyer_id || "").trim().toLowerCase();
+  const seller = String(conversation?.seller_id || "").trim().toLowerCase();
+  return Boolean(buyer && seller && buyer === seller);
+}
 
 const router = Router();
 
 function bad(res, msg, status = 400) {
   res.status(status).json({ error: msg });
+}
+
+async function blockPreviewWriteIfNeeded(req, res, action, table) {
+  if (!["insert", "update", "delete"].includes(String(action || ""))) return false;
+  if (!String(table || "").startsWith("community_")) return false;
+  const message = await assertPreviewWriteAllowed(req.userId);
+  if (message) {
+    bad(res, message, 403);
+    return true;
+  }
+  return false;
+}
+
+async function canActOnCommunityContent(uid, ownerUserId) {
+  if (ownerUserId === uid) return true;
+  return isSuperAdminUser(uid);
 }
 
 /** @param {unknown} v */
@@ -29,6 +74,8 @@ router.post(
     const body = req.body || {};
     const { action, table } = body;
     const uid = req.userId;
+
+    if (await blockPreviewWriteIfNeeded(req, res, action, table)) return;
 
     if (action === "select" && table === "profiles" && body.id) {
       if (!isUuid(body.id)) return bad(res, "Invalid id");
@@ -80,7 +127,9 @@ router.post(
         "can_book_human",
         "can_sell",
         "can_bulk_buy",
+        "can_buy",
         "can_access_learning",
+        "can_access_community",
       ]);
 
       const [profileRow] = await sql`select primary_role from profiles where id = ${uid} limit 1`;
@@ -307,7 +356,7 @@ router.post(
         select user_id from community_posts where id = ${body.id} limit 1
       `;
       if (!owner) return res.json({ data: null, error: { message: "Not found" } });
-      if (owner.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, owner.user_id))) return bad(res, "Forbidden", 403);
       const [updated] = await sql`
         update community_posts set ${sql(patch)} where id = ${body.id} returning *
       `;
@@ -319,7 +368,7 @@ router.post(
         select user_id from community_posts where id = ${body.id} limit 1
       `;
       if (!owner) return res.json({ data: null, error: { message: "Not found" } });
-      if (owner.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, owner.user_id))) return bad(res, "Forbidden", 403);
       await sql`delete from community_posts where id = ${body.id}`;
       return res.json({ data: null, error: null });
     }
@@ -423,14 +472,79 @@ router.post(
 
     if (action === "insert" && table === "chat_messages" && isUuid(body.conversation_id)) {
       const row = body.row || {};
+      const [c] = await sql`
+        select buyer_id, seller_id, conversation_kind from conversations where id = ${body.conversation_id} limit 1
+      `;
+      if (!c) return bad(res, "Conversation not found", 404);
+      const isAdmin = await userHasAdminRole(sql, uid);
+      const isParticipant = c.buyer_id === uid || c.seller_id === uid;
+      if (!isParticipant && !isAdmin) return bad(res, "Forbidden", 403);
+
+      const isSelfChat = isSelfShopConversation(c);
+      let senderRole = row.sender_role;
+      const messageType = row.message_type || "text";
+      if (isAdmin && !isParticipant) {
+        const convoKind = String(c.conversation_kind || "marketplace");
+        if (convoKind === "marketplace") {
+          const hasReport = await conversationHasPendingReport(sql, body.conversation_id);
+          if (!hasReport) {
+            return bad(res, "Admin cannot reply until a user reports this conversation", 403);
+          }
+          if (messageType !== "text") {
+            return bad(res, "Admin moderation replies must be text only", 400);
+          }
+          senderRole = "admin";
+        } else {
+          senderRole = "seller";
+        }
+      } else if (senderRole !== "buyer" && senderRole !== "seller") {
+        if (isSelfChat) return bad(res, "sender_role required for own-shop chat", 400);
+        senderRole = uid === c.seller_id ? "seller" : "buyer";
+      }
+
+      const textBody = typeof row.text_body === "string" ? row.text_body.trim() : "";
+
+      if (messageType === "text" && textBody && !isAdmin) {
+        const restriction = await getChatSendRestriction(sql, uid);
+        if (restriction.restrictedUntil && new Date(restriction.restrictedUntil).getTime() > Date.now()) {
+          return res.status(429).json({
+            error: "Chat sending is temporarily restricted. Please try again later.",
+            code: "chat_restricted",
+            chat_guard: {
+              restricted_until: restriction.restrictedUntil,
+              violation_count: restriction.violationCount,
+            },
+          });
+        }
+
+        const scan = scanMarketplaceChatText(textBody);
+        if (scan.blocked) {
+          const guard = await recordChatContactViolation(sql, {
+            userId: uid,
+            conversationId: body.conversation_id,
+            reason: scan.reason || "contact_guard",
+          });
+          return res.status(400).json({
+            error: CHAT_CONTACT_BLOCKED_MESSAGE,
+            code: "contact_guard",
+            chat_guard: {
+              restricted_until: guard.restrictedUntil,
+              violation_count: guard.violationCount,
+            },
+          });
+        }
+      }
+
       const [created] = await sql`
         insert into chat_messages ${sql({
           ...row,
+          sender_role: senderRole,
           conversation_id: body.conversation_id,
           sender_id: uid,
         })}
         returning *
       `;
+      invalidateMarketplaceChatCache(c.buyer_id, c.seller_id);
       return res.json({ data: created, error: null });
     }
 
@@ -439,11 +553,16 @@ router.post(
         select buyer_id, seller_id from conversations where id = ${body.id} limit 1
       `;
       if (!c) return res.json({ data: null, error: { message: "Not found" } });
-      if (c.buyer_id !== uid && c.seller_id !== uid) return bad(res, "Forbidden", 403);
-      const patch = body.patch || {};
+      const isAdmin = await userHasAdminRole(sql, uid);
+      if (c.buyer_id !== uid && c.seller_id !== uid && !isAdmin) return bad(res, "Forbidden", 403);
+      const patch = { ...(body.patch || {}) };
+      delete patch.conversation_kind;
+      delete patch.support_topic;
+      delete patch.support_status;
       const [updated] = await sql`
         update conversations set ${sql(patch)} where id = ${body.id} returning *
       `;
+      invalidateMarketplaceChatCache(c.buyer_id, c.seller_id);
       return res.json({ data: updated, error: null });
     }
 
@@ -453,7 +572,10 @@ router.post(
       if (buyerId !== uid) return bad(res, "Forbidden", 403);
       const [row] = await sql`
         select id from conversations
-        where buyer_id = ${buyerId} and seller_id = ${sellerId} and product_id = ${productId}
+        where buyer_id = ${buyerId}
+          and seller_id = ${sellerId}
+          and coalesce(conversation_kind, 'marketplace') = 'marketplace'
+        order by coalesce(last_message_at, created_at) desc nulls last
         limit 1
       `;
       return res.json({ data: row || null, error: null });
@@ -463,11 +585,16 @@ router.post(
       const { buyer_id: buyerId, seller_id: sellerId, product_id: productId } = body;
       if (!isUuid(buyerId) || !isUuid(sellerId) || !isUuid(productId)) return bad(res, "Invalid ids");
       if (buyerId !== uid) return bad(res, "Forbidden", 403);
-      const [created] = await sql`
-        insert into conversations ${sql({ buyer_id: buyerId, seller_id: sellerId, product_id: productId })}
-        returning *
-      `;
-      return res.json({ data: created, error: null });
+      try {
+        const result = await openMarketplaceConversation(sql, { buyerId, sellerId, productId });
+        invalidateMarketplaceChatCache(buyerId, sellerId);
+        return res.json({ data: result.conversation, error: null });
+      } catch (err) {
+        if (err instanceof MarketplaceChatOpenError) {
+          return bad(res, err.message, err.status);
+        }
+        throw err;
+      }
     }
 
     if (action === "select" && table === "conversations" && body.mode === "by_id") {
@@ -481,7 +608,8 @@ router.post(
     if (action === "select" && table === "conversations" && body.mode === "participant_inbox") {
       const rows = await sql`
         select * from conversations
-        where buyer_id = ${uid} or seller_id = ${uid}
+        where buyer_id = ${uid}
+          and coalesce(conversation_kind, 'marketplace') = 'marketplace'
         order by coalesce(last_message_at, created_at) desc nulls last
       `;
       return res.json({ data: rows, error: null });
@@ -491,6 +619,7 @@ router.post(
       const rows = await sql`
         select * from conversations
         where seller_id = ${uid}
+          and coalesce(conversation_kind, 'marketplace') = 'marketplace'
         order by coalesce(last_message_at, created_at) desc nulls last
       `;
       return res.json({ data: rows, error: null });
@@ -603,7 +732,7 @@ router.post(
         select user_id from community_comments where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: { message: "Not found" } });
-      if (r.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
       const patch = body.patch || {};
       const [updated] = await sql`
         update community_comments set ${sql(patch)} where id = ${body.id} returning *
@@ -616,7 +745,7 @@ router.post(
         select user_id from community_comments where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: null });
-      if (r.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
       await sql`delete from community_comments where id = ${body.id}`;
       return res.json({ data: null, error: null });
     }
@@ -626,7 +755,7 @@ router.post(
         select user_id from community_answers where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: { message: "Not found" } });
-      if (r.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
       const patch = body.patch || {};
       const [updated] = await sql`
         update community_answers set ${sql(patch)} where id = ${body.id} returning *
@@ -639,7 +768,7 @@ router.post(
         select user_id from community_answers where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: null });
-      if (r.user_id !== uid) return bad(res, "Forbidden", 403);
+      if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
       await sql`delete from community_answers where id = ${body.id}`;
       return res.json({ data: null, error: null });
     }
@@ -813,6 +942,9 @@ router.post(
         where id = ${body.id}
         returning *
       `;
+      if (updated?.status === "approved" && updated?.request_type === "shop_access") {
+        await upsertShopFromApprovalRequest(sql, updated);
+      }
       return res.json({ data: updated || null, error: null });
     }
 

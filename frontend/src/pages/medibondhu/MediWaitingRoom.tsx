@@ -23,7 +23,15 @@ type ApptBrief = {
   consultation_type?: string | null;
   patient_user_id?: string | null;
   doctor_name?: string | null;
+  leave_deadline_at?: string | null;
+  left_user_id?: string | null;
 };
+
+function canPatientJoinRoomNow(appt: ApptBrief, currentUserId?: string) {
+  if (appt.status !== "in_progress") return false;
+  if (!appt.leave_deadline_at) return true;
+  return !!currentUserId && String(appt.left_user_id || "") === String(currentUserId);
+}
 
 export default function MediWaitingRoom() {
   const { appointmentId } = useParams();
@@ -65,7 +73,9 @@ export default function MediWaitingRoom() {
     staleTime: moduleCachePolicy.vet.staleTime,
     gcTime: moduleCachePolicy.vet.gcTime,
     refetchInterval: (q) => {
-      const st = String((q.state.data as ApptBrief | null | undefined)?.status || "").toLowerCase();
+      const row = q.state.data as ApptBrief | null | undefined;
+      const st = String(row?.status || "").toLowerCase();
+      if (st === "in_progress" && row?.leave_deadline_at) return 1000;
       return st === "pending" || st === "confirmed" || !st ? 1500 : false;
     },
     refetchOnWindowFocus: true,
@@ -80,7 +90,10 @@ export default function MediWaitingRoom() {
       onEvent: (_event, row) => {
         void queryClient.invalidateQueries({ queryKey: waitingKey });
         const st = String(row.status || "").toLowerCase();
-        if (st === "in_progress" && !navigatedRef.current) goRoom(true);
+        if (st === "in_progress" && !navigatedRef.current) {
+          const next = row as ApptBrief;
+          if (canPatientJoinRoomNow(next, user?.id)) goRoom(true);
+        }
       },
     });
   }, [appointmentId, goRoom, queryClient, user?.id, waitingKey]);
@@ -90,7 +103,7 @@ export default function MediWaitingRoom() {
     const st = String(appt.status || "").toLowerCase();
     const mine = user?.id && String(appt.patient_user_id || "") === String(user.id);
     if (!mine) return;
-    if (st === "in_progress") goRoom(true);
+    if (st === "in_progress" && canPatientJoinRoomNow(appt, user?.id)) goRoom(true);
     if (st === "cancelled" || st === "rejected" || st === "completed") {
       navigatedRef.current = true;
       toast.info(st === "completed" ? "This visit already ended." : "This appointment was closed.");
@@ -182,6 +195,12 @@ export default function MediWaitingRoom() {
           <div className="rounded-xl bg-muted/40 px-4 py-3 text-sm text-muted-foreground text-left">{TIPS[tipIndex]}</div>
         </CardContent>
       </Card>
+
+      {appt?.status === "in_progress" && appt.leave_deadline_at && !canPatientJoinRoomNow(appt, user?.id) && (
+        <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-center text-sm text-muted-foreground">
+          The visit is ending because the other participant left. If they do not rejoin, it will close automatically.
+        </p>
+      )}
 
       <p className="text-center text-xs text-muted-foreground">You can safely leave this page — your booking stays confirmed. Returning here will reconnect you automatically.</p>
     </div>

@@ -6,11 +6,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { MessageCircle, Search, ArrowLeft } from "lucide-react";
+import { MessageCircle, Search, ArrowLeft, Store } from "lucide-react";
+import { shopPath } from "@/lib/marketplaceShopApi";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
+import { isMarketplaceChatRealtimeAvailable } from "@/lib/marketplaceChatRealtime";
+import { MARKETPLACE_SELLER_FALLBACK } from "@/lib/marketplaceProduct";
+import {
+  buyerInboxPreview,
+  isInboundConversationUpdate,
+  patchInboxUnread,
+} from "@/lib/marketplaceChatUnread";
+import {
+  resolveSelfShopThread,
+  selfShopLastMessagePreview,
+} from "@/lib/marketplaceChatRoles";
 
 interface ConvoItem {
   id: string;
@@ -19,6 +32,10 @@ interface ConvoItem {
   product_id: string | null;
   last_message: string;
   last_message_at: string;
+  last_sender_id?: string | null;
+  last_sender_role?: string | null;
+  has_unread?: boolean;
+  is_self_chat?: boolean;
   other_name: string;
   shop_name?: string;
   product_name?: string;
@@ -50,6 +67,7 @@ export default function BuyerInbox() {
     staleTime: moduleCachePolicy.marketplace.staleTime,
     gcTime: moduleCachePolicy.marketplace.gcTime,
     placeholderData: (prev) => prev,
+    refetchInterval: isMarketplaceChatRealtimeAvailable() ? false : 3500,
   });
 
   const loadError = error instanceof Error ? error.message : null;
@@ -65,22 +83,35 @@ export default function BuyerInbox() {
         const row = (eventType === "DELETE" ? payload.old : payload.new) as Partial<ConvoItem> & {
           buyer_id?: string;
           seller_id?: string;
+          conversation_kind?: string | null;
+          last_sender_id?: string | null;
+          last_sender_role?: string | null;
         };
-        const isMine = row.buyer_id === user.id || row.seller_id === user.id;
-        if (isMine && row.id) {
+        const isMine = row.buyer_id === user.id;
+        const isMarketplace =
+          !row.conversation_kind || row.conversation_kind === "marketplace";
+        if (isMine && row.id && eventType === "DELETE") {
           queryClient.setQueryData<ConvoItem[]>(["buyer-inbox", user.id], (prev) => {
             if (!prev) return prev;
             const list = [...prev];
             const idx = list.findIndex((c) => c.id === row.id);
-            if (eventType === "DELETE") {
-              if (idx >= 0) list.splice(idx, 1);
-              return list;
-            }
+            if (idx >= 0) list.splice(idx, 1);
+            return list;
+          });
+        } else if (isMine && row.id && isMarketplace) {
+          queryClient.setQueryData<ConvoItem[]>(["buyer-inbox", user.id], (prev) => {
+            if (!prev) return prev;
+            const list = [...prev];
+            const idx = list.findIndex((c) => c.id === row.id);
             if (idx >= 0) {
+              const inbound = isInboundConversationUpdate(row.last_sender_role, "buyer");
               list[idx] = {
                 ...list[idx],
                 last_message: row.last_message || list[idx].last_message,
                 last_message_at: row.last_message_at || list[idx].last_message_at,
+                last_sender_id: row.last_sender_id ?? list[idx].last_sender_id,
+                last_sender_role: row.last_sender_role ?? list[idx].last_sender_role,
+                has_unread: inbound ? true : list[idx].has_unread,
               };
             } else {
               list.unshift({
@@ -96,6 +127,11 @@ export default function BuyerInbox() {
             return list.sort((a, b) => String(b.last_message_at || "").localeCompare(String(a.last_message_at || "")));
           });
         }
+        if (isMine && row.id && !isMarketplace && eventType !== "DELETE") {
+          queryClient.invalidateQueries({ queryKey: ["buyer-inbox", user.id] });
+          return;
+        }
+        if (!isMine || !row.id) return;
         if (refreshTimer) clearTimeout(refreshTimer);
         refreshTimer = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["buyer-inbox", user.id] });
@@ -157,7 +193,7 @@ export default function BuyerInbox() {
       </div>
 
       <Card className="shadow-card overflow-hidden">
-        <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+        <div className="h-1" style={{ background: marketplaceGradient() }} />
         <CardContent className="p-0">
           {isLoading && !conversations.length && <p className="text-center text-muted-foreground py-12">Loading...</p>}
           {!isLoading && loadError && (
@@ -174,36 +210,85 @@ export default function BuyerInbox() {
               <p className="text-xs text-muted-foreground">Start a chat from a product page when you are ready</p>
             </div>
           )}
-          {filtered.map((c, i) => (
-            <motion.button
+          {filtered.map((c, i) => {
+            const unread = Boolean(c.has_unread);
+            const selfChat = resolveSelfShopThread(c);
+            const showVisitShop = Boolean(c.seller_id);
+            const preview = selfChat
+              ? selfShopLastMessagePreview(
+                  c.last_sender_role,
+                  c.other_name,
+                  c.last_message || ""
+                )
+              : buyerInboxPreview(
+                  c.last_sender_role,
+                  c.last_sender_id,
+                  user?.id || "",
+                  c.last_message || ""
+                );
+            return (
+            <motion.div
               key={c.id}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.03 }}
-              onClick={() => navigate(`/marketplace/chat/${c.id}`)}
-              className="w-full flex items-center gap-3 p-3.5 hover:bg-muted/40 transition-colors border-b last:border-b-0 text-left"
+              className="flex items-center gap-1 border-b last:border-b-0"
             >
-              {c.product_image ? (
-                <img src={c.product_image} alt="" className="h-11 w-11 rounded-lg object-cover bg-accent shrink-0" />
-              ) : (
-                <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <MessageCircle className="h-5 w-5" style={{ color: ICON_COLORS.marketplace }} />
-                </div>
-              )}
+            <button
+              type="button"
+              onClick={() => {
+                if (user?.id) patchInboxUnread(queryClient, user.id, c.id, false);
+                navigate(`/marketplace/chat/${c.id}`);
+              }}
+              className="flex-1 flex items-center gap-3 p-3.5 hover:bg-muted/40 transition-colors text-left min-w-0"
+            >
+              <div
+                className="h-11 w-11 rounded-lg flex items-center justify-center shrink-0 text-white font-bold text-sm"
+                style={{ backgroundColor: MARKETPLACE_THEME.primary }}
+              >
+                {(c.shop_name || MARKETPLACE_SELLER_FALLBACK).charAt(0).toUpperCase()}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold text-sm text-foreground truncate">{c.shop_name || c.other_name}</p>
-                  <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(c.last_message_at)}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {unread && (
+                      <span
+                        className="h-2 w-2 rounded-full shrink-0"
+                        style={{ backgroundColor: MARKETPLACE_THEME.primary }}
+                        aria-hidden
+                      />
+                    )}
+                    <p className={`text-sm truncate ${unread ? "font-bold text-foreground" : "font-semibold text-foreground"}`}>
+                      {selfChat ? "Your shop" : c.shop_name || MARKETPLACE_SELLER_FALLBACK}
+                    </p>
+                  </div>
+                  <span className={`text-[11px] shrink-0 ${unread ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                    {timeAgo(c.last_message_at)}
+                  </span>
                 </div>
-                {c.product_name && (
-                  <p className="text-xs truncate" style={{ color: ICON_COLORS.marketplace }}>
-                    {c.product_name} {c.product_price ? `• ৳${c.product_price}` : ""}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground truncate mt-0.5">{c.last_message}</p>
+                <p className={`text-xs truncate mt-0.5 ${unread ? "font-bold text-foreground" : "text-muted-foreground"}`}>
+                  {preview}
+                </p>
               </div>
-            </motion.button>
-          ))}
+            </button>
+            {showVisitShop && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 mr-2 text-xs h-8"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(shopPath(c.seller_id));
+                }}
+              >
+                <Store className="h-3.5 w-3.5 mr-1" />
+                Visit shop
+              </Button>
+            )}
+            </motion.div>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

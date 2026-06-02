@@ -4,19 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { API_BASE, vetbondhuApi, readSession } from "@/api/client";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
+import { ICON_COLORS } from "@/lib/iconColors";
 import {
   ArrowLeft, Stethoscope, Pill, Heart, CalendarCheck,
-  FileText, Loader2, Clock, AlertTriangle, Send,
+  FileText, Loader2, Clock, AlertTriangle, Send, Edit3, Save, X,
 } from "lucide-react";
 
 interface PrescriptionData {
   id: string;
   consultation_id: string | null;
   vet_name: string;
+  vet_degree?: string | null;
+  vet_address?: string | null;
   farmer_name: string;
   animal_type: string;
   breed: string | null;
@@ -62,7 +67,7 @@ const statusStyles: Record<string, string> = {
   issued: "bg-green-100 text-green-700",
   updated: "bg-blue-100 text-blue-700",
   canceled: "bg-red-100 text-red-700",
-  completed: "bg-primary/10 text-primary",
+  completed: "bg-emerald-100 text-emerald-700",
 };
 
 const severityStyles: Record<string, string> = {
@@ -71,6 +76,7 @@ const severityStyles: Record<string, string> = {
   severe: "bg-orange-100 text-orange-700",
   critical: "bg-red-100 text-red-700",
 };
+const VB = ICON_COLORS.vetbondhu;
 
 export default function PrescriptionDetail() {
   const { prescriptionId } = useParams();
@@ -79,6 +85,10 @@ export default function PrescriptionDetail() {
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [diseaseDraft, setDiseaseDraft] = useState("");
+  const [shortDescriptionDraft, setShortDescriptionDraft] = useState("");
 
   useEffect(() => {
     if (!prescriptionId) return;
@@ -88,6 +98,11 @@ export default function PrescriptionDetail() {
         vetbondhuApi.from("prescription_items").select("*").eq("prescription_id", prescriptionId).order("created_at"),
       ]);
       setPrescription(pData as PrescriptionData | null);
+      if (pData) {
+        const p = pData as PrescriptionData;
+        setDiseaseDraft(p.diagnosis || "");
+        setShortDescriptionDraft(p.symptoms || "");
+      }
       setMedicines((mData as MedicineItem[]) || []);
       setLoading(false);
     };
@@ -97,7 +112,7 @@ export default function PrescriptionDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: VB }} />
       </div>
     );
   }
@@ -113,6 +128,47 @@ export default function PrescriptionDetail() {
   }
 
   const p = prescription;
+  const vetDesignation = p.vet_degree?.trim() || "Veterinary Professional";
+  const vetAddress = p.vet_address?.trim();
+
+  const resetSummaryDraft = () => {
+    setDiseaseDraft(p.diagnosis || "");
+    setShortDescriptionDraft(p.symptoms || "");
+    setEditingSummary(false);
+  };
+
+  const saveSummaryDraft = async () => {
+    if (!p || p.status !== "draft") return;
+    setSavingSummary(true);
+    const { data, error } = await vetbondhuApi
+      .from("prescriptions")
+      .update({
+        diagnosis: diseaseDraft.trim() || null,
+        symptoms: shortDescriptionDraft.trim() || null,
+      })
+      .eq("id", p.id);
+    setSavingSummary(false);
+    if (error) {
+      toast({ title: "Error", description: error.message || "Failed to update prescription summary.", variant: "destructive" });
+      return;
+    }
+    const updated = data as PrescriptionData | null;
+    const nextDiagnosis = updated?.diagnosis ?? (diseaseDraft.trim() || null);
+    const nextSymptoms = updated?.symptoms ?? (shortDescriptionDraft.trim() || null);
+    setPrescription((prev) =>
+      prev
+        ? {
+            ...prev,
+            diagnosis: nextDiagnosis,
+            symptoms: nextSymptoms,
+          }
+        : prev
+    );
+    setDiseaseDraft(nextDiagnosis || "");
+    setShortDescriptionDraft(nextSymptoms || "");
+    setEditingSummary(false);
+    toast({ title: "Summary updated", description: "Disease and short description were saved." });
+  };
 
   const issueDraft = async () => {
     if (!p || p.status !== "draft") return;
@@ -147,8 +203,8 @@ export default function PrescriptionDetail() {
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
-            <Stethoscope className="h-5 w-5 text-primary" />
-            Prescription
+            <Stethoscope className="h-5 w-5" style={{ color: VB }} />
+            VetBondhu Prescription
           </h1>
           <p className="text-sm text-muted-foreground">
             {format(new Date(p.created_at), "MMMM dd, yyyy 'at' h:mm a")}
@@ -158,7 +214,7 @@ export default function PrescriptionDetail() {
           {p.status}
         </Badge>
         {p.status === "draft" ? (
-          <Button onClick={() => void issueDraft()} disabled={issuing}>
+          <Button className="text-white" style={{ backgroundColor: VB }} onClick={() => void issueDraft()} disabled={issuing}>
             {issuing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
             Issue Prescription
           </Button>
@@ -166,13 +222,15 @@ export default function PrescriptionDetail() {
       </motion.div>
 
       {/* Prescription Card */}
-      <Card className="border-t-4 border-t-primary overflow-hidden">
+      <Card className="border-t-4 overflow-hidden" style={{ borderTopColor: VB }}>
         {/* Doctor & Patient */}
         <CardContent className="pt-6">
           <div className="grid grid-cols-2 gap-6 mb-6">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Veterinarian</p>
               <p className="font-display font-bold text-foreground">{p.vet_name}</p>
+              <p className="text-sm font-medium" style={{ color: VB }}>{vetDesignation}</p>
+              {vetAddress && <p className="text-xs text-muted-foreground mt-0.5">{vetAddress}</p>}
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Patient / Owner</p>
@@ -204,30 +262,85 @@ export default function PrescriptionDetail() {
           {/* Diagnosis */}
           <div className="mb-6">
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-              <Heart className="h-4 w-4 text-red-500" /> Diagnosis
+              <Heart className="h-4 w-4" style={{ color: VB }} /> Disease Summary
               {p.severity && (
                 <Badge className={`text-xs capitalize ml-2 ${severityStyles[p.severity] || ""}`}>
                   {p.severity}
                 </Badge>
               )}
+              {p.status === "draft" && !editingSummary && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-7 px-2 text-xs"
+                  onClick={() => setEditingSummary(true)}
+                  style={{ color: VB }}
+                >
+                  <Edit3 className="h-3.5 w-3.5 mr-1" />
+                  Edit
+                </Button>
+              )}
             </h3>
-            {p.symptoms && (
-              <div className="mb-3">
-                <p className="text-xs text-muted-foreground mb-0.5">Symptoms</p>
-                <p className="text-sm bg-accent/50 rounded-lg p-3">{p.symptoms}</p>
+            {editingSummary ? (
+              <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: `${VB}33`, backgroundColor: `${VB}0D` }}>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Disease / Condition</Label>
+                  <Textarea
+                    value={diseaseDraft}
+                    onChange={(event) => setDiseaseDraft(event.target.value)}
+                    placeholder="e.g. FMD, Newcastle disease, digestive disorder..."
+                    rows={2}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Short Description / Symptoms</Label>
+                  <Textarea
+                    value={shortDescriptionDraft}
+                    onChange={(event) => setShortDescriptionDraft(event.target.value)}
+                    placeholder="Describe the condition, observed symptoms, and short case summary..."
+                    rows={3}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={resetSummaryDraft} disabled={savingSummary}>
+                    <X className="h-3.5 w-3.5 mr-1" />
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void saveSummaryDraft()}
+                    disabled={savingSummary}
+                    className="text-white"
+                    style={{ backgroundColor: VB }}
+                  >
+                    {savingSummary ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                    Save Summary
+                  </Button>
+                </div>
               </div>
-            )}
-            {p.clinical_findings && (
-              <div className="mb-3">
-                <p className="text-xs text-muted-foreground mb-0.5">Clinical Findings</p>
-                <p className="text-sm bg-accent/50 rounded-lg p-3">{p.clinical_findings}</p>
-              </div>
-            )}
-            {p.diagnosis && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">Diagnosis</p>
-                <p className="text-sm bg-primary/5 rounded-lg p-3 font-medium">{p.diagnosis}</p>
-              </div>
+            ) : (
+              <>
+                {p.diagnosis && (
+                  <div className="mb-3">
+                    <p className="text-xs text-muted-foreground mb-0.5">Disease / Condition</p>
+                    <p className="text-sm rounded-lg p-3 font-medium" style={{ backgroundColor: `${VB}0D` }}>{p.diagnosis}</p>
+                  </div>
+                )}
+                {p.symptoms && (
+                  <div className="mb-3">
+                    <p className="text-xs text-muted-foreground mb-0.5">Short Description / Symptoms</p>
+                    <p className="text-sm bg-accent/50 rounded-lg p-3">{p.symptoms}</p>
+                  </div>
+                )}
+                {p.clinical_findings && (
+                  <div className="mb-3">
+                    <p className="text-xs text-muted-foreground mb-0.5">Clinical Findings</p>
+                    <p className="text-sm bg-accent/50 rounded-lg p-3">{p.clinical_findings}</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -236,7 +349,7 @@ export default function PrescriptionDetail() {
           {/* Medicines */}
           <div className="mb-6">
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-              <Pill className="h-4 w-4 text-blue-500" /> Medicines ({medicines.length})
+              <Pill className="h-4 w-4" style={{ color: VB }} /> Medicines ({medicines.length})
             </h3>
             {medicines.length === 0 ? (
               <p className="text-sm text-muted-foreground">No medicines prescribed.</p>
@@ -286,7 +399,7 @@ export default function PrescriptionDetail() {
               <Separator className="mb-6" />
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-orange-500" /> Care Instructions
+                  <FileText className="h-4 w-4" style={{ color: VB }} /> Care Instructions
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   {p.feeding_advice && <InstructionCard icon="🍽" label="Feeding" text={p.feeding_advice} />}
@@ -304,19 +417,19 @@ export default function PrescriptionDetail() {
               <Separator className="mb-6" />
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <CalendarCheck className="h-4 w-4 text-primary" /> Follow-up
+                  <CalendarCheck className="h-4 w-4" style={{ color: VB }} /> Follow-up
                 </h3>
-                <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 space-y-2">
+                <div className="rounded-xl border p-4 space-y-2" style={{ borderColor: `${VB}33`, backgroundColor: `${VB}0D` }}>
                   {p.follow_up_date && (
                     <div className="flex items-center gap-2 text-sm">
-                      <Clock className="h-4 w-4 text-primary" />
+                      <Clock className="h-4 w-4" style={{ color: VB }} />
                       <span className="font-medium">Next appointment:</span>
                       <span>{format(new Date(p.follow_up_date), "MMMM dd, yyyy")}</span>
                     </div>
                   )}
                   {p.warning_signs && (
                     <div className="flex items-start gap-2 text-sm">
-                      <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: VB }} />
                       <div>
                         <span className="font-medium">Warning signs: </span>
                         <span className="text-muted-foreground">{p.warning_signs}</span>

@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { logEmailAudit } from "./emailAuditLog.js";
 
 function smtpConfig() {
   const host = (process.env.SMTP_HOST || "smtp-relay.brevo.com").trim();
@@ -83,33 +84,80 @@ async function sendWithBrevoTransactionalApi(opts) {
 }
 
 /**
- * @param {{ to: string; subject: string; text: string; html?: string }} opts
+ * @param {{
+ *   to: string;
+ *   subject: string;
+ *   text: string;
+ *   html?: string;
+ *   audit?: {
+ *     emailType: string;
+ *     category: string;
+ *     sensitiveFields?: Record<string, string>;
+ *     metadata?: Record<string, unknown>;
+ *     secretValues?: Record<string, string>;
+ *   };
+ * }} opts
  */
 export async function sendMailMessage(opts) {
   const { from } = smtpConfig();
   if (!from) throw new Error("MAIL_FROM is not configured");
 
-  if (isSmtpConfigured()) {
-    const transport = createMailer();
-    if (!transport) throw new Error("SMTP is misconfigured");
-    await transport.sendMail({
-      from,
-      to: opts.to,
-      subject: opts.subject,
-      text: opts.text,
-      html: opts.html || opts.text.replace(/\n/g, "<br/>"),
-    });
-    return;
-  }
+  const audit = opts.audit;
+  let provider = null;
 
-  if (process.env.BREVO_API_KEY?.trim()) {
-    await sendWithBrevoTransactionalApi(opts);
-    return;
-  }
+  try {
+    if (isSmtpConfigured()) {
+      provider = "smtp";
+      const transport = createMailer();
+      if (!transport) throw new Error("SMTP is misconfigured");
+      await transport.sendMail({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+        html: opts.html || opts.text.replace(/\n/g, "<br/>"),
+      });
+    } else if (process.env.BREVO_API_KEY?.trim()) {
+      provider = "brevo_api";
+      await sendWithBrevoTransactionalApi(opts);
+    } else {
+      throw new Error(
+        "Email not configured: set SMTP_USER + SMTP_PASS + MAIL_FROM, or BREVO_API_KEY + MAIL_FROM (verified sender)."
+      );
+    }
 
-  throw new Error(
-    "Email not configured: set SMTP_USER + SMTP_PASS + MAIL_FROM, or BREVO_API_KEY + MAIL_FROM (verified sender)."
-  );
+    if (audit) {
+      void logEmailAudit({
+        emailType: audit.emailType,
+        category: audit.category,
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+        status: "sent",
+        sensitiveFields: audit.sensitiveFields,
+        metadata: audit.metadata,
+        provider,
+        secretValues: audit.secretValues,
+      });
+    }
+  } catch (err) {
+    if (audit) {
+      void logEmailAudit({
+        emailType: audit.emailType,
+        category: audit.category,
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+        status: "failed",
+        error: err?.message || String(err),
+        sensitiveFields: audit.sensitiveFields,
+        metadata: audit.metadata,
+        provider,
+        secretValues: audit.secretValues,
+      });
+    }
+    throw err;
+  }
 }
 
 /**
@@ -117,18 +165,27 @@ export async function sendMailMessage(opts) {
  */
 export async function sendRegistrationOtpEmail(p) {
   const { to, code, minutesValid } = p;
+  const text = [
+    "Use this code to finish creating your FarmBondhu account:",
+    "",
+    `  ${code}`,
+    "",
+    `This code expires in ${minutesValid} minutes.`,
+    "",
+    "If you did not request this, you can ignore this email.",
+  ].join("\n");
+
   await sendMailMessage({
     to,
     subject: "Your FarmBondhu verification code",
-    text: [
-      "Use this code to finish creating your FarmBondhu account:",
-      "",
-      `  ${code}`,
-      "",
-      `This code expires in ${minutesValid} minutes.`,
-      "",
-      "If you did not request this, you can ignore this email.",
-    ].join("\n"),
+    text,
+    audit: {
+      emailType: "registration_otp",
+      category: "auth",
+      sensitiveFields: { code: "hasValue" },
+      metadata: { minutesValid },
+      secretValues: { code },
+    },
   });
 }
 
@@ -137,17 +194,26 @@ export async function sendRegistrationOtpEmail(p) {
  */
 export async function sendPasswordResetOtpEmail(p) {
   const { to, code, minutesValid } = p;
+  const text = [
+    "Use this code to reset your FarmBondhu password:",
+    "",
+    `  ${code}`,
+    "",
+    `This code expires in ${minutesValid} minutes.`,
+    "",
+    "If you did not request a password reset, you can ignore this email.",
+  ].join("\n");
+
   await sendMailMessage({
     to,
     subject: "Your FarmBondhu password reset code",
-    text: [
-      "Use this code to reset your FarmBondhu password:",
-      "",
-      `  ${code}`,
-      "",
-      `This code expires in ${minutesValid} minutes.`,
-      "",
-      "If you did not request a password reset, you can ignore this email.",
-    ].join("\n"),
+    text,
+    audit: {
+      emailType: "password_reset_otp",
+      category: "auth",
+      sensitiveFields: { code: "hasValue" },
+      metadata: { minutesValid },
+      secretValues: { code },
+    },
   });
 }

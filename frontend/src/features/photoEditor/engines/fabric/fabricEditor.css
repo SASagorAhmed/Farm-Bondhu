@@ -1,0 +1,484 @@
+/* Fabric photo editor — Canva-style 3-column layout */
+.fabric-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+}
+
+.fabric-editor-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--background) / 0.85);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  pointer-events: all;
+}
+
+.fabric-editor-preset-strip {
+  flex-shrink: 0;
+}
+
+.fabric-editor-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fabric-editor-artboard {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: hsl(var(--muted) / 0.5);
+  background-image:
+    linear-gradient(45deg, hsl(var(--muted) / 0.65) 25%, transparent 25%),
+    linear-gradient(-45deg, hsl(var(--muted) / 0.65) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, hsl(var(--muted) / 0.65) 75%),
+    linear-gradient(-45deg, transparent 75%, hsl(var(--muted) / 0.65) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  padding: 1rem;
+}
+
+.fabric-editor-artboard-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.fabric-editor-artboard-frame {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(233, 30, 140, 0.12);
+  border: 2px dashed hsl(var(--muted-foreground) / 0.25);
+  border-radius: 2px;
+  background: #fff;
+  line-height: 0;
+}
+
+.fabric-editor-artboard-frame .canvas-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.fabric-editor-artboard-frame canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.fabric-editor-artboard-frame--text-tool,
+.fabric-editor-artboard-frame--text-tool .canvas-container,
+.fabric-editor-artboard-frame--text-tool canvas {
+  cursor: crosshair;
+}
+
+.fabric-editor-artboard-empty-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: hsl(var(--muted-foreground) / 0.7);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.fabric-editor-quick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding-top: 0.75rem;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.fabric-editor-rail {
+  width: 18rem;
+  max-width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  min-height: 0;
+}
+
+.fabric-editor-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.fabric-editor-rail-section {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.fabric-editor-rail-section:last-child {
+  border-bottom: none;
+}
+
+.fabric-editor-rail-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: hsl(var(--foreground));
+}
+
+.fabric-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fabric-editor-field + .fabric-editor-field {
+  margin-top: 0.5rem;
+}
+
+.fabric-editor-range-value {
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  text-align: right;
+}
+
+.fabric-editor-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.fabric-editor-hint {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.fabric-editor-warn {
+  font-size: 0.75rem;
+  color: hsl(var(--destructive));
+}
+
+.fabric-editor-layers-dock {
+  max-height: 220px;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--card));
+  padding: 0.5rem 0.75rem 0.75rem;
+  min-height: 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.fabric-editor-layers-dock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.fabric-editor-layers-dock-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin: 0;
+  color: hsl(var(--foreground));
+}
+
+.fabric-editor-layers-dock-count {
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.6);
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.fabric-editor-layers-dock-hint {
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 0.375rem;
+}
+
+.fabric-editor-layers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 140px;
+}
+
+.fabric-editor-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.25rem;
+  font-size: 0.75rem;
+}
+
+.fabric-editor-layer-row:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.fabric-editor-layer-row--selected {
+  background: hsl(var(--primary) / 0.1);
+}
+
+.fabric-editor-layer-row--drop-target {
+  outline: 1px dashed hsl(var(--primary) / 0.6);
+  background: hsl(var(--primary) / 0.06);
+}
+
+.fabric-editor-layer-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  cursor: grab;
+  border: none;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.fabric-editor-layer-grip:active {
+  cursor: grabbing;
+}
+
+.fabric-editor-layer-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: transparent;
+  padding: 0.25rem 0.125rem;
+  cursor: pointer;
+}
+
+.fabric-editor-layers-empty {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  padding: 0.5rem 0.25rem;
+}
+
+.fabric-editor-layer-order-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 2.25rem);
+  gap: 0.375rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.fabric-editor-layer-thumb {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.fabric-editor-upload-panel {
+  width: 100%;
+}
+
+.fabric-editor-upload-gallery-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: hsl(var(--foreground));
+}
+
+.fabric-editor-upload-empty {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin: 0;
+}
+
+.fabric-editor-upload-gallery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.fabric-editor-upload-thumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.375rem;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.25);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.fabric-editor-upload-thumb:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.fabric-editor-upload-thumb--selected {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.fabric-editor-upload-thumb-img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.25rem;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.fabric-editor-upload-thumb-fallback {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.25rem;
+  background: hsl(var(--muted));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fabric-editor-upload-thumb-name {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.fabric-editor-color-section-title {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 0.5rem;
+}
+
+.fabric-editor-color-subtitle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 0.375rem;
+}
+
+.fabric-editor-color-swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.fabric-editor-color-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.fabric-editor-color-swatch:hover {
+  transform: scale(1.08);
+}
+
+.fabric-editor-color-gradient-swatch {
+  background-size: cover;
+}
+
+.fabric-editor-color-custom-toggle {
+  font-size: 0.6875rem;
+  color: hsl(var(--primary));
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.fabric-editor-color-custom-panel {
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  background: hsl(var(--muted) / 0.35);
+}
+
+.fabric-editor-font-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.fabric-editor-font-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.375rem 0.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.fabric-editor-font-tile:hover {
+  background: hsl(var(--muted) / 0.45);
+}
+
+.fabric-editor-font-tile--selected {
+  background: hsl(var(--primary) / 0.08);
+  border-width: 2px;
+}
+
+.fabric-editor-font-tile-preview {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.fabric-editor-font-tile-label {
+  font-size: 0.625rem;
+  color: hsl(var(--muted-foreground));
+}
+
+@media (max-width: 767px) {
+  .fabric-editor-rail {
+    display: none;
+  }
+}

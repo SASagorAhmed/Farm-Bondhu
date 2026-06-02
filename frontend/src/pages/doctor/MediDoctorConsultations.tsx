@@ -10,6 +10,7 @@ import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealt
 import { subscribeMediDoctorInboxNewAppointment } from "@/api/client";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
 import { MB, MediSectionTitle, MediStatusBadge } from "@/components/medibondhu/MediChrome";
 
 type Appointment = {
@@ -25,6 +26,7 @@ type Appointment = {
 
 export default function MediDoctorConsultations() {
   const { user } = useAuth();
+  const { readOnly } = useMediDoctorPreviewActions();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -141,7 +143,7 @@ export default function MediDoctorConsultations() {
           </h1>
           <p className="text-sm text-muted-foreground mt-2">Track all human MediBondhu consultations and update visit status.</p>
         </div>
-        <Button type="button" className="rounded-xl text-white gap-2" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
+        <Button type="button" className="rounded-xl text-white gap-2" style={{ backgroundColor: MB }} disabled={readOnly} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
           <FilePlus2 className="h-4 w-4" />
           New prescription
         </Button>
@@ -175,13 +177,13 @@ export default function MediDoctorConsultations() {
                         size="sm"
                         className="rounded-lg text-white gap-1.5"
                         style={{ backgroundColor: MB }}
-                        disabled={joiningId === item.id || setStatus.isPending}
+                        disabled={readOnly || joiningId === item.id || setStatus.isPending}
                         onClick={() => void handleJoinVideo(item)}
                       >
                         <Video className="h-4 w-4" /> {joiningId === item.id ? "Joining…" : "Join video"}
                       </Button>
                     )}
-                    <Button type="button" size="sm" variant="outline" className="rounded-lg" disabled={done || setStatus.isPending} onClick={() => setStatus.mutate({ id: item.id, status: "completed" })}>
+                    <Button type="button" size="sm" variant="outline" className="rounded-lg" disabled={readOnly || done || setStatus.isPending} onClick={() => setStatus.mutate({ id: item.id, status: "completed" })}>
                       Mark complete
                     </Button>
                     {patientId && (
@@ -190,6 +192,7 @@ export default function MediDoctorConsultations() {
                         size="sm"
                         variant="outline"
                         className="rounded-lg"
+                        disabled={readOnly}
                         onClick={() => navigate(`/medibondhu/doctor/rx/new?patient=${encodeURIComponent(patientId)}&appointment=${encodeURIComponent(item.id)}`)}
                       >
                         Issue Rx

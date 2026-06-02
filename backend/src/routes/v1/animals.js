@@ -3,6 +3,7 @@ import sql from "../../db.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
+import { blockNonSuperAdminPreviewWrite } from "../../middleware/blockNonSuperAdminPreviewWrite.js";
 import { assertFarmOwnedByUser } from "../../services/ownership.js";
 
 const router = Router();
@@ -52,6 +53,7 @@ router.post(
   "/",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const body = req.body || {};
     const { farm_id, breed, age } = body;
@@ -87,6 +89,7 @@ router.patch(
   "/:id",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const body = req.body || {};
@@ -118,6 +121,7 @@ router.delete(
   "/:id",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const rows = await sql`

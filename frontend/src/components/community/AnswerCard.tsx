@@ -25,12 +25,13 @@ interface AnswerCardProps {
   };
   isPostOwner: boolean;
   isAnswerOwner?: boolean;
+  canModerate?: boolean;
   onMarkBest?: (answerId: string) => void;
   onDelete?: (answerId: string) => void;
   onSaveEdit?: (answerId: string, newBody: string) => void;
 }
 
-export default function AnswerCard({ answer, isPostOwner, isAnswerOwner, onMarkBest, onDelete, onSaveEdit }: AnswerCardProps) {
+export default function AnswerCard({ answer, isPostOwner, isAnswerOwner, canModerate, onMarkBest, onDelete, onSaveEdit }: AnswerCardProps) {
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(answer.body);
 
@@ -77,6 +78,32 @@ export default function AnswerCard({ answer, isPostOwner, isAnswerOwner, onMarkB
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction onClick={() => onDelete?.(answer.id)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {canModerate && !isAnswerOwner && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto"><MoreVertical className="h-3.5 w-3.5" /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive">
+                      <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete as Super Admin
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete this answer as Super Admin?</AlertDialogTitle>
+                      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onDelete?.(answer.id)} className="bg-destructive text-destructive-foreground">Delete as Super Admin</AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>

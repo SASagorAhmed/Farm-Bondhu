@@ -5,6 +5,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { MarketplaceChatFocusProvider } from "@/contexts/MarketplaceChatFocusContext";
+import MarketplaceChatAlertsHost from "@/components/marketplace/MarketplaceChatAlertsHost";
 import { CartProvider } from "@/contexts/CartContext";
 import { OrderProvider } from "@/contexts/OrderContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -20,6 +22,10 @@ import LearningLayout from "@/components/layout/LearningLayout";
 import MarketplaceLayout from "@/components/layout/MarketplaceLayout";
 import MediBondhuLayout from "@/components/layout/MediBondhuLayout";
 import VetBondhuLayout from "@/components/layout/VetBondhuLayout";
+import PhotoEditorLayout from "@/components/layout/PhotoEditorLayout";
+import PhotoEditorHome from "@/features/photoEditor/pages/PhotoEditorHome";
+import PhotoEditorWorkspace from "@/features/photoEditor/pages/PhotoEditorWorkspace";
+import PhotoEditorDrafts from "@/features/photoEditor/pages/PhotoEditorDrafts";
 import ProfileLayoutWrapper from "@/components/layout/ProfileLayoutWrapper";
 
 // Public pages
@@ -53,13 +59,17 @@ import OrderTracking from "./pages/marketplace/OrderTracking";
 import Checkout from "./pages/marketplace/Checkout";
 import ReturnRequest from "./pages/marketplace/ReturnRequest";
 import SellerDashboard from "./pages/marketplace/SellerDashboard";
+import SellerOnboarding from "./pages/marketplace/SellerOnboarding";
 import SellerOrders from "./pages/marketplace/SellerOrders";
+import SellerOrderDetail from "./pages/marketplace/SellerOrderDetail";
 import Products from "./pages/vendor/Products";
+import SellerProductDetail from "./pages/vendor/SellerProductDetail";
 import Inventory from "./pages/vendor/Inventory";
 import Payouts from "./pages/vendor/Payouts";
 import VendorReviews from "./pages/vendor/Reviews";
 import VendorSettings from "./pages/vendor/VendorSettings";
 import MyShop from "./pages/marketplace/MyShop";
+import SellerShopPage from "./pages/marketplace/SellerShopPage";
 import BuyerHome from "./pages/marketplace/BuyerHome";
 import Categories from "./pages/marketplace/Categories";
 import Wishlist from "./pages/marketplace/Wishlist";
@@ -107,10 +117,26 @@ import PrescriptionDetail from "./pages/vet/PrescriptionDetail";
 import ProfilePage from "./pages/profile/ProfilePage";
 import AccessCenter from "./pages/profile/AccessCenter";
 import Settings from "./pages/profile/Settings";
+import MarketplaceSettings from "./pages/marketplace/MarketplaceSettings";
+import CustomerSupportPage from "./pages/profile/CustomerSupportPage";
+import SupportChatThread from "./pages/profile/SupportChatThread";
+import SupportContextRedirect from "./components/SupportContextRedirect";
 
 // Admin pages
 import AdminMarketplace from "./pages/admin/AdminMarketplace";
-import FarmBondhuShop from "./pages/admin/FarmBondhuShop";
+import AdminSellerLaneApprovals from "./pages/admin/AdminSellerLaneApprovals";
+import OfficialShopAdminLayout from "./pages/admin/farmbondhuShop/OfficialShopAdminLayout";
+import FarmBondhuShopOverview from "./pages/admin/farmbondhuShop/FarmBondhuShopOverview";
+import OfficialShopProducts from "./pages/admin/farmbondhuShop/OfficialShopProducts";
+import OfficialShopMyShop from "./pages/admin/farmbondhuShop/OfficialShopMyShop";
+import OfficialShopPhotoEditor from "./pages/admin/farmbondhuShop/OfficialShopPhotoEditor";
+import { ADMIN_PHOTO_EDITOR_BASE } from "@/features/photoEditor/lib/photoEditorPaths";
+import OfficialShopOrders from "./pages/admin/farmbondhuShop/OfficialShopOrders";
+import OfficialShopInventory from "./pages/admin/farmbondhuShop/OfficialShopInventory";
+import OfficialShopPayouts from "./pages/admin/farmbondhuShop/OfficialShopPayouts";
+import OfficialShopReviews from "./pages/admin/farmbondhuShop/OfficialShopReviews";
+import OfficialShopSettings from "./pages/admin/farmbondhuShop/OfficialShopSettings";
+import OfficialShopMessages from "./pages/admin/farmbondhuShop/OfficialShopMessages";
 import Reports from "./pages/admin/Reports";
 import ApprovalQueue from "./pages/admin/ApprovalQueue";
 import AdminBroadcast from "./pages/admin/AdminBroadcast";
@@ -119,10 +145,22 @@ import AdminLearning from "./pages/admin/AdminLearning";
 import AdminMediBondhu from "./pages/admin/AdminMediBondhu";
 import AdminFarms from "./pages/admin/AdminFarms";
 import AdminOrders from "./pages/admin/AdminOrders";
+import AdminOrderDetail from "./pages/admin/AdminOrderDetail";
+import AdminMarketplaceBuyers from "./pages/admin/AdminMarketplaceBuyers";
+import AdminMarketplaceSellers from "./pages/admin/AdminMarketplaceSellers";
+import AdminMarketplaceTransactions from "./pages/admin/AdminMarketplaceTransactions";
+import AdminMarketplaceSellerPayouts from "./pages/admin/AdminMarketplaceSellerPayouts";
+import AdminPlatformMessages from "./pages/admin/AdminPlatformMessages";
+import AdminCustomerSupport from "./pages/admin/AdminCustomerSupport";
+import AdminModerationReports from "./pages/admin/AdminModerationReports";
+import AdminMarketplaceReports from "./pages/admin/AdminMarketplaceReports";
+import AdminMarketplaceReviews from "./pages/admin/AdminMarketplaceReviews";
 import AdminCommunity from "./pages/admin/AdminCommunity";
 import VetApprovals from "./pages/admin/VetApprovals";
 import AdminMediBondhuHuman from "./pages/admin/AdminMediBondhuHuman";
 import AdminCowDetectionExport from "./pages/admin/AdminCowDetectionExport";
+import AdminModuleHub from "./pages/admin/AdminModuleHub";
+import AdminEmailAudit from "./pages/admin/AdminEmailAudit";
 
 // Community pages
 import CommunityLayout from "@/components/layout/CommunityLayout";
@@ -288,6 +326,8 @@ const App = () => (
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RoutePerfTracker />
         <AuthProvider>
+          <MarketplaceChatFocusProvider>
+          <MarketplaceChatAlertsHost />
           <RouteIntentPrefetch />
           <CartProvider>
             <OrderProvider>
@@ -306,6 +346,7 @@ const App = () => (
                 <Route path="/profile" element={<ProtectedRoute><ProfileLayoutWrapper /></ProtectedRoute>}>
                   <Route index element={<ProfilePage />} />
                 </Route>
+                <Route path="/support/*" element={<ProtectedRoute><SupportContextRedirect /></ProtectedRoute>} />
                 <Route path="/access-center" element={<ProtectedRoute><BuyerLayout /></ProtectedRoute>}>
                   <Route index element={<AccessCenter />} />
                 </Route>
@@ -326,6 +367,8 @@ const App = () => (
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ BUYER routes (buyer-only layout, no extra capabilities needed) ============ */}
@@ -338,36 +381,43 @@ const App = () => (
                   <Route path="settings" element={<Settings />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="access-center" element={<AccessCenter />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ LEARNING (requires can_access_learning) ============ */}
-                <Route path="/learning" element={<ProtectedRoute requiredCapability="can_access_learning"><LearningLayout /></ProtectedRoute>}>
+                <Route path="/learning" element={<ProtectedRoute requireAnyCapability={["can_access_learning", "can_book_vet"]}><LearningLayout /></ProtectedRoute>}>
                   <Route index element={<LearningCenter />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["learning", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ MARKETPLACE (requires can_buy) ============ */}
-                <Route path="/marketplace" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
+                <Route path="/marketplace" element={<ProtectedRoute requireAnyCapability={["can_buy", "can_bulk_buy", "can_sell"]}><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<Marketplace />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["marketplace", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
-                  <Route path="settings" element={<Settings />} />
+                  <Route path="settings" element={<MarketplaceSettings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                   <Route path="inbox" element={<LazyPage><BuyerInbox /></LazyPage>} />
                   <Route path="chat/:conversationId" element={<LazyPage><ChatDetail /></LazyPage>} />
                   <Route path="cow-weight/*" element={<CowWeightEstimator />} />
+                  <Route path="shop/:sellerId" element={<SellerShopPage />} />
                   <Route path=":id" element={<LazyPage><ProductDetail /></LazyPage>} />
                 </Route>
-                <Route path="/cart" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
+                <Route path="/cart" element={<ProtectedRoute requireAnyCapability={["can_buy", "can_bulk_buy"]}><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<Cart />} />
                 </Route>
-                <Route path="/checkout" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
+                <Route path="/checkout" element={<ProtectedRoute requireAnyCapability={["can_buy", "can_bulk_buy"]}><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<Checkout />} />
                 </Route>
-                <Route path="/orders" element={<ProtectedRoute requiredCapability="can_buy"><MarketplaceLayout /></ProtectedRoute>}>
+                <Route path="/orders" element={<ProtectedRoute requireAnyCapability={["can_buy", "can_bulk_buy"]}><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<Orders />} />
                   <Route path=":orderId" element={<OrderTracking />} />
                   <Route path=":orderId/return" element={<ReturnRequest />} />
@@ -377,10 +427,18 @@ const App = () => (
                 <Route path="/my-shop" element={<ProtectedRoute><MarketplaceLayout /></ProtectedRoute>}>
                   <Route index element={<MyShop />} />
                 </Route>
+                <Route path="/seller/onboarding" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+                  <Route index element={<SellerOnboarding />} />
+                </Route>
                 <Route path="/seller" element={<ProtectedRoute requiredCapability="can_sell"><VendorLayout /></ProtectedRoute>}>
+                  <Route path="photo-editor" element={<PhotoEditorHome />} />
+                  <Route path="photo-editor/drafts" element={<PhotoEditorDrafts />} />
+                  <Route path="my-shop" element={<MyShop />} />
                   <Route path="dashboard" element={<SellerDashboard />} />
                   <Route path="orders" element={<SellerOrders />} />
+                  <Route path="orders/:orderId" element={<SellerOrderDetail />} />
                   <Route path="products" element={<Products />} />
+                  <Route path="products/:productId" element={<SellerProductDetail />} />
                   <Route path="inventory" element={<Inventory />} />
                   <Route path="payouts" element={<Payouts />} />
                   <Route path="reviews" element={<VendorReviews />} />
@@ -388,6 +446,31 @@ const App = () => (
                   <Route path="notifications" element={<Notifications contextFilter={["marketplace", "general"]} />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="access-center" element={<AccessCenter />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
+                </Route>
+                <Route
+                  path="/seller/photo-editor/edit"
+                  element={
+                    <ProtectedRoute requiredCapability="can_sell">
+                      <PhotoEditorLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route path="new" element={<PhotoEditorWorkspace />} />
+                  <Route path=":draftId" element={<PhotoEditorWorkspace />} />
+                </Route>
+
+                <Route
+                  path="/admin/farmbondhu-shop/photo-editor/edit"
+                  element={
+                    <ProtectedRoute requiredCapability="can_manage_platform">
+                      <PhotoEditorLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route path="new" element={<PhotoEditorWorkspace />} />
+                  <Route path=":draftId" element={<PhotoEditorWorkspace />} />
                 </Route>
 
                 {/* ============ VET routes (requires can_consult_as_vet) ============ */}
@@ -406,6 +489,8 @@ const App = () => (
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="notifications" element={<Notifications contextFilter={["vet", "general"]} />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                   <Route path="cow-weight/*" element={<CowWeightEstimator />} />
                 </Route>
 
@@ -492,6 +577,8 @@ const App = () => (
                   <Route path="notifications" element={<Notifications contextFilter={["medibondhu", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ VETBONDHU (isolated animal-care consult surface) ============ */}
@@ -516,10 +603,12 @@ const App = () => (
                   <Route path="notifications" element={<Notifications contextFilter={["vetbondhu", "vet", "medibondhu", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ COMMUNITY (any authenticated user) ============ */}
-                <Route path="/community" element={<ProtectedRoute><CommunityLayout /></ProtectedRoute>}>
+                <Route path="/community" element={<ProtectedRoute requiredCapability="can_access_community"><CommunityLayout /></ProtectedRoute>}>
                   <Route index element={<CommunityFeed />} />
                   <Route path="create" element={<CreatePost />} />
                   <Route path="post/:id" element={<PostDetail />} />
@@ -532,35 +621,69 @@ const App = () => (
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["general"]} />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 {/* ============ ADMIN (requires can_manage_platform) ============ */}
                 <Route path="/admin" element={<ProtectedRoute requiredCapability="can_manage_platform"><DashboardLayout /></ProtectedRoute>}>
-                  <Route index element={<LazyPage><AdminDashboard /></LazyPage>} />
+                  <Route index element={<AdminModuleHub />} />
+                  <Route path="platform" element={<LazyPage><AdminDashboard /></LazyPage>} />
+                  <Route path="dashboard" element={<Navigate to="/admin/platform" replace />} />
                   <Route path="users" element={<LazyPage><UserManagement /></LazyPage>} />
                   <Route path="approvals" element={<ApprovalQueue />} />
                   <Route path="vet-approvals" element={<VetApprovals />} />
                   <Route path="broadcast" element={<AdminBroadcast />} />
+                  <Route path="email-audit" element={<AdminEmailAudit />} />
                   <Route path="team" element={<AdminTeam />} />
-                  <Route path="farmbondhu-shop" element={<FarmBondhuShop />} />
+                  <Route path="farmbondhu-shop" element={<OfficialShopAdminLayout />}>
+                    <Route index element={<FarmBondhuShopOverview />} />
+                    <Route path="shop" element={<OfficialShopMyShop />} />
+                    <Route path="products" element={<OfficialShopProducts />} />
+                    <Route path="photo-editor" element={<OfficialShopPhotoEditor />} />
+                    <Route
+                      path="photo-editor/drafts"
+                      element={<PhotoEditorDrafts editorBasePath={ADMIN_PHOTO_EDITOR_BASE} />}
+                    />
+                    <Route path="orders" element={<OfficialShopOrders />} />
+                    <Route path="inventory" element={<OfficialShopInventory />} />
+                    <Route path="payouts" element={<OfficialShopPayouts />} />
+                    <Route path="reviews" element={<OfficialShopReviews />} />
+                    <Route path="settings" element={<OfficialShopSettings />} />
+                    <Route path="messages" element={<OfficialShopMessages />} />
+                  </Route>
+                  <Route path="marketplace/seller-lanes" element={<AdminSellerLaneApprovals />} />
+                  <Route path="marketplace/buyers" element={<AdminMarketplaceBuyers />} />
+                  <Route path="marketplace/sellers" element={<AdminMarketplaceSellers />} />
+                  <Route path="marketplace/transactions" element={<AdminMarketplaceTransactions />} />
+                  <Route path="marketplace/payouts" element={<AdminMarketplaceSellerPayouts />} />
+                  <Route path="marketplace/messages" element={<AdminPlatformMessages />} />
+                  <Route path="marketplace/reports" element={<AdminMarketplaceReports />} />
+                  <Route path="marketplace/reviews" element={<AdminMarketplaceReviews />} />
+                  <Route path="moderation-reports" element={<AdminModerationReports />} />
+                  <Route path="customer-support" element={<AdminCustomerSupport />} />
                   <Route path="marketplace" element={<AdminMarketplace />} />
                   <Route path="reports" element={<Reports />} />
                   <Route path="learning" element={<AdminLearning />} />
                   <Route path="medibondhu-overview" element={<AdminMediBondhu />} />
                   <Route path="medibondhu-human" element={<AdminMediBondhuHuman />} />
                   <Route path="farms" element={<AdminFarms />} />
+                  <Route path="orders/:orderId" element={<AdminOrderDetail />} />
                   <Route path="orders" element={<AdminOrders />} />
                   <Route path="community" element={<AdminCommunity />} />
                   <Route path="cow-detection-export" element={<AdminCowDetectionExport />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications />} />
                   <Route path="settings" element={<Settings />} />
+                  <Route path="support" element={<CustomerSupportPage />} />
+                  <Route path="support/chat/:conversationId" element={<SupportChatThread />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </OrderProvider>
           </CartProvider>
+          </MarketplaceChatFocusProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

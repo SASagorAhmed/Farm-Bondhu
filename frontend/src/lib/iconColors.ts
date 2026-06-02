@@ -27,8 +27,8 @@ export const ICON_COLORS = {
   dollar: "#F59E0B",
   trendingDown: "#F59E0B",
 
-  // Marketplace & Commerce
-  marketplace: "#0EA5E9",  // Sky Blue
+  // Marketplace & Commerce (vendor/seller — sky blue; buyer uses MARKETPLACE_THEME)
+  marketplace: "#0EA5E9",
   cart: "#0EA5E9",
   store: "#0EA5E9",
   package: "#0EA5E9",
@@ -42,6 +42,7 @@ export const ICON_COLORS = {
   prescription: "#12C2D6",
   medibondhu: "#12C2D6",   // MediBondhu brand color
   vetbondhu: "#059669",    // Emerald — VetBondhu animal-care brand (isolated surface)
+  vetbondhuDeep: "#047857", // emerald-700 — richer VetBondhu chrome (e.g. Access Center)
 
   // Admin
   admin: "#6366F1",        // Indigo

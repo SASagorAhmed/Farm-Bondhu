@@ -45,6 +45,8 @@ export default function Specialities() {
     else navigate("/medibondhu/doctors");
   };
 
+  const availableDoctors = doctors.filter((doc) => Boolean((doc as { can_book?: unknown }).can_book)).length;
+
   return (
     <div className="space-y-8">
       <MediHero
@@ -74,6 +76,17 @@ export default function Specialities() {
             <Search className="h-4 w-4 mr-2" />
             Search doctors
           </Button>
+          <Button
+            type="button"
+            size="lg"
+            variant="outline"
+            className="h-12 px-8 rounded-xl font-semibold shrink-0"
+            style={{ borderColor: `${MB}66`, color: MB }}
+            onClick={() => navigate("/medibondhu/doctors?available=true")}
+          >
+            <Clock className="h-4 w-4 mr-2" />
+            Available doctors
+          </Button>
         </div>
         <MediQuickLinks
           onDoctors={() => navigate("/medibondhu/doctors")}
@@ -87,7 +100,7 @@ export default function Specialities() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard title="Doctors listed" value={doctors.length} icon={<UserRound className="h-5 w-5" />} iconColor={MB} index={0} />
         <StatCard title="Specialties" value={specialties.length} icon={<Stethoscope className="h-5 w-5" />} iconColor={MB} index={1} />
-        <StatCard title="Community rating" value={"—"} icon={<Star className="h-5 w-5" />} iconColor={MB} index={2} />
+        <StatCard title="Available now" value={availableDoctors} icon={<Clock className="h-5 w-5" />} iconColor={MB} index={2} />
         <StatCard title="Self-service booking" value="Yes" icon={<Clock className="h-5 w-5" />} iconColor={MB} index={3} />
       </div>
       <p className="text-xs text-muted-foreground -mt-4">Ratings and reviews will appear as more patients complete visits on MediBondhu.</p>
@@ -97,9 +110,14 @@ export default function Specialities() {
           eyebrow="Browse by specialty"
           title="Find the right clinician"
           action={
-            <Button variant="outline" size="sm" className="rounded-full" style={{ borderColor: MB, color: MB }} onClick={() => navigate("/medibondhu/doctors")}>
-              View all
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="rounded-full" style={{ borderColor: `${MB}66`, color: MB }} onClick={() => navigate("/medibondhu/doctors?available=true")}>
+                Available
+              </Button>
+              <Button variant="outline" size="sm" className="rounded-full" style={{ borderColor: MB, color: MB }} onClick={() => navigate("/medibondhu/doctors")}>
+                View all
+              </Button>
+            </div>
           }
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

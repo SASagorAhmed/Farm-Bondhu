@@ -255,6 +255,12 @@ export default function CommunityFeed() {
                   author_role: profiles[post.user_id]?.primary_role,
                 }}
                 onReactionChange={handleReactionChange}
+                onDeleted={(postId) => {
+                  queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
+                    ["community-feed", "active"],
+                    (prev) => (prev ? { ...prev, posts: prev.posts.filter((p) => p.id !== postId) } : prev)
+                  );
+                }}
               />
             </motion.div>
           ))}

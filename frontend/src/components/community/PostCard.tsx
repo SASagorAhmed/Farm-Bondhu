@@ -3,13 +3,20 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
-import { ThumbsUp, MessageCircle, CheckCircle2, Clock, Share2 } from "lucide-react";
+import { ThumbsUp, MessageCircle, CheckCircle2, Clock, Share2, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import PostTypeBadge from "./PostTypeBadge";
 import PriorityBadge from "./PriorityBadge";
 import RoleBadge from "./RoleBadge";
 import LinkPreview from "./LinkPreview";
 import SharedPostEmbed, { type SharedPostData } from "./SharedPostEmbed";
+import { useAdminPreviewMode } from "@/hooks/useAdminPreviewMode";
+import { toast } from "@/hooks/use-toast";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 
 interface PostCardProps {
   post: {
@@ -31,6 +38,7 @@ interface PostCardProps {
     link_preview?: any;
   };
   onReactionChange?: (postId: string, newCount: number) => void;
+  onDeleted?: (postId: string) => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -71,9 +79,10 @@ function getRelativeTime(dateStr: string) {
   return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
 }
 
-export default function PostCard({ post, onReactionChange }: PostCardProps) {
+export default function PostCard({ post, onReactionChange, onDeleted }: PostCardProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { canModerate } = useAdminPreviewMode();
   const [hasReacted, setHasReacted] = useState(false);
   const [localCount, setLocalCount] = useState(post.reaction_count);
   const [toggling, setToggling] = useState(false);
@@ -138,6 +147,17 @@ export default function PostCard({ post, onReactionChange }: PostCardProps) {
     navigate(`/community/create?share=${post.id}`);
   };
 
+  const deletePost = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const { error } = await api.from("community_posts").delete().eq("id", post.id);
+    if (error) {
+      toast({ title: "Failed to delete post", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Post deleted" });
+    onDeleted?.(post.id);
+  };
+
   const categoryColorClass = CATEGORY_COLORS[post.category] || "bg-muted text-muted-foreground";
 
   return (
@@ -168,6 +188,34 @@ export default function PostCard({ post, onReactionChange }: PostCardProps) {
           <div className="flex items-center gap-1.5 shrink-0">
             <PostTypeBadge type={post.post_type} />
             <PriorityBadge priority={post.priority} />
+            {canModerate && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this post as Super Admin?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete this post and all its comments and answers.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={deletePost} className="bg-destructive text-destructive-foreground">
+                      Delete as Super Admin
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
 

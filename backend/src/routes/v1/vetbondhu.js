@@ -18,6 +18,9 @@ import { uploadToCloudinary } from "../../services/cloudinaryUpload.js";
 const router = Router();
 const nowMs = () => Date.now();
 const VETBONDHU_CACHE_PREFIX = "vetbondhu";
+const VET_ONLINE_WINDOW_MS = 90_000;
+const VET_OFFLINE_ERROR = "Doctor is offline and unavailable right now.";
+const DEFAULT_VET_DESIGNATION = "Veterinary Professional";
 
 router.use((req, res, next) => {
   if (req.method === "GET") return next();
@@ -108,6 +111,12 @@ function toMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
+function isVetOnline(row, now = Date.now()) {
+  if (row?.available === false) return false;
+  const lastSeen = row?.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+  return Number.isFinite(lastSeen) && lastSeen > 0 && now - lastSeen <= VET_ONLINE_WINDOW_MS;
+}
+
 async function computeVetEarningsSummary(vetUserId) {
   const [grossRow] = await sql`
     select
@@ -194,6 +203,7 @@ function isVetProfileComplete(row) {
  * @param {Record<string, unknown>} row
  */
 function normalizeVetRow(row) {
+  const online = isVetOnline(row);
   return {
     ...row,
     user_id: row.user_id || row.id || null,
@@ -223,7 +233,10 @@ function normalizeVetRow(row) {
         : 500,
     location: toTextOrNull(row.location) || "Bangladesh",
     available: row.available == null ? true : Boolean(row.available),
-    degree: toTextOrNull(row.degree) || "DVM",
+    last_seen_at: row.last_seen_at || null,
+    is_online: online,
+    status_label: online ? "Online" : "Offline",
+    degree: toTextOrNull(row.degree) || DEFAULT_VET_DESIGNATION,
     avatar: toTextOrNull(row.avatar) || toTextOrNull(row.profile_image_url) || "",
     profile_image_url: toTextOrNull(row.profile_image_url) || toTextOrNull(row.avatar) || "",
     verification_document_url: toTextOrNull(row.verification_document_url) || null,
@@ -308,6 +321,7 @@ async function upsertVetProfileAndDirectory(userId, patch) {
     district: patch.district ?? profileSource?.district ?? vetSource?.district ?? vetSource?.location ?? null,
     address: patch.address ?? profileSource?.address ?? vetSource?.address ?? vetSource?.location ?? null,
     specialization: patch.specialization ?? profileSource?.specialization ?? vetSource?.specialization ?? null,
+    degree: patch.degree ?? profileSource?.degree ?? vetSource?.degree ?? DEFAULT_VET_DESIGNATION,
     experience_years: patch.experience_years ?? patch.experience ?? profileSource?.experience_years ?? vetSource?.experience_years ?? vetSource?.experience ?? 0,
     consultation_fee: patch.consultation_fee ?? patch.fee ?? profileSource?.consultation_fee ?? vetSource?.consultation_fee ?? vetSource?.fee ?? 500,
     profile_image_url: patch.profile_image_url ?? patch.avatar ?? profileSource?.profile_image_url ?? vetSource?.profile_image_url ?? vetSource?.avatar ?? null,
@@ -340,6 +354,7 @@ async function upsertVetProfileAndDirectory(userId, patch) {
     address: profilePatch.address,
     location: patch.location || vetSource?.location || profilePatch.district || profilePatch.address || "Bangladesh",
     specialization: profilePatch.specialization,
+    degree: profilePatch.degree,
     experience: profilePatch.experience_years,
     experience_years: profilePatch.experience_years,
     fee: profilePatch.consultation_fee,
@@ -739,6 +754,27 @@ router.get(
   })
 );
 
+router.post(
+  "/vet/presence/heartbeat",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    await assertVetAccess(req.userId);
+    const canonicalVetUserId = await resolveCanonicalVetUserId(req.userId);
+    const [row] = await sql`
+      update vets
+      set last_seen_at = now(), updated_at = now()
+      where user_id = ${canonicalVetUserId} or id = ${canonicalVetUserId}
+      returning *
+    `;
+    if (!row) {
+      res.status(404).json({ error: "Vet profile not found" });
+      return;
+    }
+    res.json({ data: normalizeVetRow(row) });
+  })
+);
+
 router.put(
   "/vet-profile/me",
   requireDatabase,
@@ -752,6 +788,7 @@ router.put(
     const district = toTextOrNull(body.district);
     const address = toTextOrNull(body.address);
     const specialization = toTextOrNull(body.specialization);
+    const degree = toTextOrNull(body.degree) || DEFAULT_VET_DESIGNATION;
     const experienceYears = Number(body.experience_years);
     const consultationFee = Number(body.consultation_fee);
     const profileImageUrl = toTextOrNull(body.profile_image_url);
@@ -792,6 +829,7 @@ router.put(
       address,
       location: district || address || profile?.location || "Bangladesh",
       specialization,
+      degree,
       experience: Math.floor(experienceYears),
       experience_years: Math.floor(experienceYears),
       fee: consultationFee,
@@ -1436,13 +1474,17 @@ router.post(
     }
     const animalType = toTextOrNull(b.animal_type);
     const symptoms = toTextOrNull(b.symptoms);
-    if (!animalType || !symptoms) {
-      res.status(400).json({ error: "animal_type and symptoms are required" });
+    if (!animalType) {
+      res.status(400).json({ error: "animal_type is required" });
       return;
     }
-    const [vetRow] = await sql`select id, user_id from vets where id = ${vetMockId} limit 1`;
+    const [vetRow] = await sql`select id, user_id, available, last_seen_at from vets where id = ${vetMockId} limit 1`;
     if (!vetRow) {
       res.status(400).json({ error: "Invalid vet_mock_id" });
+      return;
+    }
+    if (bookingType === "instant" && !isVetOnline(vetRow)) {
+      res.status(409).json({ error: VET_OFFLINE_ERROR });
       return;
     }
     const resolvedVetUserId = vetRow.user_id || (await resolveVetUserId(vetMockId));
@@ -1830,6 +1872,8 @@ router.post(
       res.status(400).json({ error: "farmer_user_id must be a valid UUID" });
       return;
     }
+    const vetProfile = await getVetProfileRecordByActorId(req.userId);
+    const normalizedVetProfile = vetProfile ? normalizeVetRow(vetProfile) : null;
     const row = {
       ...b,
       vet_user_id: req.userId,
@@ -1837,6 +1881,9 @@ router.post(
       consultation_id: consultation?.id || b.consultation_id || null,
       farmer_user_id: farmerUserId,
       farmer_name: b.farmer_name || consultation?.patient_name || "Farmer",
+      vet_name: b.vet_name || normalizedVetProfile?.full_name || normalizedVetProfile?.name || "Vet Doctor",
+      vet_degree: b.vet_degree || normalizedVetProfile?.degree || DEFAULT_VET_DESIGNATION,
+      vet_address: b.vet_address || normalizedVetProfile?.address || normalizedVetProfile?.location || null,
       animal_type: b.animal_type || consultation?.animal_type || null,
       symptoms: b.symptoms || consultation?.symptoms || null,
       status,
@@ -1854,6 +1901,50 @@ router.post(
     }
 
     res.status(201).json({ data: created });
+  })
+);
+
+router.patch(
+  "/prescriptions/:id",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = req.userId;
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    const [row] = await sql`select * from prescriptions where id = ${req.params.id} limit 1`;
+    if (!row) {
+      res.status(404).json({ error: "Prescription not found" });
+      return;
+    }
+    if (!isAdmin && row.vet_user_id !== uid) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (String(row.status || "").toLowerCase() !== "draft") {
+      res.status(409).json({ error: "Only draft prescriptions can be edited" });
+      return;
+    }
+
+    const patch = { updated_at: new Date().toISOString() };
+    const b = req.body || {};
+    if (Object.prototype.hasOwnProperty.call(b, "diagnosis")) {
+      patch.diagnosis = b.diagnosis == null ? null : String(b.diagnosis).trim().slice(0, 4000) || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(b, "symptoms")) {
+      patch.symptoms = b.symptoms == null ? null : String(b.symptoms).trim().slice(0, 4000) || null;
+    }
+    if (!("diagnosis" in patch) && !("symptoms" in patch)) {
+      res.status(400).json({ error: "diagnosis or symptoms expected" });
+      return;
+    }
+
+    const [updated] = await sql`
+      update prescriptions
+      set ${sql(patch)}
+      where id = ${req.params.id}
+      returning *
+    `;
+    res.json({ data: updated });
   })
 );
 

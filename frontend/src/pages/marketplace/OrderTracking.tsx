@@ -1,12 +1,17 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useOrders, OrderStatus } from "@/contexts/OrderContext";
-import { ArrowLeft, Package, CheckCircle2, Truck, MapPin, Clock, XCircle, RotateCcw, Banknote } from "lucide-react";
+import { useOrders, OrderStatus, formatDeliveryAddressLines } from "@/contexts/OrderContext";
+import { ArrowLeft, Package, CheckCircle2, Truck, MapPin, Clock, XCircle, RotateCcw, Banknote, Star } from "lucide-react";
 import { motion } from "framer-motion";
-import { ICON_COLORS } from "@/lib/iconColors";
 import { toast } from "sonner";
+import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
+import ProductReviewDialog from "@/components/marketplace/ProductReviewDialog";
+import { fetchOrderReviewStatus, type OrderReviewStatusItem } from "@/lib/marketplaceReviewsApi";
 
 const STATUS_STEPS: { status: OrderStatus; label: string; icon: React.ElementType }[] = [
   { status: "pending", label: "Order Placed", icon: Clock },
@@ -19,9 +24,9 @@ const STATUS_STEPS: { status: OrderStatus; label: string; icon: React.ElementTyp
 
 const statusColors: Record<string, string> = {
   pending: ICON_COLORS.finance,
-  confirmed: ICON_COLORS.marketplace,
-  packed: ICON_COLORS.marketplace,
-  shipped: ICON_COLORS.marketplace,
+  confirmed: MARKETPLACE_THEME.primary,
+  packed: MARKETPLACE_THEME.primary,
+  shipped: MARKETPLACE_THEME.primary,
   out_for_delivery: ICON_COLORS.farm,
   delivered: ICON_COLORS.farm,
   cancelled: ICON_COLORS.health,
@@ -35,13 +40,24 @@ export default function OrderTracking() {
   const navigate = useNavigate();
   const { getOrder, cancelOrder, requestReturn } = useOrders();
   const order = getOrder(orderId || "");
+  const [reviewTarget, setReviewTarget] = useState<OrderReviewStatusItem | null>(null);
+
+  const { data: reviewStatus } = useQuery({
+    queryKey: ["order-review-status", orderId],
+    enabled: Boolean(order && order.status === "delivered" && orderId),
+    queryFn: () => fetchOrderReviewStatus(orderId!),
+  });
+
+  const reviewByProduct = new Map(
+    (reviewStatus?.ok ? reviewStatus.data.items : []).map((item) => [item.productId, item]),
+  );
 
   if (!order) {
     return (
       <div className="text-center py-20 space-y-4">
-        <Package className="h-16 w-16 mx-auto" style={{ color: `${ICON_COLORS.marketplace}40` }} />
+        <Package className="h-16 w-16 mx-auto" style={{ color: `${MARKETPLACE_THEME.primary}40` }} />
         <h2 className="text-xl font-display font-bold text-foreground">Order not found</h2>
-        <Button onClick={() => navigate("/orders")} className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }}>View All Orders</Button>
+        <Button onClick={() => navigate("/orders")} className="text-white" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>View All Orders</Button>
       </div>
     );
   }
@@ -79,7 +95,7 @@ export default function OrderTracking() {
       {!isCancelled && !isReturned && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="shadow-card overflow-hidden">
-            <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.farm})` }} />
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${MARKETPLACE_THEME.primary}, ${ICON_COLORS.farm})` }} />
             <CardHeader>
               <CardTitle className="font-display">Order Progress</CardTitle>
             </CardHeader>
@@ -89,7 +105,7 @@ export default function OrderTracking() {
                 <div className="absolute top-5 left-0 right-0 h-0.5 bg-border" />
                 <div className="absolute top-5 left-0 h-0.5 transition-all duration-500" style={{
                   width: `${Math.max(0, (currentStepIndex / (STATUS_STEPS.length - 1)) * 100)}%`,
-                  backgroundColor: ICON_COLORS.marketplace,
+                  backgroundColor: MARKETPLACE_THEME.primary,
                 }} />
 
                 {STATUS_STEPS.map((step, i) => {
@@ -98,7 +114,7 @@ export default function OrderTracking() {
                   return (
                     <div key={step.status} className="flex flex-col items-center relative z-10" style={{ width: `${100 / STATUS_STEPS.length}%` }}>
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${current ? "ring-4 ring-offset-2 ring-sky-300/40" : ""}`} style={{
-                        backgroundColor: done ? ICON_COLORS.marketplace : "hsl(var(--muted))",
+                        backgroundColor: done ? MARKETPLACE_THEME.primary : "hsl(var(--muted))",
                         color: done ? "white" : "hsl(var(--muted-foreground))",
                       }}>
                         <step.icon className="h-4 w-4" />
@@ -111,7 +127,7 @@ export default function OrderTracking() {
 
               {order.trackingId && (
                 <div className="mt-6 p-3 rounded-lg bg-accent/30 flex items-center gap-2 text-sm">
-                  <Truck className="h-4 w-4" style={{ color: ICON_COLORS.marketplace }} />
+                  <Truck className="h-4 w-4" style={{ color: MARKETPLACE_THEME.primary }} />
                   <span className="text-muted-foreground">Tracking ID:</span>
                   <span className="font-mono font-bold text-foreground">{order.trackingId}</span>
                 </div>
@@ -141,7 +157,7 @@ export default function OrderTracking() {
       {/* Timeline Events */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+          <div className="h-1" style={{ background: `linear-gradient(to right, ${MARKETPLACE_THEME.primary}, ${ICON_COLORS.vet})` }} />
           <CardHeader>
             <CardTitle className="font-display">Timeline</CardTitle>
           </CardHeader>
@@ -149,7 +165,7 @@ export default function OrderTracking() {
             <div className="space-y-4">
               {[...order.timeline].reverse().map((event, i) => (
                 <div key={i} className="flex items-start gap-3">
-                  <div className="h-3 w-3 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: statusColors[event.status] || ICON_COLORS.marketplace }} />
+                  <div className="h-3 w-3 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: statusColors[event.status] || MARKETPLACE_THEME.primary }} />
                   <div>
                     <p className="text-sm font-medium text-foreground capitalize">{event.status.replace(/_/g, " ")}</p>
                     {event.note && <p className="text-xs text-muted-foreground">{event.note}</p>}
@@ -165,10 +181,12 @@ export default function OrderTracking() {
       <div className="grid sm:grid-cols-2 gap-4">
         {/* Items */}
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.marketplace}, ${ICON_COLORS.vet})` }} />
+          <div className="h-1" style={{ background: `linear-gradient(to right, ${MARKETPLACE_THEME.primary}, ${ICON_COLORS.vet})` }} />
           <CardHeader><CardTitle className="font-display text-base">Items</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {order.items.map(item => (
+            {order.items.map(item => {
+              const reviewItem = reviewByProduct.get(item.productId);
+              return (
               <div key={item.productId} className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded bg-accent/30 flex items-center justify-center shrink-0">
                   <img src={item.image} alt={item.name} className="h-6 w-6 object-contain opacity-50" />
@@ -176,27 +194,49 @@ export default function OrderTracking() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">×{item.qty}</p>
+                  {reviewItem?.canReview && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs gap-1"
+                      onClick={() => setReviewTarget(reviewItem)}
+                    >
+                      <Star className="h-3 w-3" /> Write a review
+                    </Button>
+                  )}
+                  {reviewItem?.alreadyReviewed && (
+                    <p className="text-[11px] text-muted-foreground">Review submitted</p>
+                  )}
                 </div>
                 <p className="text-sm font-bold text-foreground">৳{(item.price * item.qty).toLocaleString()}</p>
               </div>
-            ))}
+            )})}
             <div className="border-t pt-2 space-y-1 text-sm">
               {order.shippingFee > 0 && <div className="flex justify-between text-muted-foreground"><span>Shipping</span><span>৳{order.shippingFee}</span></div>}
-              <div className="flex justify-between font-bold text-foreground"><span>Total</span><span style={{ color: ICON_COLORS.marketplace }}>৳{order.total.toLocaleString()}</span></div>
+              <div className="flex justify-between font-bold text-foreground"><span>Total</span><span style={{ color: MARKETPLACE_THEME.primary }}>৳{order.total.toLocaleString()}</span></div>
             </div>
           </CardContent>
         </Card>
 
         {/* Delivery & Payment Info */}
         <Card className="shadow-card overflow-hidden">
-          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.farm}, ${ICON_COLORS.marketplace})` }} />
+          <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.farm}, ${MARKETPLACE_THEME.primary})` }} />
           <CardHeader><CardTitle className="font-display text-base">Delivery & Payment</CardTitle></CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
               <p className="flex items-center gap-1 text-muted-foreground mb-1"><MapPin className="h-3.5 w-3.5" />Delivery Address</p>
               <p className="font-medium text-foreground">{order.deliveryAddress.recipientName}</p>
               <p className="text-muted-foreground">{order.deliveryAddress.phone}</p>
-              <p className="text-muted-foreground">{order.deliveryAddress.address}, {order.deliveryAddress.area}, {order.deliveryAddress.city}</p>
+              {order.deliveryAddress.altPhone && (
+                <p className="text-muted-foreground">Alt: {order.deliveryAddress.altPhone}</p>
+              )}
+              {formatDeliveryAddressLines(order.deliveryAddress).map((line) => (
+                <p key={line} className="text-muted-foreground">{line}</p>
+              ))}
+              {order.deliveryAddress.note && (
+                <p className="text-muted-foreground italic">Note: {order.deliveryAddress.note}</p>
+              )}
             </div>
             <div>
               <p className="flex items-center gap-1 text-muted-foreground mb-1"><Banknote className="h-3.5 w-3.5" />Payment</p>
@@ -222,6 +262,15 @@ export default function OrderTracking() {
             </Button>
           )}
         </div>
+      )}
+      {reviewTarget && order && (
+        <ProductReviewDialog
+          open={Boolean(reviewTarget)}
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+          orderId={order.id}
+          productId={reviewTarget.productId}
+          productName={reviewTarget.name}
+        />
       )}
     </div>
   );

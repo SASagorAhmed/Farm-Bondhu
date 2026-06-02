@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import RelatedLinks from "@/components/dashboard/RelatedLinks";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminPreviewMode } from "@/hooks/useAdminPreviewMode";
 
 const BRAND = ICON_COLORS.farmBrand;
 const typeLabels: Record<string, string> = { poultry: "Poultry", dairy: "Dairy", mixed: "Mixed" };
@@ -24,6 +25,7 @@ interface AnimalRow { id: string; farm_id: string; type: string; tracking_mode: 
 
 export default function Farms() {
   const { user } = useAuth();
+  const { readOnly } = useAdminPreviewMode();
   const [farms, setFarms] = useState<FarmRow[]>([]);
   const [sheds, setSheds] = useState<ShedRow[]>([]);
   const [animals, setAnimals] = useState<AnimalRow[]>([]);
@@ -127,7 +129,9 @@ export default function Farms() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg font-display">Sheds / Pens</CardTitle>
             <Dialog open={shedOpen} onOpenChange={setShedOpen}>
+              {!readOnly && (
               <DialogTrigger asChild><Button size="sm" className="text-white" style={{ backgroundColor: BRAND }}><Plus className="h-3 w-3 mr-1" /> Add Shed</Button></DialogTrigger>
+              )}
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Add Shed</DialogTitle>
@@ -156,8 +160,12 @@ export default function Farms() {
                       <p className="font-medium text-foreground">{shed.name}</p>
                       <div className="flex items-center gap-1">
                         <Badge className={statusColors[shed.status]}>{shed.status}</Badge>
+                        {!readOnly && (
+                        <>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditShedId(shed.id); setEditShedForm({ name: shed.name, capacity: shed.capacity, animalType: shed.animal_type, status: shed.status }); setEditShedOpen(true); }}><Edit2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setDeleteShedId(shed.id); setDeleteShedOpen(true); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                        </>
+                        )}
                       </div>
                     </div>
                     <div className="text-sm text-muted-foreground space-y-1">
@@ -221,7 +229,9 @@ export default function Farms() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div><h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Farms</h1><p className="text-muted-foreground mt-1">Manage your farms and facilities</p></div>
         <Dialog open={open} onOpenChange={setOpen}>
+          {!readOnly && (
           <DialogTrigger asChild><Button className="text-white" style={{ backgroundColor: BRAND }}><Plus className="h-4 w-4 mr-1" /> Add Farm</Button></DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="font-display">Add New Farm</DialogTitle>
@@ -259,10 +269,12 @@ export default function Farms() {
                       <div className="h-11 w-11 rounded-xl flex items-center justify-center text-white" style={{ backgroundColor: BRAND }}><Home className="h-5 w-5" /></div>
                       <div><h3 className="font-display font-bold text-foreground">{farm.name}</h3><p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />{farm.location}</p></div>
                     </div>
+                    {!readOnly && (
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => { e.stopPropagation(); setEditFarmId(farm.id); setEditForm({ name: farm.name, location: farm.location, type: farm.type }); setEditOpen(true); }}><Edit2 className="h-3.5 w-3.5" /></Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => { e.stopPropagation(); setDeleteFarmId(farm.id); setDeleteOpen(true); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
                     </div>
+                    )}
                   </div>
                   <Badge className={typeColors[farm.type]}>{typeLabels[farm.type]}</Badge>
                   <div className="grid grid-cols-2 gap-3 text-center">

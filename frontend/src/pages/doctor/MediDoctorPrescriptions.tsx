@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
+import MediDoctorPreviewEmpty from "@/components/medibondhu/MediDoctorPreviewEmpty";
 import { FileText, Plus, ChevronRight } from "lucide-react";
 import { MediSectionTitle, MB } from "@/components/medibondhu/MediChrome";
 
@@ -15,6 +17,7 @@ type Rx = { id: string; chief_complaint?: string; created_at?: string; diagnosis
 export default function MediDoctorPrescriptions() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { readOnly, previewEmptyHint } = useMediDoctorPreviewActions();
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: queryKeys().medibondhuHumanDoctorPrescriptions(user?.id),
@@ -47,7 +50,7 @@ export default function MediDoctorPrescriptions() {
           </h1>
           <p className="text-sm text-muted-foreground mt-2 max-w-xl">Human MediBondhu prescriptions you have authored. Open any row to review the full regimen.</p>
         </div>
-        <Button type="button" className="rounded-xl text-white font-semibold gap-2 shrink-0" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
+        <Button type="button" className="rounded-xl text-white font-semibold gap-2 shrink-0" style={{ backgroundColor: MB }} disabled={readOnly} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
           <Plus className="h-4 w-4" /> New prescription
         </Button>
       </header>
@@ -98,16 +101,10 @@ export default function MediDoctorPrescriptions() {
       </div>
 
       {!isLoading && sorted.length === 0 && (
-        <Card className="rounded-2xl border-dashed">
-          <CardContent className="p-12 text-center space-y-4 max-w-md mx-auto">
-            <FileText className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="font-semibold text-foreground">No prescriptions yet</p>
-            <p className="text-sm text-muted-foreground">When you issue a prescription for a patient, it will be listed here.</p>
-            <Button type="button" className="rounded-xl text-white font-semibold" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
-              Issue your first Rx
-            </Button>
-          </CardContent>
-        </Card>
+        <MediDoctorPreviewEmpty
+          title="No prescriptions yet"
+          hint={previewEmptyHint || "When you issue a prescription for a patient, it will be listed here."}
+        />
       )}
     </div>
   );

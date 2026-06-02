@@ -180,6 +180,12 @@ export interface Product {
   description: string;
   location: string;
   freeDelivery?: boolean;
+  deliveryChargeDhaka?: number | null;
+  deliveryChargeOutside?: number | null;
+  wholesale_price?: number | null;
+  wholesale_min_qty?: number | null;
+  wholesale_min_order_bdt?: number | null;
+  wholesale_rule?: string | null;
 }
 
 export interface Order {
@@ -203,6 +209,9 @@ export interface Vet {
   fee: number;
   location: string;
   available: boolean;
+  is_online?: boolean;
+  status_label?: string;
+  last_seen_at?: string | null;
   avatar: string;
   degree: string;
 }

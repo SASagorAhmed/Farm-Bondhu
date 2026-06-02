@@ -1,0 +1,64 @@
+---
+description: Workspace-wide matching UI — module theme tokens on every page; never purple/violet; no off-theme accents
+alwaysApply: true
+---
+
+# Matching UI
+
+When building or editing UI anywhere in FarmBondhu, match the **workspace/module** the page belongs to — all routes, roles, and user types. Do not drop in generic or off-theme colors.
+
+## Global color policy
+
+- **Never use purple or violet:** no Tailwind `purple-*`, `violet-*`, or ad-hoc hex like `#8B5CF6`, `#9333EA`, `#A855F7`, or `hsl(262, …)`.
+- **Default:** identify the module from the route or sidebar layout, then use that module’s tokens — do not invent a new accent.
+- Prefer [`ICON_COLORS`](frontend/src/lib/iconColors.ts) and module theme files over raw Tailwind color classes.
+- Shared shadcn neutrals (`border-border`, `bg-muted`, `text-muted-foreground`) are fine everywhere; **accents** must be module-matched.
+
+## Module theme map
+
+| Workspace | Tokens | Primary |
+|-----------|--------|---------|
+| Marketplace buyer | [`MARKETPLACE_THEME`](frontend/src/lib/marketplaceTheme.ts) | Pink `#E91E8C` |
+| Vendor / seller shop | [`VENDOR_THEME`](frontend/src/lib/vendorTheme.ts), `ICON_COLORS.marketplace` | Sky `#0EA5E9` |
+| Farm management | `ICON_COLORS.farm`, `ICON_COLORS.farmBrand` | Emerald `#10B981` |
+| Cow weight | [`COW_WEIGHT_THEME`](frontend/src/lib/cowWeight/cowWeightTheme.ts), `cowWeightCalloutStyles.ts` | Green/blue farm |
+| VetBondhu | `ICON_COLORS.vetbondhu` | Emerald `#059669` |
+| MediBondhu | `ICON_COLORS.medibondhu`, `MB` in [`MediChrome.tsx`](frontend/src/components/medibondhu/MediChrome.tsx) | Cyan `#12C2D6` |
+| Admin panel | `ICON_COLORS.admin` | Indigo `#6366F1` — admin routes only |
+| Community | `ICON_COLORS.community` | Teal `#14B8A6` |
+| Learning | `ICON_COLORS.learning` | Orange `#F97316` |
+| Access Center | Module neutral or module primary | Not purple; marketplace uses `accessCenter` slate |
+
+## How to choose colors
+
+1. Match the **sidebar/layout** of the page (e.g. `VetBondhuSidebar` → vetbondhu green).
+2. Buttons, icons, gradients, badges, and inline notices use the same module token.
+3. Cross-module components (chat, profile, notifications) inherit the **host page’s** workspace colors.
+4. Before using `bg-primary` or theme CSS variables, confirm they resolve to the correct module on that route.
+
+## Avoid
+
+- `purple-*`, `violet-*`, generic purple hex
+- Ad-hoc `amber-*`, `yellow-*`, or bright warning boxes unless the module defines that pattern
+- Copying legacy purple patterns (fix if touched, do not spread):
+  - [`CommunitySidebar.tsx`](frontend/src/components/layout/CommunitySidebar.tsx) history `#8B5CF6`
+  - [`VetBondhuSidebar.tsx`](frontend/src/components/layout/VetBondhuSidebar.tsx) Access Center `hsl(262, 83%, 58%)`
+  - `bg-purple-100` role badges in profile/admin
+
+## Inline notices and alerts
+
+- Reuse shared callout style files (e.g. [`marketplaceCalloutStyles.ts`](frontend/src/components/marketplace/marketplaceCalloutStyles.ts), `cowWeightCalloutStyles.ts`)
+- Prefer: `rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground`
+- Optional accent: thin left border in the module primary color
+
+## Copy and countdowns
+
+- Keep main notice text short; do **not** embed large numbers or countdowns in the headline sentence
+- Show countdowns/status on a **secondary** line: `text-[10px] tabular-nums text-muted-foreground/80`
+- Live timers: use `MM:SS` clock format with per-second updates when showing restriction countdowns
+
+## Before adding a new banner or callout
+
+1. Search the same module folder for existing notice/callout components
+2. Extend shared styles instead of one-off Tailwind color combos
+3. Match composer/card context (same border radius, spacing, muted palette)

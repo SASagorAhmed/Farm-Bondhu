@@ -9,6 +9,15 @@ type PrescriptionSummary = {
 type PrescriptionDetail = Record<string, unknown> | null;
 type PrescriptionItem = Record<string, unknown>;
 
+const VETBONDHU_PDF = {
+  brand: "#059669",
+  brandDeep: "#047857",
+  accent: "#10B981",
+  watermark: "#ECFDF5",
+  border: "#BBF7D0",
+  panel: "#F0FDF4",
+};
+
 function text(value: unknown, fallback = "-") {
   const v = value == null ? "" : String(value).trim();
   return v || fallback;
@@ -176,7 +185,7 @@ export async function buildPrescriptionPdfBlob(
 
       return `
       <div style="padding:6px 8px;border-bottom:1px solid #e7eff2;">
-        <div style="font-weight:700;color:#0b7282;margin-bottom:3px;">${firstLine}</div>
+        <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};margin-bottom:3px;">${firstLine}</div>
         <div>${secondLine}</div>
       </div>`;
     })
@@ -190,21 +199,22 @@ export async function buildPrescriptionPdfBlob(
   const ageVal = text(detail?.age, "optional");
   const weightVal = text(detail?.weight, "optional");
   const vetName = text(detail?.vet_name || summary.vet_name);
-  const vetDegree = text(detail?.vet_degree || detail?.qualification || detail?.degree);
+  const vetDegree = text(detail?.vet_degree || detail?.degree || detail?.qualification, "Veterinary Professional");
+  const vetAddress = text(detail?.vet_address || detail?.address || detail?.clinic_name || detail?.organization || detail?.hospital || detail?.location, "");
   /** Same width for all right-side KV blocks so colons line up vertically. */
   const pdfKvRightCol = `flex:0 0 ${PDF_KV_LABEL_PX + 10 + 140}px;width:${PDF_KV_LABEL_PX + 10 + 140}px;max-width:100%;`;
 
   const html = `
   <div style="width:794px;background:#ffffff;color:#1f2d38;font-family:Arial,'Noto Sans Bengali','Hind Siliguri','Kalpurush','Nikosh',sans-serif;position:relative;padding-bottom:56px;">
     <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
-      <div style="font-size:72px;color:#eef6f8;transform:rotate(-30deg);font-weight:700;">MediBondhu</div>
+      <div style="font-size:72px;color:${VETBONDHU_PDF.watermark};transform:rotate(-30deg);font-weight:700;">VetBondhu</div>
     </div>
     <div style="position:relative;z-index:1;">
-      <div style="background:#0a6b74;min-height:76px;padding:12px 22px;display:flex;flex-flow:row nowrap;align-items:center;justify-content:space-between;gap:16px;color:#fff;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.08);">
+      <div style="background:${VETBONDHU_PDF.brand};min-height:76px;padding:12px 22px;display:flex;flex-flow:row nowrap;align-items:center;justify-content:space-between;gap:16px;color:#fff;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.08);">
         <div style="display:flex;flex-flow:row nowrap;align-items:center;gap:10px;flex:0 0 auto;width:max-content;min-width:max-content;background:#ffffff;border-radius:9999px;overflow:hidden;padding:6px 18px 6px 7px;font-family:Arial,Helvetica,sans-serif;">
-          <div style="flex:0 0 auto;width:36px;height:36px;border-radius:50%;background:#0a6b74;color:#ffffff;font-size:11px;font-weight:700;line-height:36px;text-align:center;letter-spacing:0.06em;">MB</div>
+          <div style="flex:0 0 auto;width:36px;height:36px;border-radius:50%;background:${VETBONDHU_PDF.brand};color:#ffffff;font-size:11px;font-weight:700;line-height:36px;text-align:center;letter-spacing:0.06em;">VB</div>
           <div style="display:flex;align-items:center;justify-content:flex-start;height:36px;flex:0 0 auto;">
-            <span style="display:inline-block;font-size:21px;font-weight:700;line-height:1;color:#0a6b74;letter-spacing:0.02em;white-space:nowrap;margin:0;padding:0;transform:translateY(-7px);">MediBondhu</span>
+            <span style="display:inline-block;font-size:21px;font-weight:700;line-height:1;color:${VETBONDHU_PDF.brand};letter-spacing:0.02em;white-space:nowrap;margin:0;padding:0;transform:translateY(-7px);">VetBondhu</span>
           </div>
         </div>
         <div style="text-align:right;flex:1 1 auto;min-width:0;">
@@ -212,15 +222,15 @@ export async function buildPrescriptionPdfBlob(
           <div style="font-size:11px;font-weight:400;line-height:1.35;margin-top:5px;opacity:0.95;">${labels.subtitle}</div>
         </div>
       </div>
-      <div style="height:4px;background:#12c2d6;"></div>
+      <div style="height:4px;background:${VETBONDHU_PDF.accent};"></div>
 
       <div style="padding:15px 20px 0 20px;font-size:12px;line-height:1.45;">
         <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;">
           <div style="flex:1;min-width:0;">
             <div style="font-weight:700;">${escapeHtml(vetName)}</div>
             <div>${escapeHtml(vetDegree)}</div>
-            <div>${escapeHtml(text(detail?.specialization))}</div>
-            <div>${escapeHtml(text(detail?.clinic_name || detail?.organization || detail?.hospital))}</div>
+            <div>${escapeHtml(text(detail?.specialization, ""))}</div>
+            <div>${escapeHtml(vetAddress)}</div>
           </div>
           <div style="${pdfKvRightCol}">
             ${kvRow(labels.date, isBangla ? toBanglaDigits(text(dateText)) : text(dateText))}
@@ -229,8 +239,8 @@ export async function buildPrescriptionPdfBlob(
         </div>
 
         <div style="margin-top:14px;border-top:1px solid #cfdfe5;padding-top:12px;padding-bottom:18px;margin-bottom:4px;">
-          <div style="font-weight:700;color:#0b7282;margin-bottom:8px;">${labels.ownerAnimalInfo}</div>
-          <div style="border:1px solid #c6ebf0;background:#f5fcfe;border-radius:6px;padding:10px 12px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;">
+          <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};margin-bottom:8px;">${labels.ownerAnimalInfo}</div>
+          <div style="border:1px solid ${VETBONDHU_PDF.border};background:${VETBONDHU_PDF.panel};border-radius:6px;padding:10px 12px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;">
             <div style="flex:1;min-width:0;">
               ${kvRow(labels.ownerName, ownerName)}
               ${kvRow(labels.animalType, animalType)}
@@ -244,8 +254,8 @@ export async function buildPrescriptionPdfBlob(
 
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:12px;padding-bottom:20px;margin-bottom:6px;display:flex;gap:10px;align-items:stretch;">
           <div style="flex:0 0 41%;">
-            <div style="font-weight:700;color:#0b7282;margin-bottom:8px;">${labels.diagnosis}</div>
-            <div style="border:1px solid #d3e8ec;background:#f8fcfd;border-radius:6px;padding:10px 12px;min-height:136px;">
+            <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};margin-bottom:8px;">${labels.diagnosis}</div>
+            <div style="border:1px solid ${VETBONDHU_PDF.border};background:${VETBONDHU_PDF.panel};border-radius:6px;padding:10px 12px;min-height:136px;">
               <div><b>${labels.diseaseCondition}:</b></div>
               <div style="margin-top:2px;">${escapeHtml(diagnosis)}</div>
               <div style="margin-top:8px;"><b>${labels.shortDescription}:</b></div>
@@ -253,27 +263,27 @@ export async function buildPrescriptionPdfBlob(
             </div>
           </div>
           <div style="flex:1;">
-            <div style="font-weight:700;color:#0b7282;margin-bottom:4px;">${labels.medicines}</div>
-            <div style="border:1px solid #d3e8ec;background:#f8fcfd;border-radius:6px;min-height:136px;">
+            <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};margin-bottom:4px;">${labels.medicines}</div>
+            <div style="border:1px solid ${VETBONDHU_PDF.border};background:${VETBONDHU_PDF.panel};border-radius:6px;min-height:136px;">
               ${medicineRows}
             </div>
           </div>
         </div>
 
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:10px;">
-          <div style="font-weight:700;color:#0b7282;">${labels.vetAdvice}</div>
+          <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};">${labels.vetAdvice}</div>
           <div style="margin-top:4px;">${escapeHtml(advice)}</div>
         </div>
 
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:10px;">
-          <div style="font-weight:700;color:#0b7282;">${labels.commonCare}</div>
+          <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};">${labels.commonCare}</div>
           <ul style="margin:6px 0 0 16px;padding:0;list-style:none;">
             ${commonCareRows}
           </ul>
         </div>
 
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:10px;">
-          <div style="font-weight:700;color:#0b7282;">${labels.followUp}</div>
+          <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};">${labels.followUp}</div>
           <div style="margin-top:4px;">${escapeHtml(followUp)}</div>
         </div>
 
@@ -293,7 +303,7 @@ export async function buildPrescriptionPdfBlob(
         </div>
 
         <div style="margin-top:28px;padding-top:16px;padding-bottom:8px;text-align:center;font-size:10px;color:#7a8b96;border-top:1px solid #e2edf0;">
-          Generated by MediBondhu - Veterinary Digital Prescription
+          Generated by VetBondhu - Veterinary Digital Prescription
         </div>
       </div>
     </div>

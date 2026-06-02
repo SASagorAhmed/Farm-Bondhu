@@ -1,18 +1,37 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMemo, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useOrders } from "@/contexts/OrderContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { ClipboardList, Package, Truck, CheckCircle, XCircle, Clock, RotateCcw, Eye, ArrowLeft } from "lucide-react";
+import {
+  ClipboardList,
+  Package,
+  Truck,
+  CheckCircle,
+  XCircle,
+  Clock,
+  RotateCcw,
+  Eye,
+  ArrowLeft,
+  Star,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+import {
+  fetchPendingReviewables,
+  type PendingReviewable,
+} from "@/lib/marketplaceReviewsApi";
+import ProductReviewDialog from "@/components/marketplace/ProductReviewDialog";
 
 const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
   pending: { color: ICON_COLORS.finance, icon: <Clock className="h-3.5 w-3.5" /> },
-  confirmed: { color: ICON_COLORS.marketplace, icon: <CheckCircle className="h-3.5 w-3.5" /> },
-  packed: { color: ICON_COLORS.marketplace, icon: <Package className="h-3.5 w-3.5" /> },
-  shipped: { color: ICON_COLORS.marketplace, icon: <Truck className="h-3.5 w-3.5" /> },
+  confirmed: { color: MARKETPLACE_THEME.primary, icon: <CheckCircle className="h-3.5 w-3.5" /> },
+  packed: { color: MARKETPLACE_THEME.primary, icon: <Package className="h-3.5 w-3.5" /> },
+  shipped: { color: MARKETPLACE_THEME.primary, icon: <Truck className="h-3.5 w-3.5" /> },
   out_for_delivery: { color: ICON_COLORS.farm, icon: <Truck className="h-3.5 w-3.5" /> },
   delivered: { color: ICON_COLORS.farm, icon: <CheckCircle className="h-3.5 w-3.5" /> },
   cancelled: { color: ICON_COLORS.health, icon: <XCircle className="h-3.5 w-3.5" /> },
@@ -22,18 +41,38 @@ const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
 };
 
 export default function Orders() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { getOrdersByBuyer } = useOrders();
   const navigate = useNavigate();
   const orders = getOrdersByBuyer(user?.id || "");
+  const [reviewTarget, setReviewTarget] = useState<PendingReviewable | null>(null);
+
+  const { data: pendingData } = useQuery({
+    queryKey: ["pending-reviewables"],
+    enabled: isAuthenticated,
+    queryFn: () => fetchPendingReviewables(),
+  });
+
+  const pendingByOrder = useMemo(() => {
+    const map = new Map<string, PendingReviewable[]>();
+    if (!pendingData?.ok) return map;
+    for (const item of pendingData.items) {
+      const list = map.get(item.orderId) || [];
+      list.push(item);
+      map.set(item.orderId, list);
+    }
+    return map;
+  }, [pendingData]);
+
+  const pendingCount = pendingData?.ok ? pendingData.items.length : 0;
 
   if (orders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <ClipboardList className="h-16 w-16" style={{ color: `${ICON_COLORS.marketplace}40` }} />
+        <ClipboardList className="h-16 w-16" style={{ color: `${MARKETPLACE_THEME.primary}40` }} />
         <h2 className="text-xl font-display font-bold text-foreground">No orders yet</h2>
         <p className="text-muted-foreground">Browse the marketplace to place your first order</p>
-        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: ICON_COLORS.marketplace }}>Browse Marketplace</Button>
+        <Button onClick={() => navigate("/marketplace")} className="text-white" style={{ backgroundColor: MARKETPLACE_THEME.primary }}>Browse Marketplace</Button>
       </div>
     );
   }
@@ -50,9 +89,19 @@ export default function Orders() {
         </div>
       </motion.div>
 
+      {pendingCount > 0 && (
+        <p className="text-sm text-muted-foreground">
+          You have{" "}
+          <span className="font-medium text-foreground">
+            {pendingCount} review{pendingCount === 1 ? "" : "s"} waiting
+          </span>
+        </p>
+      )}
+
       <div className="space-y-4">
         {orders.map((order, i) => {
           const config = statusConfig[order.status] || statusConfig.pending;
+          const pendingItems = pendingByOrder.get(order.id) || [];
           return (
             <motion.div key={order.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
               <Card className="shadow-card overflow-hidden cursor-pointer hover:shadow-elevated transition-shadow" onClick={() => navigate(`/orders/${order.id}`)}>
@@ -65,6 +114,18 @@ export default function Orders() {
                         <Badge style={{ backgroundColor: `${config.color}1A`, color: config.color }} className="flex items-center gap-1 capitalize text-xs">
                           {config.icon}{order.status.replace(/_/g, " ")}
                         </Badge>
+                        {pendingItems.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] gap-1"
+                            style={{
+                              borderColor: `${MARKETPLACE_THEME.primary}66`,
+                              color: MARKETPLACE_THEME.primary,
+                            }}
+                          >
+                            <Star className="h-3 w-3" /> Review pending
+                          </Badge>
+                        )}
                         <span className="text-xs text-muted-foreground">{new Date(order.date).toLocaleDateString()}</span>
                       </div>
                       <div className="space-y-1">
@@ -75,13 +136,30 @@ export default function Orders() {
                           </div>
                         ))}
                       </div>
+                      {pendingItems.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                          {pendingItems.map((item) => (
+                            <Button
+                              key={`${item.orderId}:${item.productId}`}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => setReviewTarget(item)}
+                            >
+                              <Star className="h-3 w-3" />
+                              Write review — {item.productName}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Seller: {order.sellerName}</span>
-                        <span className="font-bold" style={{ color: ICON_COLORS.marketplace }}>৳{order.total.toLocaleString()}</span>
+                        <span className="font-bold" style={{ color: MARKETPLACE_THEME.primary }}>৳{order.total.toLocaleString()}</span>
                       </div>
                     </div>
                     <Button variant="ghost" size="icon" className="shrink-0">
-                      <Eye className="h-4 w-4" style={{ color: ICON_COLORS.marketplace }} />
+                      <Eye className="h-4 w-4" style={{ color: MARKETPLACE_THEME.primary }} />
                     </Button>
                   </div>
                 </CardContent>
@@ -90,6 +168,16 @@ export default function Orders() {
           );
         })}
       </div>
+
+      {reviewTarget && (
+        <ProductReviewDialog
+          open={Boolean(reviewTarget)}
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+          orderId={reviewTarget.orderId}
+          productId={reviewTarget.productId}
+          productName={reviewTarget.productName}
+        />
+      )}
     </div>
   );
 }

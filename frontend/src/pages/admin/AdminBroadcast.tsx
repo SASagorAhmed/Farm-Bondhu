@@ -26,7 +26,7 @@ const TARGETS = [
 
 const DESTINATIONS = [
   { value: "none", label: "None (no link)" },
-  { value: "/admin", label: "Admin Dashboard" },
+  { value: "/admin/platform", label: "Admin Dashboard" },
   { value: "/admin/approvals", label: "Admin Approvals" },
   { value: "/admin/marketplace", label: "Admin Marketplace" },
   { value: "/admin/learning", label: "Admin Learning" },

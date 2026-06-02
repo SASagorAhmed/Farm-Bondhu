@@ -9,6 +9,7 @@ import { useOrders } from "@/contexts/OrderContext";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import { toast } from "sonner";
 
 const RETURN_REASONS = [
@@ -55,7 +56,7 @@ export default function ReturnRequest() {
       </motion.div>
 
       <Card className="shadow-card overflow-hidden">
-        <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.finance}, ${ICON_COLORS.marketplace})` }} />
+        <div className="h-1" style={{ background: marketplaceGradient() }} />
         <CardHeader>
           <CardTitle className="flex items-center gap-2 font-display">
             <RotateCcw className="h-5 w-5" style={{ color: ICON_COLORS.finance }} />
@@ -89,7 +90,7 @@ export default function ReturnRequest() {
                 <span className="text-sm font-medium text-foreground">৳{(item.price * item.qty).toLocaleString()}</span>
               </div>
             ))}
-            <p className="text-sm text-muted-foreground">Refund amount: <span className="font-bold" style={{ color: ICON_COLORS.marketplace }}>৳{order.total.toLocaleString()}</span></p>
+            <p className="text-sm text-muted-foreground">Refund amount: <span className="font-bold" style={{ color: MARKETPLACE_THEME.primary }}>৳{order.total.toLocaleString()}</span></p>
           </div>
 
           <Button onClick={handleSubmit} className="w-full text-white" style={{ backgroundColor: ICON_COLORS.finance }} disabled={!reason}>

@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   Send, MessageSquare, Stethoscope, Clock,
-  ArrowLeft, FileText, PhoneOff,
+  ArrowLeft, FileText, PhoneOff, Maximize2, Minimize2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -105,6 +105,7 @@ export default function ConsultationRoom() {
   const [elapsed, setElapsed] = useState(0);
   const [leaveGraceSeconds, setLeaveGraceSeconds] = useState<number | null>(null);
   const [zegoRetryTick, setZegoRetryTick] = useState(0);
+  const [isStageFullscreen, setIsStageFullscreen] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([]);
@@ -115,6 +116,7 @@ export default function ConsultationRoom() {
   const hasHandledTerminalStatusRef = useRef(false);
 
   // ZegoCloud
+  const stageShellRef = useRef<HTMLDivElement>(null);
   const zegoContainerRef = useRef<HTMLDivElement>(null);
   const zegoInstanceRef = useRef<any>(null);
   /** True while React/Zego is destroying the instance so `onLeaveRoom` does not PATCH + navigate. */
@@ -165,6 +167,45 @@ export default function ConsultationRoom() {
       zegoRetryTimerRef.current = null;
     }
   }, []);
+
+  const enterStageFullscreen = useCallback(async () => {
+    const node = stageShellRef.current;
+    if (!node) return;
+    try {
+      if (node.requestFullscreen) {
+        await node.requestFullscreen();
+      }
+      setIsStageFullscreen(true);
+    } catch {
+      setIsStageFullscreen(true);
+    }
+  }, []);
+
+  const exitStageFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      /* CSS fallback still exits below */
+    }
+    setIsStageFullscreen(false);
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsStageFullscreen(document.fullscreenElement === stageShellRef.current);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") void exitStageFullscreen();
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [exitStageFullscreen]);
 
   const normalizedConsultMethod = useMemo(
     () => String(booking?.consultation_method ?? "").toLowerCase(),
@@ -236,10 +277,9 @@ export default function ConsultationRoom() {
       } else {
         toast.info("Consultation cancelled.");
       }
-      navigate(consultationsPath);
       return;
     }
-  }, [booking, consultationsPath, navigate, user?.id]);
+  }, [booking, queryClient]);
 
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
@@ -631,6 +671,32 @@ export default function ConsultationRoom() {
           turnOnCameraWhenJoining: false,
           turnOnMicrophoneWhenJoining: false,
           showPreJoinView: false,
+          showScreenSharingButton: true,
+          showTextChat: true,
+          showUserList: true,
+          showLayoutButton: true,
+          showRoomDetailsButton: true,
+          showFullscreenButton: true,
+          showSwitchCameraButton: true,
+          showMyCameraToggleButton: true,
+          showMyMicrophoneToggleButton: true,
+          showAudioVideoSettingsButton: true,
+          showTurnOffRemoteCameraButton: true,
+          showTurnOffRemoteMicrophoneButton: true,
+          showMoreButton: true,
+          autoHideFooter: false,
+          showRotatingScreenButton: true,
+          showRoomTimer: true,
+          showNonVideoUser: true,
+          showOnlyAudioUser: true,
+          videoScreenConfig: {
+            objectFit: "cover",
+            localMirror: true,
+            pullStreamMirror: false,
+          },
+          screenSharingConfig: {
+            onError: () => "Screen sharing may require a desktop browser. Please use laptop/desktop if this phone does not support it.",
+          },
           onJoinRoom: () => {
             hasJoinedZegoRoomRef.current = true;
             zegoInitStatusRef.current = "joined";
@@ -757,7 +823,6 @@ export default function ConsultationRoom() {
             } else {
               toast.info("Consultation cancelled.");
             }
-            navigate(consultationsPath);
           }
         }
       )
@@ -765,7 +830,7 @@ export default function ConsultationRoom() {
     return () => {
       vetbondhuApi.removeChannel(channel);
     };
-  }, [bookingId, consultationsPath, navigate, resetGraceUiWhenNoLeaveDeadline]);
+  }, [bookingId, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
     const activeNoGrace =
@@ -830,7 +895,7 @@ export default function ConsultationRoom() {
       sender_id: user.id,
       sender_name: user.name,
       message: msg,
-    });
+    }).eq("booking_id", bookingId);
     if (error) {
       setMessages((prev) => prev.filter((row) => row.id !== optimisticId));
       toast.error(error.message || "Failed to send message");
@@ -927,22 +992,61 @@ export default function ConsultationRoom() {
       )}
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ minHeight: "calc(100vh - 280px)" }}>
+      <div className="consultation-room-grid grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Video / Audio Area — ZegoCloud */}
         {!isChat && (
           <div className="lg:col-span-2">
-            <Card className="shadow-card overflow-hidden h-full">
+            <Card className="consultation-video-card shadow-card overflow-hidden h-full">
               <div className="h-1" style={{ backgroundColor: VB }} />
-              <CardContent className="p-0 h-full" style={{ minHeight: 480 }}>
-                <div ref={zegoContainerRef} className="w-full h-full" style={{ minHeight: 480 }} />
+              <CardContent className="p-0 h-full">
+                <div
+                  ref={stageShellRef}
+                  className={`vetbondhu-zego-stage consultation-zego-stage ${isStageFullscreen ? "consultation-zego-stage-fullscreen" : ""}`}
+                  style={{ borderColor: `${VB}33` }}
+                >
+                  <div className="consultation-zego-stage-toolbar">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                      style={{ borderColor: `${VB}55`, color: VB }}
+                      aria-label={isStageFullscreen ? "Close fullscreen" : "Open fullscreen"}
+                      onClick={() => void (isStageFullscreen ? exitStageFullscreen() : enterStageFullscreen())}
+                    >
+                      {isStageFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <div className="consultation-zego-frame">
+                    <div ref={zegoContainerRef} className="consultation-zego-sdk-root" />
+                  </div>
+                  {isStageFullscreen && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="consultation-zego-floating-close h-10 w-10 rounded-full p-0 text-white"
+                      style={{ backgroundColor: VB }}
+                      aria-label="Close fullscreen"
+                      onClick={() => void exitStageFullscreen()}
+                    >
+                      <Minimize2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </CardContent>
             </Card>
+            <div
+              className="consultation-mobile-help-strip"
+              style={{ borderColor: `${VB}35`, backgroundColor: `${VB}10`, color: VB }}
+            >
+              Controls stay in the bottom call bar. Use More for extra options; screen share may need a desktop browser.
+            </div>
           </div>
         )}
 
         {/* Chat Panel */}
-        <div className={isChat ? "lg:col-span-3" : ""}>
-          <Card className="shadow-card overflow-hidden h-full flex flex-col">
+        <div className={`consultation-chat-panel ${isChat ? "lg:col-span-3" : ""}`}>
+          <Card className="consultation-chat-card shadow-card overflow-hidden h-full flex flex-col">
             <div className="h-1" style={{ backgroundColor: VB }} />
             <div className="p-3 border-b border-border flex items-center gap-2">
               <MessageSquare className="h-4 w-4" style={{ color: VB }} />
@@ -950,10 +1054,10 @@ export default function ConsultationRoom() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: isChat ? 400 : 300 }}>
+            <div className="consultation-chat-messages flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: isChat ? 400 : 300 }}>
               <div className="text-center py-2">
                 <Badge style={{ backgroundColor: `${VB}15`, color: VB }} className="text-xs">
-                  Consultation started — {booking.animal_type} • {booking.symptoms?.slice(0, 50)}
+                  Consultation started — {booking.animal_type} • {booking.symptoms?.slice(0, 50) || "No symptoms provided"}
                 </Badge>
               </div>
 
@@ -989,7 +1093,12 @@ export default function ConsultationRoom() {
             </div>
 
             {/* Input */}
-            <div className="p-3 border-t border-border">
+            <div className="consultation-chat-input p-3 border-t border-border">
+              {roomEnded && (
+                <p className="mb-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  This consultation has ended. Chat history is preserved for both doctor and patient, but new messages are disabled.
+                </p>
+              )}
               <div className="flex gap-2">
                 <Input
                   id="consultationMessageInput"

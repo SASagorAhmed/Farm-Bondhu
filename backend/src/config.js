@@ -24,4 +24,11 @@ export const config = {
     (process.env.AUTO_CREATE_SCHEMA !== "false" && (process.env.NODE_ENV || "development") !== "production"),
   /** Optional: public URL of this API (e.g. for links / webhooks) */
   apiPublicUrl: process.env.API_PUBLIC_URL?.trim() || "",
+  /** Public web app origin for links in transactional emails (order tracking, etc.) */
+  frontendUrl: (
+    process.env.FRONTEND_URL?.trim() ||
+    process.env.APP_ORIGIN?.trim() ||
+    (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).find(Boolean) ||
+    "http://localhost:5173"
+  ).replace(/\/$/, ""),
 };

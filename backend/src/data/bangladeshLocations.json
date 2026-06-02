@@ -1,0 +1,2907 @@
+{
+  "country": "Bangladesh",
+  "divisions": [
+    {
+      "id": "chattogram",
+      "name": "Chattogram",
+      "districts": [
+        {
+          "id": "cumilla",
+          "name": "Cumilla",
+          "upazilas": [
+            {
+              "id": "debidwar-cumilla",
+              "name": "Debidwar",
+              "areas": []
+            },
+            {
+              "id": "barura-cumilla",
+              "name": "Barura",
+              "areas": []
+            },
+            {
+              "id": "brahmanpara-cumilla",
+              "name": "Brahmanpara",
+              "areas": []
+            },
+            {
+              "id": "chandina-cumilla",
+              "name": "Chandina",
+              "areas": []
+            },
+            {
+              "id": "chauddagram-cumilla",
+              "name": "Chauddagram",
+              "areas": []
+            },
+            {
+              "id": "daudkandi-cumilla",
+              "name": "Daudkandi",
+              "areas": []
+            },
+            {
+              "id": "homna-cumilla",
+              "name": "Homna",
+              "areas": []
+            },
+            {
+              "id": "laksam-cumilla",
+              "name": "Laksam",
+              "areas": []
+            },
+            {
+              "id": "muradnagar-cumilla",
+              "name": "Muradnagar",
+              "areas": []
+            },
+            {
+              "id": "nangalkot-cumilla",
+              "name": "Nangalkot",
+              "areas": []
+            },
+            {
+              "id": "comilla-sadar-cumilla",
+              "name": "Comilla Sadar",
+              "areas": []
+            },
+            {
+              "id": "meghna-cumilla",
+              "name": "Meghna",
+              "areas": []
+            },
+            {
+              "id": "monohargonj-cumilla",
+              "name": "Monohargonj",
+              "areas": []
+            },
+            {
+              "id": "sadarsouth-cumilla",
+              "name": "Sadarsouth",
+              "areas": []
+            },
+            {
+              "id": "titas-cumilla",
+              "name": "Titas",
+              "areas": []
+            },
+            {
+              "id": "burichang-cumilla",
+              "name": "Burichang",
+              "areas": []
+            },
+            {
+              "id": "lalmai-cumilla",
+              "name": "Lalmai",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "feni",
+          "name": "Feni",
+          "upazilas": [
+            {
+              "id": "chhagalnaiya-feni",
+              "name": "Chhagalnaiya",
+              "areas": []
+            },
+            {
+              "id": "feni-sadar-feni",
+              "name": "Feni Sadar",
+              "areas": []
+            },
+            {
+              "id": "sonagazi-feni",
+              "name": "Sonagazi",
+              "areas": []
+            },
+            {
+              "id": "fulgazi-feni",
+              "name": "Fulgazi",
+              "areas": []
+            },
+            {
+              "id": "parshuram-feni",
+              "name": "Parshuram",
+              "areas": []
+            },
+            {
+              "id": "daganbhuiyan-feni",
+              "name": "Daganbhuiyan",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "brahmanbaria",
+          "name": "Brahmanbaria",
+          "upazilas": [
+            {
+              "id": "brahmanbaria-sadar-brahmanbaria",
+              "name": "Brahmanbaria Sadar",
+              "areas": []
+            },
+            {
+              "id": "kasba-brahmanbaria",
+              "name": "Kasba",
+              "areas": []
+            },
+            {
+              "id": "nasirnagar-brahmanbaria",
+              "name": "Nasirnagar",
+              "areas": []
+            },
+            {
+              "id": "sarail-brahmanbaria",
+              "name": "Sarail",
+              "areas": []
+            },
+            {
+              "id": "ashuganj-brahmanbaria",
+              "name": "Ashuganj",
+              "areas": []
+            },
+            {
+              "id": "akhaura-brahmanbaria",
+              "name": "Akhaura",
+              "areas": []
+            },
+            {
+              "id": "nabinagar-brahmanbaria",
+              "name": "Nabinagar",
+              "areas": []
+            },
+            {
+              "id": "bancharampur-brahmanbaria",
+              "name": "Bancharampur",
+              "areas": []
+            },
+            {
+              "id": "bijoynagar-brahmanbaria",
+              "name": "Bijoynagar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "rangamati",
+          "name": "Rangamati",
+          "upazilas": [
+            {
+              "id": "rangamati-sadar-rangamati",
+              "name": "Rangamati Sadar",
+              "areas": []
+            },
+            {
+              "id": "kaptai-rangamati",
+              "name": "Kaptai",
+              "areas": []
+            },
+            {
+              "id": "kawkhali-rangamati",
+              "name": "Kawkhali",
+              "areas": []
+            },
+            {
+              "id": "baghaichari-rangamati",
+              "name": "Baghaichari",
+              "areas": []
+            },
+            {
+              "id": "barkal-rangamati",
+              "name": "Barkal",
+              "areas": []
+            },
+            {
+              "id": "langadu-rangamati",
+              "name": "Langadu",
+              "areas": []
+            },
+            {
+              "id": "rajasthali-rangamati",
+              "name": "Rajasthali",
+              "areas": []
+            },
+            {
+              "id": "belaichari-rangamati",
+              "name": "Belaichari",
+              "areas": []
+            },
+            {
+              "id": "juraichari-rangamati",
+              "name": "Juraichari",
+              "areas": []
+            },
+            {
+              "id": "naniarchar-rangamati",
+              "name": "Naniarchar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "noakhali",
+          "name": "Noakhali",
+          "upazilas": [
+            {
+              "id": "noakhali-sadar-noakhali",
+              "name": "Noakhali Sadar",
+              "areas": []
+            },
+            {
+              "id": "companiganj-noakhali",
+              "name": "Companiganj",
+              "areas": []
+            },
+            {
+              "id": "begumganj-noakhali",
+              "name": "Begumganj",
+              "areas": []
+            },
+            {
+              "id": "hatia-noakhali",
+              "name": "Hatia",
+              "areas": []
+            },
+            {
+              "id": "subarnachar-noakhali",
+              "name": "Subarnachar",
+              "areas": []
+            },
+            {
+              "id": "kabirhat-noakhali",
+              "name": "Kabirhat",
+              "areas": []
+            },
+            {
+              "id": "senbug-noakhali",
+              "name": "Senbug",
+              "areas": []
+            },
+            {
+              "id": "chatkhil-noakhali",
+              "name": "Chatkhil",
+              "areas": []
+            },
+            {
+              "id": "sonaimori-noakhali",
+              "name": "Sonaimori",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "chandpur",
+          "name": "Chandpur",
+          "upazilas": [
+            {
+              "id": "haimchar-chandpur",
+              "name": "Haimchar",
+              "areas": []
+            },
+            {
+              "id": "kachua-chandpur",
+              "name": "Kachua",
+              "areas": []
+            },
+            {
+              "id": "shahrasti-chandpur",
+              "name": "Shahrasti",
+              "areas": []
+            },
+            {
+              "id": "chandpur-sadar-chandpur",
+              "name": "Chandpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "matlab-south-chandpur",
+              "name": "Matlab South",
+              "areas": []
+            },
+            {
+              "id": "hajiganj-chandpur",
+              "name": "Hajiganj",
+              "areas": []
+            },
+            {
+              "id": "matlab-north-chandpur",
+              "name": "Matlab North",
+              "areas": []
+            },
+            {
+              "id": "faridgonj-chandpur",
+              "name": "Faridgonj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "lakshmipur",
+          "name": "Lakshmipur",
+          "upazilas": [
+            {
+              "id": "lakshmipur-sadar-lakshmipur",
+              "name": "Lakshmipur Sadar",
+              "areas": []
+            },
+            {
+              "id": "kamalnagar-lakshmipur",
+              "name": "Kamalnagar",
+              "areas": []
+            },
+            {
+              "id": "raipur-lakshmipur",
+              "name": "Raipur",
+              "areas": []
+            },
+            {
+              "id": "ramgati-lakshmipur",
+              "name": "Ramgati",
+              "areas": []
+            },
+            {
+              "id": "ramganj-lakshmipur",
+              "name": "Ramganj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "chattogram",
+          "name": "Chattogram",
+          "upazilas": [
+            {
+              "id": "rangunia-chattogram",
+              "name": "Rangunia",
+              "areas": []
+            },
+            {
+              "id": "sitakunda-chattogram",
+              "name": "Sitakunda",
+              "areas": []
+            },
+            {
+              "id": "mirsharai-chattogram",
+              "name": "Mirsharai",
+              "areas": []
+            },
+            {
+              "id": "patiya-chattogram",
+              "name": "Patiya",
+              "areas": []
+            },
+            {
+              "id": "sandwip-chattogram",
+              "name": "Sandwip",
+              "areas": []
+            },
+            {
+              "id": "banshkhali-chattogram",
+              "name": "Banshkhali",
+              "areas": []
+            },
+            {
+              "id": "boalkhali-chattogram",
+              "name": "Boalkhali",
+              "areas": []
+            },
+            {
+              "id": "anwara-chattogram",
+              "name": "Anwara",
+              "areas": []
+            },
+            {
+              "id": "chandanaish-chattogram",
+              "name": "Chandanaish",
+              "areas": []
+            },
+            {
+              "id": "satkania-chattogram",
+              "name": "Satkania",
+              "areas": []
+            },
+            {
+              "id": "lohagara-chattogram",
+              "name": "Lohagara",
+              "areas": []
+            },
+            {
+              "id": "hathazari-chattogram",
+              "name": "Hathazari",
+              "areas": []
+            },
+            {
+              "id": "fatikchhari-chattogram",
+              "name": "Fatikchhari",
+              "areas": []
+            },
+            {
+              "id": "raozan-chattogram",
+              "name": "Raozan",
+              "areas": []
+            },
+            {
+              "id": "karnafuli-chattogram",
+              "name": "Karnafuli",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "coxs-bazar",
+          "name": "Cox's Bazar",
+          "upazilas": [
+            {
+              "id": "coxsbazar-sadar-coxs-bazar",
+              "name": "Coxsbazar Sadar",
+              "areas": []
+            },
+            {
+              "id": "chakaria-coxs-bazar",
+              "name": "Chakaria",
+              "areas": []
+            },
+            {
+              "id": "kutubdia-coxs-bazar",
+              "name": "Kutubdia",
+              "areas": []
+            },
+            {
+              "id": "ukhiya-coxs-bazar",
+              "name": "Ukhiya",
+              "areas": []
+            },
+            {
+              "id": "moheshkhali-coxs-bazar",
+              "name": "Moheshkhali",
+              "areas": []
+            },
+            {
+              "id": "pekua-coxs-bazar",
+              "name": "Pekua",
+              "areas": []
+            },
+            {
+              "id": "ramu-coxs-bazar",
+              "name": "Ramu",
+              "areas": []
+            },
+            {
+              "id": "teknaf-coxs-bazar",
+              "name": "Teknaf",
+              "areas": []
+            },
+            {
+              "id": "eidgaon-coxs-bazar",
+              "name": "Eidgaon",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "khagrachhari",
+          "name": "Khagrachhari",
+          "upazilas": [
+            {
+              "id": "khagrachhari-sadar-khagrachhari",
+              "name": "Khagrachhari Sadar",
+              "areas": []
+            },
+            {
+              "id": "dighinala-khagrachhari",
+              "name": "Dighinala",
+              "areas": []
+            },
+            {
+              "id": "panchari-khagrachhari",
+              "name": "Panchari",
+              "areas": []
+            },
+            {
+              "id": "laxmichhari-khagrachhari",
+              "name": "Laxmichhari",
+              "areas": []
+            },
+            {
+              "id": "mohalchari-khagrachhari",
+              "name": "Mohalchari",
+              "areas": []
+            },
+            {
+              "id": "manikchari-khagrachhari",
+              "name": "Manikchari",
+              "areas": []
+            },
+            {
+              "id": "ramgarh-khagrachhari",
+              "name": "Ramgarh",
+              "areas": []
+            },
+            {
+              "id": "matiranga-khagrachhari",
+              "name": "Matiranga",
+              "areas": []
+            },
+            {
+              "id": "guimara-khagrachhari",
+              "name": "Guimara",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "bandarban",
+          "name": "Bandarban",
+          "upazilas": [
+            {
+              "id": "bandarban-sadar-bandarban",
+              "name": "Bandarban Sadar",
+              "areas": []
+            },
+            {
+              "id": "alikadam-bandarban",
+              "name": "Alikadam",
+              "areas": []
+            },
+            {
+              "id": "naikhongchhari-bandarban",
+              "name": "Naikhongchhari",
+              "areas": []
+            },
+            {
+              "id": "rowangchhari-bandarban",
+              "name": "Rowangchhari",
+              "areas": []
+            },
+            {
+              "id": "lama-bandarban",
+              "name": "Lama",
+              "areas": []
+            },
+            {
+              "id": "ruma-bandarban",
+              "name": "Ruma",
+              "areas": []
+            },
+            {
+              "id": "thanchi-bandarban",
+              "name": "Thanchi",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rajshahi",
+      "name": "Rajshahi",
+      "districts": [
+        {
+          "id": "sirajganj",
+          "name": "Sirajganj",
+          "upazilas": [
+            {
+              "id": "belkuchi-sirajganj",
+              "name": "Belkuchi",
+              "areas": []
+            },
+            {
+              "id": "chauhali-sirajganj",
+              "name": "Chauhali",
+              "areas": []
+            },
+            {
+              "id": "kamarkhand-sirajganj",
+              "name": "Kamarkhand",
+              "areas": []
+            },
+            {
+              "id": "kazipur-sirajganj",
+              "name": "Kazipur",
+              "areas": []
+            },
+            {
+              "id": "raigonj-sirajganj",
+              "name": "Raigonj",
+              "areas": []
+            },
+            {
+              "id": "shahjadpur-sirajganj",
+              "name": "Shahjadpur",
+              "areas": []
+            },
+            {
+              "id": "sirajganj-sadar-sirajganj",
+              "name": "Sirajganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "tarash-sirajganj",
+              "name": "Tarash",
+              "areas": []
+            },
+            {
+              "id": "ullapara-sirajganj",
+              "name": "Ullapara",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "pabna",
+          "name": "Pabna",
+          "upazilas": [
+            {
+              "id": "sujanagar-pabna",
+              "name": "Sujanagar",
+              "areas": []
+            },
+            {
+              "id": "ishurdi-pabna",
+              "name": "Ishurdi",
+              "areas": []
+            },
+            {
+              "id": "bhangura-pabna",
+              "name": "Bhangura",
+              "areas": []
+            },
+            {
+              "id": "pabna-sadar-pabna",
+              "name": "Pabna Sadar",
+              "areas": []
+            },
+            {
+              "id": "bera-pabna",
+              "name": "Bera",
+              "areas": []
+            },
+            {
+              "id": "atghoria-pabna",
+              "name": "Atghoria",
+              "areas": []
+            },
+            {
+              "id": "chatmohar-pabna",
+              "name": "Chatmohar",
+              "areas": []
+            },
+            {
+              "id": "santhia-pabna",
+              "name": "Santhia",
+              "areas": []
+            },
+            {
+              "id": "faridpur-pabna",
+              "name": "Faridpur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "bogura",
+          "name": "Bogura",
+          "upazilas": [
+            {
+              "id": "kahaloo-bogura",
+              "name": "Kahaloo",
+              "areas": []
+            },
+            {
+              "id": "bogra-sadar-bogura",
+              "name": "Bogra Sadar",
+              "areas": []
+            },
+            {
+              "id": "shariakandi-bogura",
+              "name": "Shariakandi",
+              "areas": []
+            },
+            {
+              "id": "shajahanpur-bogura",
+              "name": "Shajahanpur",
+              "areas": []
+            },
+            {
+              "id": "dupchanchia-bogura",
+              "name": "Dupchanchia",
+              "areas": []
+            },
+            {
+              "id": "adamdighi-bogura",
+              "name": "Adamdighi",
+              "areas": []
+            },
+            {
+              "id": "nondigram-bogura",
+              "name": "Nondigram",
+              "areas": []
+            },
+            {
+              "id": "sonatala-bogura",
+              "name": "Sonatala",
+              "areas": []
+            },
+            {
+              "id": "dhunot-bogura",
+              "name": "Dhunot",
+              "areas": []
+            },
+            {
+              "id": "gabtali-bogura",
+              "name": "Gabtali",
+              "areas": []
+            },
+            {
+              "id": "sherpur-bogura",
+              "name": "Sherpur",
+              "areas": []
+            },
+            {
+              "id": "shibganj-bogura",
+              "name": "Shibganj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "rajshahi",
+          "name": "Rajshahi",
+          "upazilas": [
+            {
+              "id": "paba-rajshahi",
+              "name": "Paba",
+              "areas": []
+            },
+            {
+              "id": "durgapur-rajshahi",
+              "name": "Durgapur",
+              "areas": []
+            },
+            {
+              "id": "mohonpur-rajshahi",
+              "name": "Mohonpur",
+              "areas": []
+            },
+            {
+              "id": "charghat-rajshahi",
+              "name": "Charghat",
+              "areas": []
+            },
+            {
+              "id": "puthia-rajshahi",
+              "name": "Puthia",
+              "areas": []
+            },
+            {
+              "id": "bagha-rajshahi",
+              "name": "Bagha",
+              "areas": []
+            },
+            {
+              "id": "godagari-rajshahi",
+              "name": "Godagari",
+              "areas": []
+            },
+            {
+              "id": "tanore-rajshahi",
+              "name": "Tanore",
+              "areas": []
+            },
+            {
+              "id": "bagmara-rajshahi",
+              "name": "Bagmara",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "natore",
+          "name": "Natore",
+          "upazilas": [
+            {
+              "id": "natore-sadar-natore",
+              "name": "Natore Sadar",
+              "areas": []
+            },
+            {
+              "id": "singra-natore",
+              "name": "Singra",
+              "areas": []
+            },
+            {
+              "id": "baraigram-natore",
+              "name": "Baraigram",
+              "areas": []
+            },
+            {
+              "id": "bagatipara-natore",
+              "name": "Bagatipara",
+              "areas": []
+            },
+            {
+              "id": "lalpur-natore",
+              "name": "Lalpur",
+              "areas": []
+            },
+            {
+              "id": "gurudaspur-natore",
+              "name": "Gurudaspur",
+              "areas": []
+            },
+            {
+              "id": "naldanga-natore",
+              "name": "Naldanga",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "joypurhat",
+          "name": "Joypurhat",
+          "upazilas": [
+            {
+              "id": "akkelpur-joypurhat",
+              "name": "Akkelpur",
+              "areas": []
+            },
+            {
+              "id": "kalai-joypurhat",
+              "name": "Kalai",
+              "areas": []
+            },
+            {
+              "id": "khetlal-joypurhat",
+              "name": "Khetlal",
+              "areas": []
+            },
+            {
+              "id": "panchbibi-joypurhat",
+              "name": "Panchbibi",
+              "areas": []
+            },
+            {
+              "id": "joypurhat-sadar-joypurhat",
+              "name": "Joypurhat Sadar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "chapainawabganj",
+          "name": "Chapainawabganj",
+          "upazilas": [
+            {
+              "id": "chapainawabganj-sadar-chapainawabganj",
+              "name": "Chapainawabganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "gomostapur-chapainawabganj",
+              "name": "Gomostapur",
+              "areas": []
+            },
+            {
+              "id": "nachol-chapainawabganj",
+              "name": "Nachol",
+              "areas": []
+            },
+            {
+              "id": "bholahat-chapainawabganj",
+              "name": "Bholahat",
+              "areas": []
+            },
+            {
+              "id": "shibganj-chapainawabganj",
+              "name": "Shibganj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "naogaon",
+          "name": "Naogaon",
+          "upazilas": [
+            {
+              "id": "mohadevpur-naogaon",
+              "name": "Mohadevpur",
+              "areas": []
+            },
+            {
+              "id": "badalgachi-naogaon",
+              "name": "Badalgachi",
+              "areas": []
+            },
+            {
+              "id": "patnitala-naogaon",
+              "name": "Patnitala",
+              "areas": []
+            },
+            {
+              "id": "dhamoirhat-naogaon",
+              "name": "Dhamoirhat",
+              "areas": []
+            },
+            {
+              "id": "niamatpur-naogaon",
+              "name": "Niamatpur",
+              "areas": []
+            },
+            {
+              "id": "manda-naogaon",
+              "name": "Manda",
+              "areas": []
+            },
+            {
+              "id": "atrai-naogaon",
+              "name": "Atrai",
+              "areas": []
+            },
+            {
+              "id": "raninagar-naogaon",
+              "name": "Raninagar",
+              "areas": []
+            },
+            {
+              "id": "naogaon-sadar-naogaon",
+              "name": "Naogaon Sadar",
+              "areas": []
+            },
+            {
+              "id": "porsha-naogaon",
+              "name": "Porsha",
+              "areas": []
+            },
+            {
+              "id": "sapahar-naogaon",
+              "name": "Sapahar",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "khulna",
+      "name": "Khulna",
+      "districts": [
+        {
+          "id": "jashore",
+          "name": "Jashore",
+          "upazilas": [
+            {
+              "id": "manirampur-jashore",
+              "name": "Manirampur",
+              "areas": []
+            },
+            {
+              "id": "abhaynagar-jashore",
+              "name": "Abhaynagar",
+              "areas": []
+            },
+            {
+              "id": "bagherpara-jashore",
+              "name": "Bagherpara",
+              "areas": []
+            },
+            {
+              "id": "chougachha-jashore",
+              "name": "Chougachha",
+              "areas": []
+            },
+            {
+              "id": "jhikargacha-jashore",
+              "name": "Jhikargacha",
+              "areas": []
+            },
+            {
+              "id": "keshabpur-jashore",
+              "name": "Keshabpur",
+              "areas": []
+            },
+            {
+              "id": "jessore-sadar-jashore",
+              "name": "Jessore Sadar",
+              "areas": []
+            },
+            {
+              "id": "sharsha-jashore",
+              "name": "Sharsha",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "satkhira",
+          "name": "Satkhira",
+          "upazilas": [
+            {
+              "id": "assasuni-satkhira",
+              "name": "Assasuni",
+              "areas": []
+            },
+            {
+              "id": "debhata-satkhira",
+              "name": "Debhata",
+              "areas": []
+            },
+            {
+              "id": "kalaroa-satkhira",
+              "name": "Kalaroa",
+              "areas": []
+            },
+            {
+              "id": "satkhira-sadar-satkhira",
+              "name": "Satkhira Sadar",
+              "areas": []
+            },
+            {
+              "id": "shyamnagar-satkhira",
+              "name": "Shyamnagar",
+              "areas": []
+            },
+            {
+              "id": "tala-satkhira",
+              "name": "Tala",
+              "areas": []
+            },
+            {
+              "id": "kaliganj-satkhira",
+              "name": "Kaliganj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "meherpur",
+          "name": "Meherpur",
+          "upazilas": [
+            {
+              "id": "mujibnagar-meherpur",
+              "name": "Mujibnagar",
+              "areas": []
+            },
+            {
+              "id": "meherpur-sadar-meherpur",
+              "name": "Meherpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "gangni-meherpur",
+              "name": "Gangni",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "narail",
+          "name": "Narail",
+          "upazilas": [
+            {
+              "id": "narail-sadar-narail",
+              "name": "Narail Sadar",
+              "areas": []
+            },
+            {
+              "id": "lohagara-narail",
+              "name": "Lohagara",
+              "areas": []
+            },
+            {
+              "id": "kalia-narail",
+              "name": "Kalia",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "chuadanga",
+          "name": "Chuadanga",
+          "upazilas": [
+            {
+              "id": "chuadanga-sadar-chuadanga",
+              "name": "Chuadanga Sadar",
+              "areas": []
+            },
+            {
+              "id": "alamdanga-chuadanga",
+              "name": "Alamdanga",
+              "areas": []
+            },
+            {
+              "id": "damurhuda-chuadanga",
+              "name": "Damurhuda",
+              "areas": []
+            },
+            {
+              "id": "jibannagar-chuadanga",
+              "name": "Jibannagar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "kushtia",
+          "name": "Kushtia",
+          "upazilas": [
+            {
+              "id": "kushtia-sadar-kushtia",
+              "name": "Kushtia Sadar",
+              "areas": []
+            },
+            {
+              "id": "kumarkhali-kushtia",
+              "name": "Kumarkhali",
+              "areas": []
+            },
+            {
+              "id": "khoksa-kushtia",
+              "name": "Khoksa",
+              "areas": []
+            },
+            {
+              "id": "mirpur-kushtia",
+              "name": "Mirpur",
+              "areas": []
+            },
+            {
+              "id": "daulatpur-kushtia",
+              "name": "Daulatpur",
+              "areas": []
+            },
+            {
+              "id": "bheramara-kushtia",
+              "name": "Bheramara",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "magura",
+          "name": "Magura",
+          "upazilas": [
+            {
+              "id": "shalikha-magura",
+              "name": "Shalikha",
+              "areas": []
+            },
+            {
+              "id": "sreepur-magura",
+              "name": "Sreepur",
+              "areas": []
+            },
+            {
+              "id": "magura-sadar-magura",
+              "name": "Magura Sadar",
+              "areas": []
+            },
+            {
+              "id": "mohammadpur-magura",
+              "name": "Mohammadpur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "khulna",
+          "name": "Khulna",
+          "upazilas": [
+            {
+              "id": "paikgasa-khulna",
+              "name": "Paikgasa",
+              "areas": []
+            },
+            {
+              "id": "fultola-khulna",
+              "name": "Fultola",
+              "areas": []
+            },
+            {
+              "id": "digholia-khulna",
+              "name": "Digholia",
+              "areas": []
+            },
+            {
+              "id": "rupsha-khulna",
+              "name": "Rupsha",
+              "areas": []
+            },
+            {
+              "id": "terokhada-khulna",
+              "name": "Terokhada",
+              "areas": []
+            },
+            {
+              "id": "dumuria-khulna",
+              "name": "Dumuria",
+              "areas": []
+            },
+            {
+              "id": "botiaghata-khulna",
+              "name": "Botiaghata",
+              "areas": []
+            },
+            {
+              "id": "dakop-khulna",
+              "name": "Dakop",
+              "areas": []
+            },
+            {
+              "id": "koyra-khulna",
+              "name": "Koyra",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "bagerhat",
+          "name": "Bagerhat",
+          "upazilas": [
+            {
+              "id": "fakirhat-bagerhat",
+              "name": "Fakirhat",
+              "areas": []
+            },
+            {
+              "id": "bagerhat-sadar-bagerhat",
+              "name": "Bagerhat Sadar",
+              "areas": []
+            },
+            {
+              "id": "mollahat-bagerhat",
+              "name": "Mollahat",
+              "areas": []
+            },
+            {
+              "id": "sarankhola-bagerhat",
+              "name": "Sarankhola",
+              "areas": []
+            },
+            {
+              "id": "rampal-bagerhat",
+              "name": "Rampal",
+              "areas": []
+            },
+            {
+              "id": "morrelganj-bagerhat",
+              "name": "Morrelganj",
+              "areas": []
+            },
+            {
+              "id": "kachua-bagerhat",
+              "name": "Kachua",
+              "areas": []
+            },
+            {
+              "id": "mongla-bagerhat",
+              "name": "Mongla",
+              "areas": []
+            },
+            {
+              "id": "chitalmari-bagerhat",
+              "name": "Chitalmari",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "jhenaidah",
+          "name": "Jhenaidah",
+          "upazilas": [
+            {
+              "id": "jhenaidah-sadar-jhenaidah",
+              "name": "Jhenaidah Sadar",
+              "areas": []
+            },
+            {
+              "id": "shailkupa-jhenaidah",
+              "name": "Shailkupa",
+              "areas": []
+            },
+            {
+              "id": "harinakundu-jhenaidah",
+              "name": "Harinakundu",
+              "areas": []
+            },
+            {
+              "id": "kaliganj-jhenaidah",
+              "name": "Kaliganj",
+              "areas": []
+            },
+            {
+              "id": "kotchandpur-jhenaidah",
+              "name": "Kotchandpur",
+              "areas": []
+            },
+            {
+              "id": "moheshpur-jhenaidah",
+              "name": "Moheshpur",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "barishal",
+      "name": "Barishal",
+      "districts": [
+        {
+          "id": "jhalakathi",
+          "name": "Jhalakathi",
+          "upazilas": [
+            {
+              "id": "jhalakathi-sadar-jhalakathi",
+              "name": "Jhalakathi Sadar",
+              "areas": []
+            },
+            {
+              "id": "kathalia-jhalakathi",
+              "name": "Kathalia",
+              "areas": []
+            },
+            {
+              "id": "nalchity-jhalakathi",
+              "name": "Nalchity",
+              "areas": []
+            },
+            {
+              "id": "rajapur-jhalakathi",
+              "name": "Rajapur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "patuakhali",
+          "name": "Patuakhali",
+          "upazilas": [
+            {
+              "id": "bauphal-patuakhali",
+              "name": "Bauphal",
+              "areas": []
+            },
+            {
+              "id": "patuakhali-sadar-patuakhali",
+              "name": "Patuakhali Sadar",
+              "areas": []
+            },
+            {
+              "id": "dumki-patuakhali",
+              "name": "Dumki",
+              "areas": []
+            },
+            {
+              "id": "dashmina-patuakhali",
+              "name": "Dashmina",
+              "areas": []
+            },
+            {
+              "id": "kalapara-patuakhali",
+              "name": "Kalapara",
+              "areas": []
+            },
+            {
+              "id": "mirzaganj-patuakhali",
+              "name": "Mirzaganj",
+              "areas": []
+            },
+            {
+              "id": "galachipa-patuakhali",
+              "name": "Galachipa",
+              "areas": []
+            },
+            {
+              "id": "rangabali-patuakhali",
+              "name": "Rangabali",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "pirojpur",
+          "name": "Pirojpur",
+          "upazilas": [
+            {
+              "id": "pirojpur-sadar-pirojpur",
+              "name": "Pirojpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "nazirpur-pirojpur",
+              "name": "Nazirpur",
+              "areas": []
+            },
+            {
+              "id": "kawkhali-pirojpur",
+              "name": "Kawkhali",
+              "areas": []
+            },
+            {
+              "id": "zianagar-pirojpur",
+              "name": "Zianagar",
+              "areas": []
+            },
+            {
+              "id": "bhandaria-pirojpur",
+              "name": "Bhandaria",
+              "areas": []
+            },
+            {
+              "id": "mathbaria-pirojpur",
+              "name": "Mathbaria",
+              "areas": []
+            },
+            {
+              "id": "nesarabad-pirojpur",
+              "name": "Nesarabad",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "barisal",
+          "name": "Barisal",
+          "upazilas": [
+            {
+              "id": "barisal-sadar-barisal",
+              "name": "Barisal Sadar",
+              "areas": []
+            },
+            {
+              "id": "bakerganj-barisal",
+              "name": "Bakerganj",
+              "areas": []
+            },
+            {
+              "id": "babuganj-barisal",
+              "name": "Babuganj",
+              "areas": []
+            },
+            {
+              "id": "wazirpur-barisal",
+              "name": "Wazirpur",
+              "areas": []
+            },
+            {
+              "id": "banaripara-barisal",
+              "name": "Banaripara",
+              "areas": []
+            },
+            {
+              "id": "gournadi-barisal",
+              "name": "Gournadi",
+              "areas": []
+            },
+            {
+              "id": "agailjhara-barisal",
+              "name": "Agailjhara",
+              "areas": []
+            },
+            {
+              "id": "mehendiganj-barisal",
+              "name": "Mehendiganj",
+              "areas": []
+            },
+            {
+              "id": "muladi-barisal",
+              "name": "Muladi",
+              "areas": []
+            },
+            {
+              "id": "hizla-barisal",
+              "name": "Hizla",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "bhola",
+          "name": "Bhola",
+          "upazilas": [
+            {
+              "id": "bhola-sadar-bhola",
+              "name": "Bhola Sadar",
+              "areas": []
+            },
+            {
+              "id": "borhan-sddin-bhola",
+              "name": "Borhan Sddin",
+              "areas": []
+            },
+            {
+              "id": "charfesson-bhola",
+              "name": "Charfesson",
+              "areas": []
+            },
+            {
+              "id": "doulatkhan-bhola",
+              "name": "Doulatkhan",
+              "areas": []
+            },
+            {
+              "id": "monpura-bhola",
+              "name": "Monpura",
+              "areas": []
+            },
+            {
+              "id": "tazumuddin-bhola",
+              "name": "Tazumuddin",
+              "areas": []
+            },
+            {
+              "id": "lalmohan-bhola",
+              "name": "Lalmohan",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "barguna",
+          "name": "Barguna",
+          "upazilas": [
+            {
+              "id": "amtali-barguna",
+              "name": "Amtali",
+              "areas": []
+            },
+            {
+              "id": "barguna-sadar-barguna",
+              "name": "Barguna Sadar",
+              "areas": []
+            },
+            {
+              "id": "betagi-barguna",
+              "name": "Betagi",
+              "areas": []
+            },
+            {
+              "id": "bamna-barguna",
+              "name": "Bamna",
+              "areas": []
+            },
+            {
+              "id": "pathorghata-barguna",
+              "name": "Pathorghata",
+              "areas": []
+            },
+            {
+              "id": "taltali-barguna",
+              "name": "Taltali",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sylhet",
+      "name": "Sylhet",
+      "districts": [
+        {
+          "id": "sylhet",
+          "name": "Sylhet",
+          "upazilas": [
+            {
+              "id": "balaganj-sylhet",
+              "name": "Balaganj",
+              "areas": []
+            },
+            {
+              "id": "beanibazar-sylhet",
+              "name": "Beanibazar",
+              "areas": []
+            },
+            {
+              "id": "bishwanath-sylhet",
+              "name": "Bishwanath",
+              "areas": []
+            },
+            {
+              "id": "companiganj-sylhet",
+              "name": "Companiganj",
+              "areas": []
+            },
+            {
+              "id": "fenchuganj-sylhet",
+              "name": "Fenchuganj",
+              "areas": []
+            },
+            {
+              "id": "golapganj-sylhet",
+              "name": "Golapganj",
+              "areas": []
+            },
+            {
+              "id": "gowainghat-sylhet",
+              "name": "Gowainghat",
+              "areas": []
+            },
+            {
+              "id": "jaintiapur-sylhet",
+              "name": "Jaintiapur",
+              "areas": []
+            },
+            {
+              "id": "kanaighat-sylhet",
+              "name": "Kanaighat",
+              "areas": []
+            },
+            {
+              "id": "sylhet-sadar-sylhet",
+              "name": "Sylhet Sadar",
+              "areas": []
+            },
+            {
+              "id": "zakiganj-sylhet",
+              "name": "Zakiganj",
+              "areas": []
+            },
+            {
+              "id": "dakshinsurma-sylhet",
+              "name": "Dakshinsurma",
+              "areas": []
+            },
+            {
+              "id": "osmaninagar-sylhet",
+              "name": "Osmaninagar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "moulvibazar",
+          "name": "Moulvibazar",
+          "upazilas": [
+            {
+              "id": "barlekha-moulvibazar",
+              "name": "Barlekha",
+              "areas": []
+            },
+            {
+              "id": "kamolganj-moulvibazar",
+              "name": "Kamolganj",
+              "areas": []
+            },
+            {
+              "id": "kulaura-moulvibazar",
+              "name": "Kulaura",
+              "areas": []
+            },
+            {
+              "id": "moulvibazar-sadar-moulvibazar",
+              "name": "Moulvibazar Sadar",
+              "areas": []
+            },
+            {
+              "id": "rajnagar-moulvibazar",
+              "name": "Rajnagar",
+              "areas": []
+            },
+            {
+              "id": "sreemangal-moulvibazar",
+              "name": "Sreemangal",
+              "areas": []
+            },
+            {
+              "id": "juri-moulvibazar",
+              "name": "Juri",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "habiganj",
+          "name": "Habiganj",
+          "upazilas": [
+            {
+              "id": "nabiganj-habiganj",
+              "name": "Nabiganj",
+              "areas": []
+            },
+            {
+              "id": "bahubal-habiganj",
+              "name": "Bahubal",
+              "areas": []
+            },
+            {
+              "id": "ajmiriganj-habiganj",
+              "name": "Ajmiriganj",
+              "areas": []
+            },
+            {
+              "id": "baniachong-habiganj",
+              "name": "Baniachong",
+              "areas": []
+            },
+            {
+              "id": "lakhai-habiganj",
+              "name": "Lakhai",
+              "areas": []
+            },
+            {
+              "id": "chunarughat-habiganj",
+              "name": "Chunarughat",
+              "areas": []
+            },
+            {
+              "id": "habiganj-sadar-habiganj",
+              "name": "Habiganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "madhabpur-habiganj",
+              "name": "Madhabpur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "sunamganj",
+          "name": "Sunamganj",
+          "upazilas": [
+            {
+              "id": "sunamganj-sadar-sunamganj",
+              "name": "Sunamganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "south-sunamganj-sunamganj",
+              "name": "South Sunamganj",
+              "areas": []
+            },
+            {
+              "id": "bishwambarpur-sunamganj",
+              "name": "Bishwambarpur",
+              "areas": []
+            },
+            {
+              "id": "chhatak-sunamganj",
+              "name": "Chhatak",
+              "areas": []
+            },
+            {
+              "id": "jagannathpur-sunamganj",
+              "name": "Jagannathpur",
+              "areas": []
+            },
+            {
+              "id": "dowarabazar-sunamganj",
+              "name": "Dowarabazar",
+              "areas": []
+            },
+            {
+              "id": "tahirpur-sunamganj",
+              "name": "Tahirpur",
+              "areas": []
+            },
+            {
+              "id": "dharmapasha-sunamganj",
+              "name": "Dharmapasha",
+              "areas": []
+            },
+            {
+              "id": "jamalganj-sunamganj",
+              "name": "Jamalganj",
+              "areas": []
+            },
+            {
+              "id": "shalla-sunamganj",
+              "name": "Shalla",
+              "areas": []
+            },
+            {
+              "id": "derai-sunamganj",
+              "name": "Derai",
+              "areas": []
+            },
+            {
+              "id": "madhyanagar-sunamganj",
+              "name": "Madhyanagar",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dhaka",
+      "name": "Dhaka",
+      "districts": [
+        {
+          "id": "narsingdi",
+          "name": "Narsingdi",
+          "upazilas": [
+            {
+              "id": "belabo-narsingdi",
+              "name": "Belabo",
+              "areas": []
+            },
+            {
+              "id": "monohardi-narsingdi",
+              "name": "Monohardi",
+              "areas": []
+            },
+            {
+              "id": "narsingdi-sadar-narsingdi",
+              "name": "Narsingdi Sadar",
+              "areas": []
+            },
+            {
+              "id": "palash-narsingdi",
+              "name": "Palash",
+              "areas": []
+            },
+            {
+              "id": "raipura-narsingdi",
+              "name": "Raipura",
+              "areas": []
+            },
+            {
+              "id": "shibpur-narsingdi",
+              "name": "Shibpur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "gazipur",
+          "name": "Gazipur",
+          "upazilas": [
+            {
+              "id": "kaliganj-gazipur",
+              "name": "Kaliganj",
+              "areas": []
+            },
+            {
+              "id": "kaliakair-gazipur",
+              "name": "Kaliakair",
+              "areas": []
+            },
+            {
+              "id": "kapasia-gazipur",
+              "name": "Kapasia",
+              "areas": []
+            },
+            {
+              "id": "gazipur-sadar-gazipur",
+              "name": "Gazipur Sadar",
+              "areas": []
+            },
+            {
+              "id": "sreepur-gazipur",
+              "name": "Sreepur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "shariatpur",
+          "name": "Shariatpur",
+          "upazilas": [
+            {
+              "id": "shariatpur-sadar-shariatpur",
+              "name": "Shariatpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "naria-shariatpur",
+              "name": "Naria",
+              "areas": []
+            },
+            {
+              "id": "zajira-shariatpur",
+              "name": "Zajira",
+              "areas": []
+            },
+            {
+              "id": "gosairhat-shariatpur",
+              "name": "Gosairhat",
+              "areas": []
+            },
+            {
+              "id": "bhedarganj-shariatpur",
+              "name": "Bhedarganj",
+              "areas": []
+            },
+            {
+              "id": "damudya-shariatpur",
+              "name": "Damudya",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "narayanganj",
+          "name": "Narayanganj",
+          "upazilas": [
+            {
+              "id": "araihazar-narayanganj",
+              "name": "Araihazar",
+              "areas": []
+            },
+            {
+              "id": "bandar-narayanganj",
+              "name": "Bandar",
+              "areas": []
+            },
+            {
+              "id": "narayanganj-sadar-narayanganj",
+              "name": "Narayanganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "rupganj-narayanganj",
+              "name": "Rupganj",
+              "areas": []
+            },
+            {
+              "id": "sonargaon-narayanganj",
+              "name": "Sonargaon",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "tangail",
+          "name": "Tangail",
+          "upazilas": [
+            {
+              "id": "basail-tangail",
+              "name": "Basail",
+              "areas": []
+            },
+            {
+              "id": "bhuapur-tangail",
+              "name": "Bhuapur",
+              "areas": []
+            },
+            {
+              "id": "delduar-tangail",
+              "name": "Delduar",
+              "areas": []
+            },
+            {
+              "id": "ghatail-tangail",
+              "name": "Ghatail",
+              "areas": []
+            },
+            {
+              "id": "gopalpur-tangail",
+              "name": "Gopalpur",
+              "areas": []
+            },
+            {
+              "id": "madhupur-tangail",
+              "name": "Madhupur",
+              "areas": []
+            },
+            {
+              "id": "mirzapur-tangail",
+              "name": "Mirzapur",
+              "areas": []
+            },
+            {
+              "id": "nagarpur-tangail",
+              "name": "Nagarpur",
+              "areas": []
+            },
+            {
+              "id": "sakhipur-tangail",
+              "name": "Sakhipur",
+              "areas": []
+            },
+            {
+              "id": "tangail-sadar-tangail",
+              "name": "Tangail Sadar",
+              "areas": []
+            },
+            {
+              "id": "kalihati-tangail",
+              "name": "Kalihati",
+              "areas": []
+            },
+            {
+              "id": "dhanbari-tangail",
+              "name": "Dhanbari",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "kishoreganj",
+          "name": "Kishoreganj",
+          "upazilas": [
+            {
+              "id": "itna-kishoreganj",
+              "name": "Itna",
+              "areas": []
+            },
+            {
+              "id": "katiadi-kishoreganj",
+              "name": "Katiadi",
+              "areas": []
+            },
+            {
+              "id": "bhairab-kishoreganj",
+              "name": "Bhairab",
+              "areas": []
+            },
+            {
+              "id": "tarail-kishoreganj",
+              "name": "Tarail",
+              "areas": []
+            },
+            {
+              "id": "hossainpur-kishoreganj",
+              "name": "Hossainpur",
+              "areas": []
+            },
+            {
+              "id": "pakundia-kishoreganj",
+              "name": "Pakundia",
+              "areas": []
+            },
+            {
+              "id": "kuliarchar-kishoreganj",
+              "name": "Kuliarchar",
+              "areas": []
+            },
+            {
+              "id": "kishoreganj-sadar-kishoreganj",
+              "name": "Kishoreganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "karimgonj-kishoreganj",
+              "name": "Karimgonj",
+              "areas": []
+            },
+            {
+              "id": "bajitpur-kishoreganj",
+              "name": "Bajitpur",
+              "areas": []
+            },
+            {
+              "id": "austagram-kishoreganj",
+              "name": "Austagram",
+              "areas": []
+            },
+            {
+              "id": "mithamoin-kishoreganj",
+              "name": "Mithamoin",
+              "areas": []
+            },
+            {
+              "id": "nikli-kishoreganj",
+              "name": "Nikli",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "manikganj",
+          "name": "Manikganj",
+          "upazilas": [
+            {
+              "id": "harirampur-manikganj",
+              "name": "Harirampur",
+              "areas": []
+            },
+            {
+              "id": "saturia-manikganj",
+              "name": "Saturia",
+              "areas": []
+            },
+            {
+              "id": "manikganj-sadar-manikganj",
+              "name": "Manikganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "gior-manikganj",
+              "name": "Gior",
+              "areas": []
+            },
+            {
+              "id": "shibaloy-manikganj",
+              "name": "Shibaloy",
+              "areas": []
+            },
+            {
+              "id": "doulatpur-manikganj",
+              "name": "Doulatpur",
+              "areas": []
+            },
+            {
+              "id": "singiar-manikganj",
+              "name": "Singiar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "dhaka",
+          "name": "Dhaka",
+          "upazilas": [
+            {
+              "id": "savar-dhaka",
+              "name": "Savar",
+              "areas": []
+            },
+            {
+              "id": "dhamrai-dhaka",
+              "name": "Dhamrai",
+              "areas": []
+            },
+            {
+              "id": "keraniganj-dhaka",
+              "name": "Keraniganj",
+              "areas": []
+            },
+            {
+              "id": "nawabganj-dhaka",
+              "name": "Nawabganj",
+              "areas": []
+            },
+            {
+              "id": "dohar-dhaka",
+              "name": "Dohar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "munshiganj",
+          "name": "Munshiganj",
+          "upazilas": [
+            {
+              "id": "munshiganj-sadar-munshiganj",
+              "name": "Munshiganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "sreenagar-munshiganj",
+              "name": "Sreenagar",
+              "areas": []
+            },
+            {
+              "id": "sirajdikhan-munshiganj",
+              "name": "Sirajdikhan",
+              "areas": []
+            },
+            {
+              "id": "louhajanj-munshiganj",
+              "name": "Louhajanj",
+              "areas": []
+            },
+            {
+              "id": "gajaria-munshiganj",
+              "name": "Gajaria",
+              "areas": []
+            },
+            {
+              "id": "tongibari-munshiganj",
+              "name": "Tongibari",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "rajbari",
+          "name": "Rajbari",
+          "upazilas": [
+            {
+              "id": "rajbari-sadar-rajbari",
+              "name": "Rajbari Sadar",
+              "areas": []
+            },
+            {
+              "id": "goalanda-rajbari",
+              "name": "Goalanda",
+              "areas": []
+            },
+            {
+              "id": "pangsa-rajbari",
+              "name": "Pangsa",
+              "areas": []
+            },
+            {
+              "id": "baliakandi-rajbari",
+              "name": "Baliakandi",
+              "areas": []
+            },
+            {
+              "id": "kalukhali-rajbari",
+              "name": "Kalukhali",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "madaripur",
+          "name": "Madaripur",
+          "upazilas": [
+            {
+              "id": "madaripur-sadar-madaripur",
+              "name": "Madaripur Sadar",
+              "areas": []
+            },
+            {
+              "id": "shibchar-madaripur",
+              "name": "Shibchar",
+              "areas": []
+            },
+            {
+              "id": "kalkini-madaripur",
+              "name": "Kalkini",
+              "areas": []
+            },
+            {
+              "id": "rajoir-madaripur",
+              "name": "Rajoir",
+              "areas": []
+            },
+            {
+              "id": "dasar-madaripur",
+              "name": "Dasar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "gopalganj",
+          "name": "Gopalganj",
+          "upazilas": [
+            {
+              "id": "gopalganj-sadar-gopalganj",
+              "name": "Gopalganj Sadar",
+              "areas": []
+            },
+            {
+              "id": "kashiani-gopalganj",
+              "name": "Kashiani",
+              "areas": []
+            },
+            {
+              "id": "tungipara-gopalganj",
+              "name": "Tungipara",
+              "areas": []
+            },
+            {
+              "id": "kotalipara-gopalganj",
+              "name": "Kotalipara",
+              "areas": []
+            },
+            {
+              "id": "muksudpur-gopalganj",
+              "name": "Muksudpur",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "faridpur",
+          "name": "Faridpur",
+          "upazilas": [
+            {
+              "id": "faridpur-sadar-faridpur",
+              "name": "Faridpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "alfadanga-faridpur",
+              "name": "Alfadanga",
+              "areas": []
+            },
+            {
+              "id": "boalmari-faridpur",
+              "name": "Boalmari",
+              "areas": []
+            },
+            {
+              "id": "sadarpur-faridpur",
+              "name": "Sadarpur",
+              "areas": []
+            },
+            {
+              "id": "nagarkanda-faridpur",
+              "name": "Nagarkanda",
+              "areas": []
+            },
+            {
+              "id": "bhanga-faridpur",
+              "name": "Bhanga",
+              "areas": []
+            },
+            {
+              "id": "charbhadrasan-faridpur",
+              "name": "Charbhadrasan",
+              "areas": []
+            },
+            {
+              "id": "madhukhali-faridpur",
+              "name": "Madhukhali",
+              "areas": []
+            },
+            {
+              "id": "saltha-faridpur",
+              "name": "Saltha",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rangpur",
+      "name": "Rangpur",
+      "districts": [
+        {
+          "id": "panchagarh",
+          "name": "Panchagarh",
+          "upazilas": [
+            {
+              "id": "panchagarh-sadar-panchagarh",
+              "name": "Panchagarh Sadar",
+              "areas": []
+            },
+            {
+              "id": "debiganj-panchagarh",
+              "name": "Debiganj",
+              "areas": []
+            },
+            {
+              "id": "boda-panchagarh",
+              "name": "Boda",
+              "areas": []
+            },
+            {
+              "id": "atwari-panchagarh",
+              "name": "Atwari",
+              "areas": []
+            },
+            {
+              "id": "tetulia-panchagarh",
+              "name": "Tetulia",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "dinajpur",
+          "name": "Dinajpur",
+          "upazilas": [
+            {
+              "id": "nawabganj-dinajpur",
+              "name": "Nawabganj",
+              "areas": []
+            },
+            {
+              "id": "birganj-dinajpur",
+              "name": "Birganj",
+              "areas": []
+            },
+            {
+              "id": "ghoraghat-dinajpur",
+              "name": "Ghoraghat",
+              "areas": []
+            },
+            {
+              "id": "birampur-dinajpur",
+              "name": "Birampur",
+              "areas": []
+            },
+            {
+              "id": "parbatipur-dinajpur",
+              "name": "Parbatipur",
+              "areas": []
+            },
+            {
+              "id": "bochaganj-dinajpur",
+              "name": "Bochaganj",
+              "areas": []
+            },
+            {
+              "id": "kaharol-dinajpur",
+              "name": "Kaharol",
+              "areas": []
+            },
+            {
+              "id": "fulbari-dinajpur",
+              "name": "Fulbari",
+              "areas": []
+            },
+            {
+              "id": "dinajpur-sadar-dinajpur",
+              "name": "Dinajpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "hakimpur-dinajpur",
+              "name": "Hakimpur",
+              "areas": []
+            },
+            {
+              "id": "khansama-dinajpur",
+              "name": "Khansama",
+              "areas": []
+            },
+            {
+              "id": "birol-dinajpur",
+              "name": "Birol",
+              "areas": []
+            },
+            {
+              "id": "chirirbandar-dinajpur",
+              "name": "Chirirbandar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "lalmonirhat",
+          "name": "Lalmonirhat",
+          "upazilas": [
+            {
+              "id": "lalmonirhat-sadar-lalmonirhat",
+              "name": "Lalmonirhat Sadar",
+              "areas": []
+            },
+            {
+              "id": "kaliganj-lalmonirhat",
+              "name": "Kaliganj",
+              "areas": []
+            },
+            {
+              "id": "hatibandha-lalmonirhat",
+              "name": "Hatibandha",
+              "areas": []
+            },
+            {
+              "id": "patgram-lalmonirhat",
+              "name": "Patgram",
+              "areas": []
+            },
+            {
+              "id": "aditmari-lalmonirhat",
+              "name": "Aditmari",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "nilphamari",
+          "name": "Nilphamari",
+          "upazilas": [
+            {
+              "id": "syedpur-nilphamari",
+              "name": "Syedpur",
+              "areas": []
+            },
+            {
+              "id": "domar-nilphamari",
+              "name": "Domar",
+              "areas": []
+            },
+            {
+              "id": "dimla-nilphamari",
+              "name": "Dimla",
+              "areas": []
+            },
+            {
+              "id": "jaldhaka-nilphamari",
+              "name": "Jaldhaka",
+              "areas": []
+            },
+            {
+              "id": "kishorganj-nilphamari",
+              "name": "Kishorganj",
+              "areas": []
+            },
+            {
+              "id": "nilphamari-sadar-nilphamari",
+              "name": "Nilphamari Sadar",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "gaibandha",
+          "name": "Gaibandha",
+          "upazilas": [
+            {
+              "id": "sadullapur-gaibandha",
+              "name": "Sadullapur",
+              "areas": []
+            },
+            {
+              "id": "gaibandha-sadar-gaibandha",
+              "name": "Gaibandha Sadar",
+              "areas": []
+            },
+            {
+              "id": "palashbari-gaibandha",
+              "name": "Palashbari",
+              "areas": []
+            },
+            {
+              "id": "saghata-gaibandha",
+              "name": "Saghata",
+              "areas": []
+            },
+            {
+              "id": "gobindaganj-gaibandha",
+              "name": "Gobindaganj",
+              "areas": []
+            },
+            {
+              "id": "sundarganj-gaibandha",
+              "name": "Sundarganj",
+              "areas": []
+            },
+            {
+              "id": "phulchari-gaibandha",
+              "name": "Phulchari",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "thakurgaon",
+          "name": "Thakurgaon",
+          "upazilas": [
+            {
+              "id": "thakurgaon-sadar-thakurgaon",
+              "name": "Thakurgaon Sadar",
+              "areas": []
+            },
+            {
+              "id": "pirganj-thakurgaon",
+              "name": "Pirganj",
+              "areas": []
+            },
+            {
+              "id": "ranisankail-thakurgaon",
+              "name": "Ranisankail",
+              "areas": []
+            },
+            {
+              "id": "haripur-thakurgaon",
+              "name": "Haripur",
+              "areas": []
+            },
+            {
+              "id": "baliadangi-thakurgaon",
+              "name": "Baliadangi",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "rangpur",
+          "name": "Rangpur",
+          "upazilas": [
+            {
+              "id": "rangpur-sadar-rangpur",
+              "name": "Rangpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "gangachara-rangpur",
+              "name": "Gangachara",
+              "areas": []
+            },
+            {
+              "id": "taragonj-rangpur",
+              "name": "Taragonj",
+              "areas": []
+            },
+            {
+              "id": "badargonj-rangpur",
+              "name": "Badargonj",
+              "areas": []
+            },
+            {
+              "id": "mithapukur-rangpur",
+              "name": "Mithapukur",
+              "areas": []
+            },
+            {
+              "id": "pirgonj-rangpur",
+              "name": "Pirgonj",
+              "areas": []
+            },
+            {
+              "id": "kaunia-rangpur",
+              "name": "Kaunia",
+              "areas": []
+            },
+            {
+              "id": "pirgacha-rangpur",
+              "name": "Pirgacha",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "kurigram",
+          "name": "Kurigram",
+          "upazilas": [
+            {
+              "id": "kurigram-sadar-kurigram",
+              "name": "Kurigram Sadar",
+              "areas": []
+            },
+            {
+              "id": "nageshwari-kurigram",
+              "name": "Nageshwari",
+              "areas": []
+            },
+            {
+              "id": "bhurungamari-kurigram",
+              "name": "Bhurungamari",
+              "areas": []
+            },
+            {
+              "id": "phulbari-kurigram",
+              "name": "Phulbari",
+              "areas": []
+            },
+            {
+              "id": "rajarhat-kurigram",
+              "name": "Rajarhat",
+              "areas": []
+            },
+            {
+              "id": "ulipur-kurigram",
+              "name": "Ulipur",
+              "areas": []
+            },
+            {
+              "id": "chilmari-kurigram",
+              "name": "Chilmari",
+              "areas": []
+            },
+            {
+              "id": "rowmari-kurigram",
+              "name": "Rowmari",
+              "areas": []
+            },
+            {
+              "id": "charrajibpur-kurigram",
+              "name": "Charrajibpur",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mymensingh",
+      "name": "Mymensingh",
+      "districts": [
+        {
+          "id": "sherpur",
+          "name": "Sherpur",
+          "upazilas": [
+            {
+              "id": "sherpur-sadar-sherpur",
+              "name": "Sherpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "nalitabari-sherpur",
+              "name": "Nalitabari",
+              "areas": []
+            },
+            {
+              "id": "sreebordi-sherpur",
+              "name": "Sreebordi",
+              "areas": []
+            },
+            {
+              "id": "nokla-sherpur",
+              "name": "Nokla",
+              "areas": []
+            },
+            {
+              "id": "jhenaigati-sherpur",
+              "name": "Jhenaigati",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "mymensingh",
+          "name": "Mymensingh",
+          "upazilas": [
+            {
+              "id": "fulbaria-mymensingh",
+              "name": "Fulbaria",
+              "areas": []
+            },
+            {
+              "id": "trishal-mymensingh",
+              "name": "Trishal",
+              "areas": []
+            },
+            {
+              "id": "bhaluka-mymensingh",
+              "name": "Bhaluka",
+              "areas": []
+            },
+            {
+              "id": "muktagacha-mymensingh",
+              "name": "Muktagacha",
+              "areas": []
+            },
+            {
+              "id": "mymensingh-sadar-mymensingh",
+              "name": "Mymensingh Sadar",
+              "areas": []
+            },
+            {
+              "id": "dhobaura-mymensingh",
+              "name": "Dhobaura",
+              "areas": []
+            },
+            {
+              "id": "phulpur-mymensingh",
+              "name": "Phulpur",
+              "areas": []
+            },
+            {
+              "id": "haluaghat-mymensingh",
+              "name": "Haluaghat",
+              "areas": []
+            },
+            {
+              "id": "gouripur-mymensingh",
+              "name": "Gouripur",
+              "areas": []
+            },
+            {
+              "id": "gafargaon-mymensingh",
+              "name": "Gafargaon",
+              "areas": []
+            },
+            {
+              "id": "iswarganj-mymensingh",
+              "name": "Iswarganj",
+              "areas": []
+            },
+            {
+              "id": "nandail-mymensingh",
+              "name": "Nandail",
+              "areas": []
+            },
+            {
+              "id": "tarakanda-mymensingh",
+              "name": "Tarakanda",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "jamalpur",
+          "name": "Jamalpur",
+          "upazilas": [
+            {
+              "id": "jamalpur-sadar-jamalpur",
+              "name": "Jamalpur Sadar",
+              "areas": []
+            },
+            {
+              "id": "melandah-jamalpur",
+              "name": "Melandah",
+              "areas": []
+            },
+            {
+              "id": "islampur-jamalpur",
+              "name": "Islampur",
+              "areas": []
+            },
+            {
+              "id": "dewangonj-jamalpur",
+              "name": "Dewangonj",
+              "areas": []
+            },
+            {
+              "id": "sarishabari-jamalpur",
+              "name": "Sarishabari",
+              "areas": []
+            },
+            {
+              "id": "madarganj-jamalpur",
+              "name": "Madarganj",
+              "areas": []
+            },
+            {
+              "id": "bokshiganj-jamalpur",
+              "name": "Bokshiganj",
+              "areas": []
+            }
+          ]
+        },
+        {
+          "id": "netrokona",
+          "name": "Netrokona",
+          "upazilas": [
+            {
+              "id": "barhatta-netrokona",
+              "name": "Barhatta",
+              "areas": []
+            },
+            {
+              "id": "durgapur-netrokona",
+              "name": "Durgapur",
+              "areas": []
+            },
+            {
+              "id": "kendua-netrokona",
+              "name": "Kendua",
+              "areas": []
+            },
+            {
+              "id": "atpara-netrokona",
+              "name": "Atpara",
+              "areas": []
+            },
+            {
+              "id": "madan-netrokona",
+              "name": "Madan",
+              "areas": []
+            },
+            {
+              "id": "khaliajuri-netrokona",
+              "name": "Khaliajuri",
+              "areas": []
+            },
+            {
+              "id": "kalmakanda-netrokona",
+              "name": "Kalmakanda",
+              "areas": []
+            },
+            {
+              "id": "mohongonj-netrokona",
+              "name": "Mohongonj",
+              "areas": []
+            },
+            {
+              "id": "purbadhala-netrokona",
+              "name": "Purbadhala",
+              "areas": []
+            },
+            {
+              "id": "netrokona-sadar-netrokona",
+              "name": "Netrokona Sadar",
+              "areas": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

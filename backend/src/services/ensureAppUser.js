@@ -1,10 +1,184 @@
 import sql from "../db.js";
 
 const APP_ROLES = new Set(["farmer", "buyer", "vendor", "vet", "doctor", "admin"]);
+const SIGNUP_CARE_PATHS = new Set(["vetbondhu", "medibondhu"]);
+const SIGNUP_MODULES = new Set([
+  "vetbondhu",
+  "medibondhu",
+  "farm",
+  "marketplace",
+  "vendor",
+  "vet",
+  "doctor",
+]);
+
+const VETBONDHU_DISABLE = [
+  "can_book_human",
+  "can_manage_farm",
+  "can_manage_animals",
+  "can_buy",
+];
+
+const MEDIBONDHU_DISABLE = [
+  "can_book_vet",
+  "can_manage_farm",
+  "can_manage_animals",
+  "can_access_learning",
+  "can_buy",
+];
 
 function normalizeRole(raw) {
   const r = String(raw || "farmer").toLowerCase();
   return APP_ROLES.has(r) ? r : "farmer";
+}
+
+export function normalizeSignupCarePath(raw) {
+  const path = String(raw || "").trim().toLowerCase();
+  return SIGNUP_CARE_PATHS.has(path) ? path : null;
+}
+
+export function normalizeSignupModule(raw) {
+  const mod = String(raw || "").trim().toLowerCase();
+  return SIGNUP_MODULES.has(mod) ? mod : null;
+}
+
+/** @param {Record<string, unknown>} meta */
+export function resolveSignupModuleFromMeta(meta = {}) {
+  const fromModule = normalizeSignupModule(meta.signup_module);
+  if (fromModule) return fromModule;
+  const care = normalizeSignupCarePath(meta.signup_care_path);
+  if (care === "vetbondhu" || care === "medibondhu") return care;
+  const role = String(meta.primary_role || "").trim().toLowerCase();
+  if (role === "buyer") return "marketplace";
+  if (role === "vendor") return "vendor";
+  if (role === "vet") return "vet";
+  if (role === "doctor") return "doctor";
+  if (role === "farmer") return "farm";
+  return null;
+}
+
+/**
+ * @param {string | null | undefined} rawModule
+ * @returns {{
+ *   primaryRole: string;
+ *   farmerOpenMedibondhu: boolean | null;
+ *   enable: string[];
+ *   disable: string[];
+ * } | null}
+ */
+export function signupModuleConfig(rawModule) {
+  const mod = normalizeSignupModule(rawModule);
+  if (!mod) return null;
+
+  if (mod === "vetbondhu") {
+    return {
+      primaryRole: "farmer",
+      farmerOpenMedibondhu: false,
+      enable: ["can_book_vet", "can_access_learning"],
+      disable: [...VETBONDHU_DISABLE],
+    };
+  }
+  if (mod === "medibondhu") {
+    return {
+      primaryRole: "farmer",
+      farmerOpenMedibondhu: true,
+      enable: ["can_book_human"],
+      disable: [...MEDIBONDHU_DISABLE],
+    };
+  }
+  if (mod === "farm") {
+    return {
+      primaryRole: "farmer",
+      farmerOpenMedibondhu: false,
+      enable: [],
+      disable: ["can_book_human"],
+    };
+  }
+  if (mod === "marketplace") {
+    return {
+      primaryRole: "buyer",
+      farmerOpenMedibondhu: false,
+      enable: ["can_buy"],
+      disable: ["can_book_human", "can_bulk_buy"],
+    };
+  }
+  if (mod === "vendor") {
+    return {
+      primaryRole: "vendor",
+      farmerOpenMedibondhu: false,
+      enable: [],
+      disable: [],
+    };
+  }
+  if (mod === "vet") {
+    return {
+      primaryRole: "vet",
+      farmerOpenMedibondhu: false,
+      enable: [],
+      disable: [],
+    };
+  }
+  if (mod === "doctor") {
+    return {
+      primaryRole: "doctor",
+      farmerOpenMedibondhu: true,
+      enable: [],
+      disable: [],
+    };
+  }
+  return null;
+}
+
+/** @returns {{ farmerOpenMedibondhu: boolean, enable: string[], disable: string[] } | null} */
+export function signupCarePathConfig(raw) {
+  const config = signupModuleConfig(normalizeSignupCarePath(raw));
+  if (!config) return null;
+  return {
+    farmerOpenMedibondhu: config.farmerOpenMedibondhu ?? false,
+    enable: config.enable,
+    disable: config.disable,
+  };
+}
+
+async function upsertUserCapability(userId, capabilityCode, isEnabled, grantedBy = null) {
+  await sql`
+    insert into user_capabilities ${sql({
+      user_id: userId,
+      capability_code: capabilityCode,
+      is_enabled: isEnabled,
+      granted_by: grantedBy,
+    })}
+    on conflict (user_id, capability_code) do update set
+      is_enabled = ${isEnabled},
+      granted_by = coalesce(user_capabilities.granted_by, excluded.granted_by)
+  `;
+}
+
+export async function applySignupModule(userId, signupData = {}) {
+  if (!sql || !userId) return;
+  const moduleKey = resolveSignupModuleFromMeta(signupData);
+  const config = signupModuleConfig(moduleKey);
+  if (!config) return;
+
+  if (config.farmerOpenMedibondhu !== null) {
+    await sql`
+      update profiles
+      set farmer_open_medibondhu = ${config.farmerOpenMedibondhu}, updated_at = now()
+      where id = ${userId}
+    `;
+  }
+
+  for (const code of config.enable) {
+    await upsertUserCapability(userId, code, true);
+  }
+  for (const code of config.disable) {
+    await upsertUserCapability(userId, code, false);
+  }
+}
+
+/** @deprecated Use applySignupModule */
+export async function applySignupCarePath(userId, signupData = {}) {
+  return applySignupModule(userId, signupData);
 }
 
 function nonEmptyString(value) {
@@ -21,6 +195,7 @@ function nonEmptyString(value) {
  *  district: string;
  *  address: string | null;
  *  specialization: string;
+ *  degree: string;
  *  experienceYears: number;
  *  consultationFee: number;
  * }} args
@@ -34,6 +209,7 @@ async function ensureVetProfileAndApprovalRequest(args) {
     district,
     address,
     specialization,
+    degree,
     experienceYears,
     consultationFee,
   } = args;
@@ -51,6 +227,7 @@ async function ensureVetProfileAndApprovalRequest(args) {
         district,
         address,
         specialization,
+        degree,
         experience_years: experienceYears,
         consultation_fee: consultationFee,
         verification_status: "pending",
@@ -75,11 +252,13 @@ async function ensureVetProfileAndApprovalRequest(args) {
         status: "pending",
         details: {
           specialization,
+          degree,
           experience_years: experienceYears,
           consultation_fee: consultationFee,
         },
         payload: {
           specialization,
+          degree,
           experience_years: experienceYears,
           consultation_fee: consultationFee,
         },
@@ -132,7 +311,7 @@ async function ensureVetDirectoryRow(user, signupData, primaryRole) {
   const vetName = nonEmptyString(profile?.name) || nonEmptyString(meta.name) || fallbackName;
   const vetLocation = nonEmptyString(profile?.location) || nonEmptyString(meta.location) || "Bangladesh";
   const specialization = nonEmptyString(meta.specialization) || "General Veterinary";
-  const degree = nonEmptyString(meta.degree) || "DVM";
+  const degree = nonEmptyString(meta.degree) || "Veterinary Professional";
   const district = nonEmptyString(meta.district) || nonEmptyString(meta.location) || "Bangladesh";
   const address = nonEmptyString(meta.address) || nonEmptyString(meta.location) || null;
   const phone = nonEmptyString(meta.phone);
@@ -183,6 +362,7 @@ async function ensureVetDirectoryRow(user, signupData, primaryRole) {
       district,
       address,
       specialization,
+      degree,
       experienceYears,
       consultationFee,
     });
@@ -209,6 +389,7 @@ async function ensureVetDirectoryRow(user, signupData, primaryRole) {
     district,
     address,
     specialization,
+    degree,
     experienceYears,
     consultationFee,
   });
@@ -242,6 +423,7 @@ export async function ensureProfileAndRoleAfterAuth(user, signupData = {}) {
   const name = String(meta.name || (email ? email.split("@")[0] : "User")).trim().slice(0, 200) || "User";
   const hasExplicit = hasExplicitPrimaryRole(signupData, user.user_metadata);
   const primary_role = normalizeRole(meta.primary_role);
+  const signupModule = resolveSignupModuleFromMeta(meta);
   /** Insert default when creating a missing row without metadata (e.g. legacy); never overwrite DB role on bare sign-in. */
   const primaryForInsert = hasExplicit ? primary_role : "farmer";
   const phone = meta.phone != null && meta.phone !== "" ? String(meta.phone) : null;
@@ -249,12 +431,13 @@ export async function ensureProfileAndRoleAfterAuth(user, signupData = {}) {
 
   try {
     await sql`
-      insert into public.profiles (id, email, name, primary_role, phone, location, created_at, updated_at)
-      values (${id}, ${email}, ${name}, ${primaryForInsert}, ${phone}, ${location}, now(), now())
+      insert into public.profiles (id, email, name, primary_role, phone, location, signup_module, created_at, updated_at)
+      values (${id}, ${email}, ${name}, ${primaryForInsert}, ${phone}, ${location}, ${signupModule}, now(), now())
       on conflict (id) do update set
         email = excluded.email,
         name = case when trim(coalesce(profiles.name, '')) = '' then excluded.name else profiles.name end,
         primary_role = case when ${hasExplicit} then excluded.primary_role else profiles.primary_role end,
+        signup_module = case when ${Boolean(signupModule)} then excluded.signup_module else profiles.signup_module end,
         phone = coalesce(excluded.phone, profiles.phone),
         location = coalesce(excluded.location, profiles.location),
         updated_at = now()
@@ -284,6 +467,15 @@ export async function ensureProfileAndRoleAfterAuth(user, signupData = {}) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[ensureAppUser] vets upsert failed:", msg);
+  }
+
+  if (hasExplicit) {
+    try {
+      await applySignupModule(id, meta);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[ensureAppUser] signup module failed:", msg);
+    }
   }
 }
 

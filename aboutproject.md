@@ -171,13 +171,15 @@ Routing is centralized in `frontend/src/App.tsx` and guarded through `ProtectedR
 - Earnings
 - Vet profile
 
-### MediBondhu (`/medibondhu`, requires any of `can_book_vet | can_consult_as_vet`)
+### MediBondhu (`/medibondhu`, human care)
 - Specialities
-- Vet directory/profile
-- Book consultation
+- Human doctor directory/profile
+- Available doctors filter (`/medibondhu/doctors?available=true`)
+- Doctor schedule and availability controls
+- Book online or chamber appointment
 - Waiting room / consultation room
 - Patient consultation history
-- Prescriptions
+- Human prescriptions
 
 ### Community (`/community`, any authenticated user)
 - Feed
@@ -245,15 +247,17 @@ Key domain routers:
 - Seller dashboard and product management.
 - Admin marketplace oversight.
 
-## 7.3 MediBondhu (Veterinary Platform)
-- Vet directory and vet profile details.
-- Slot/availability and booking support.
-- Instant/scheduled consultations.
-- Waiting room and consultation room.
-- Live consultation messages.
-- Prescription creation and retrieval.
-- Vet earnings and withdrawal tracking.
-- Admin review of vet withdrawals and vet operations.
+## 7.3 MediBondhu (Human Care Platform)
+- Human doctor directory and doctor profile details.
+- Available active doctor discovery with `/medibondhu/doctors?available=true`.
+- Doctor schedule windows and availability toggles (`accepting`, `online`, `chamber`).
+- Online/chamber appointment booking.
+- Waiting room and Zego consultation room.
+- 20-second leave/rejoin grace for active rooms.
+- Live consultation messages and read-only chat history after completion.
+- Human prescription creation and retrieval.
+- Doctor earnings and withdrawal tracking.
+- Admin review of doctor verification, withdrawals, and operations.
 
 ## 7.4 Community
 - Community posts and engagement.
@@ -283,7 +287,8 @@ Important table groups:
 - Farm core: `farms`, `animals`, `sheds`
 - Farm records: `production_records`, `financial_records`, `health_records`, `mortality_records`, `sale_records`, `feed_records`, `feed_inventory`
 - Marketplace: `products`, `orders`, `shops`, `conversations`, `chat_messages`, `approval_requests`
-- MediBondhu: `vets`, `vet_profiles`, `vet_availability`, `consultation_bookings`, `consultation_messages`, `prescriptions`, `prescription_items`, `e_prescriptions`, `vet_withdrawals`
+- VetBondhu veterinary: `vets`, `vet_profiles`, `vet_availability`, `consultation_bookings`, `consultation_messages`, `prescriptions`, `prescription_items`, `e_prescriptions`, `vet_withdrawals`
+- MediBondhu human care: `medibondhu_doctors`, `medibondhu_doctor_time_slots`, `medibondhu_appointments`, `medibondhu_appointment_messages`, `medibondhu_prescriptions`, `medibondhu_prescription_items`, `medibondhu_doctor_withdrawals`
 - Community: `community_posts`, `community_comments`, `community_answers`, `community_reactions`, `community_saves`
 - Platform support: `notifications`, `admin_team`
 
@@ -457,7 +462,8 @@ Implementation:
 
 Code locations:
 - `backend/src/routes/v1/tools.js` (`/v1/tools/zego-token`)
-- `frontend/src/pages/medibondhu/ConsultationRoom.tsx`
+- `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
+- `frontend/src/pages/vetbondhu/ConsultationRoom.tsx`
 
 Fail behavior:
 - Missing/invalid credentials return explicit config errors.

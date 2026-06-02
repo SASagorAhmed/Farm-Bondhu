@@ -4,10 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
 import { CalendarPlus, Clock, Trash2 } from "lucide-react";
 import { MediSectionTitle, MB } from "@/components/medibondhu/MediChrome";
 import {
@@ -34,6 +36,12 @@ type SlotRow = {
   total_appointment_count?: number;
 };
 
+type DoctorProfile = {
+  is_available?: boolean;
+  online_consultation?: boolean;
+  chamber_consultation?: boolean;
+};
+
 function invalidateScheduleCaches(qc: ReturnType<typeof useQueryClient>, userId?: string, from?: string, to?: string) {
   void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorSchedule(userId, from, to) });
   void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-slots"] });
@@ -43,6 +51,7 @@ function invalidateScheduleCaches(qc: ReturnType<typeof useQueryClient>, userId?
 
 export default function MediDoctorSchedule() {
   const { user } = useAuth();
+  const { readOnly } = useMediDoctorPreviewActions();
   const qc = useQueryClient();
   const [from, setFrom] = useState(() => formatDateYMDInDhaka());
   const [to, setTo] = useState(() => addCalendarDaysDhaka(formatDateYMDInDhaka(), 21));
@@ -51,6 +60,16 @@ export default function MediDoctorSchedule() {
   const [end, setEnd] = useState("09:30");
 
   const scheduleKey = queryKeys().medibondhuHumanDoctorSchedule(user?.id, from, to);
+
+  const profileQuery = useQuery({
+    queryKey: queryKeys().medibondhuHumanDoctorProfile(user?.id),
+    enabled: Boolean(user?.id),
+    queryFn: async () => {
+      const { res, body } = await mediHumanJson<{ data?: DoctorProfile | null }>("/doctor/me");
+      if (!res.ok) throw new Error(String((body as { error?: string }).error || res.status));
+      return body.data || null;
+    },
+  });
 
   const q = useQuery({
     queryKey: scheduleKey,
@@ -119,6 +138,23 @@ export default function MediDoctorSchedule() {
     onError: (e: Error) => toast.error(e.message || "Failed"),
   });
 
+  const availabilityMu = useMutation({
+    mutationFn: async (patch: DoctorProfile) => {
+      const { res, body } = await mediHumanJson<{ data?: DoctorProfile; error?: string }>("/doctor/profile", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(String(body.error || res.status));
+      return body.data;
+    },
+    onSuccess: async () => {
+      toast.success("Availability updated");
+      await qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorProfile(user?.id) });
+      invalidateScheduleCaches(qc, user?.id, from, to);
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not update availability"),
+  });
+
   const sorted = useMemo(
     () => [...(q.data || [])].sort((a, b) => String(a.slot_start).localeCompare(String(b.slot_start))),
     [q.data],
@@ -135,6 +171,26 @@ export default function MediDoctorSchedule() {
     }
     return { openWindows, activePatients };
   }, [sorted]);
+
+  const profile = profileQuery.data;
+  const acceptingPatients = Boolean(profile?.is_available ?? true);
+  const onlineEnabled = Boolean(profile?.online_consultation ?? true);
+  const chamberEnabled = Boolean(profile?.chamber_consultation ?? true);
+  const onlineBookable = acceptingPatients && onlineEnabled && stats.openWindows > 0;
+  const availabilitySummary = !acceptingPatients
+    ? "Not accepting patients"
+    : onlineBookable
+      ? "Online booking is available"
+      : onlineEnabled
+        ? "Online enabled, but no future schedule is open"
+        : chamberEnabled
+          ? "Chamber only"
+          : "Offline";
+
+  const updateAvailability = (patch: DoctorProfile) => {
+    if (readOnly || availabilityMu.isPending) return;
+    availabilityMu.mutate(patch);
+  };
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -174,6 +230,61 @@ export default function MediDoctorSchedule() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="rounded-2xl overflow-hidden border-border shadow-sm">
+        <div className="h-1 w-full shrink-0" style={{ backgroundColor: MB }} />
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg font-display">Availability status</CardTitle>
+          <CardDescription>
+            Control how patients see you in MediBondhu. Online booking also needs at least one future schedule window.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">{availabilitySummary}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.openWindows > 0
+                ? `${stats.openWindows} future window${stats.openWindows === 1 ? "" : "s"} published.`
+                : "No future windows are published, so patients cannot book online or chamber appointments yet."}
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="rounded-xl border border-border p-4 flex items-start justify-between gap-3">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Accepting patients</span>
+                <span className="block text-xs text-muted-foreground mt-1">Turn off to appear unavailable.</span>
+              </span>
+              <Switch
+                checked={acceptingPatients}
+                disabled={readOnly || availabilityMu.isPending || profileQuery.isLoading}
+                onCheckedChange={(checked) => updateAvailability({ is_available: checked })}
+              />
+            </label>
+            <label className="rounded-xl border border-border p-4 flex items-start justify-between gap-3">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Online visits</span>
+                <span className="block text-xs text-muted-foreground mt-1">Needs future schedule windows.</span>
+              </span>
+              <Switch
+                checked={onlineEnabled}
+                disabled={readOnly || availabilityMu.isPending || profileQuery.isLoading}
+                onCheckedChange={(checked) => updateAvailability({ online_consultation: checked })}
+              />
+            </label>
+            <label className="rounded-xl border border-border p-4 flex items-start justify-between gap-3">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Chamber visits</span>
+                <span className="block text-xs text-muted-foreground mt-1">Allow in-person booking.</span>
+              </span>
+              <Switch
+                checked={chamberEnabled}
+                disabled={readOnly || availabilityMu.isPending || profileQuery.isLoading}
+                onCheckedChange={(checked) => updateAvailability({ chamber_consultation: checked })}
+              />
+            </label>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-2xl overflow-hidden border-border shadow-sm">
         <div className="h-1 w-full shrink-0" style={{ backgroundColor: MB }} />
@@ -228,7 +339,7 @@ export default function MediDoctorSchedule() {
             <input id="slot-end" type="time" className="w-full rounded-xl border border-input px-3 py-2.5 text-sm bg-background shadow-sm" value={end} onChange={(e) => setEnd(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <Button type="button" className="rounded-xl text-white font-semibold px-8" style={{ backgroundColor: MB }} disabled={bulk.isPending} onClick={() => bulk.mutate()}>
+            <Button type="button" className="rounded-xl text-white font-semibold px-8" style={{ backgroundColor: MB }} disabled={readOnly || bulk.isPending} onClick={() => bulk.mutate()}>
               {bulk.isPending ? "Saving…" : "Add window"}
             </Button>
           </div>
@@ -302,7 +413,7 @@ export default function MediDoctorSchedule() {
                     )}
                   </div>
                   {canRemove ? (
-                    <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive rounded-lg gap-1" disabled={del.isPending} onClick={() => del.mutate(s.id)}>
+                    <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive rounded-lg gap-1" disabled={readOnly || del.isPending} onClick={() => del.mutate(s.id)}>
                       <Trash2 className="h-4 w-4" /> Remove
                     </Button>
                   ) : isEnded ? (

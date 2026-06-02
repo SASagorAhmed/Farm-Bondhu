@@ -1,30 +1,36 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { useAuth, UserRole } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ToastAction } from "@/components/ui/toast";
 import { UserPlus, Mail, Lock, User, Phone, MapPin, ArrowLeft, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-
-const ROLES: { value: UserRole; label: string; icon: string; desc: string }[] = [
-  { value: "farmer", label: "Farmer", icon: "🧑‍🌾", desc: "Manage farms & livestock" },
-  { value: "buyer", label: "Buyer", icon: "🛒", desc: "Purchase products" },
-  { value: "vendor", label: "Vendor", icon: "🏪", desc: "Sell products" },
-  { value: "vet", label: "Veterinarian", icon: "👩‍⚕️", desc: "Provide animal care" },
-  {
-    value: "doctor",
-    label: "Physician",
-    icon: "🩺",
-    desc: "MediBondhu — human outpatient (verification required)",
-  },
-];
+import {
+  SIGNUP_MODULES,
+  getSignupModule,
+  postSignupRouteForModule,
+  primaryRoleForModule,
+  resolveSignupModuleFromQuery,
+  type SignupModule,
+} from "@/lib/signupModules";
 
 export default function Signup() {
+  const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const routeState = routeLocation.state as { from?: string; module?: string } | null;
+
+  const suggestedModule = useMemo(
+    () => resolveSignupModuleFromQuery(routeLocation.search, routeState?.module),
+    [routeLocation.search, routeState?.module],
+  );
+
   const [step, setStep] = useState(1);
-  const [role, setRole] = useState<UserRole | "">("");
+  const [signupModule, setSignupModule] = useState<SignupModule | null>(suggestedModule);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,18 +47,21 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
   const { sendSignupOtp, completeSignupWithOtp, resendSignupOtp } = useAuth();
-  const navigate = useNavigate();
-  const routeLocation = useLocation();
   const { toast } = useToast();
+  const { t } = useLanguage();
+
+  const moduleDef = getSignupModule(signupModule);
+  const isVet = signupModule === "vet";
+  const isDoctor = signupModule === "doctor";
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!role) return;
-    if (role === "doctor") {
+    if (!signupModule) return;
+    if (isDoctor) {
       if (!doctorQualification.trim() || !doctorMedicalReg.trim()) {
         toast({
           title: "Missing details",
-          description: "Degrees/qualifications and medical registration number are required for physicians.",
+          description: "Degrees/qualifications and medical registration number are required for doctors.",
           variant: "destructive",
         });
         return;
@@ -67,13 +76,13 @@ export default function Signup() {
       }
     }
     setLoading(true);
-    const isVet = role === "vet";
-    const isDoctor = role === "doctor";
     const result = await sendSignupOtp({
       name,
       email,
       password,
-      role,
+      role: primaryRoleForModule(signupModule),
+      signup_module: signupModule,
+      signup_care_path: moduleDef?.carePath,
       phone,
       location,
       district: location,
@@ -96,24 +105,19 @@ export default function Signup() {
       });
     } else {
       const err = result.error?.trim() || "";
-      /** Backend returns 409 when email already exists in profiles (active account). */
       const emailAlreadyRegistered =
         err.toLowerCase().includes("already registered") || err.toLowerCase().includes("try signing in");
       toast({
         title: emailAlreadyRegistered ? "This email already has an account" : "Could not send code",
-        description: emailAlreadyRegistered ? (
-          <span className="leading-relaxed">
-            {err}{" "}
-            Open{" "}
-            <Link to="/login" className="underline font-semibold text-foreground">
-              Sign in
-            </Link>{" "}
-            or register with a different email.
-          </span>
-        ) : (
-          err || "Check the API connection and server settings, then try again."
-        ),
+        description: emailAlreadyRegistered
+          ? `${err} Sign in or register with a different email.`
+          : err || "Check the API connection and server settings, then try again.",
         variant: "destructive",
+        action: emailAlreadyRegistered ? (
+          <ToastAction altText="Sign in" onClick={() => navigate("/login")}>
+            Sign in
+          </ToastAction>
+        ) : undefined,
       });
     }
   };
@@ -131,10 +135,9 @@ export default function Signup() {
     if (result.success) {
       setRegistered(true);
       toast({ title: "Welcome!", description: "Your account is ready." });
-      const dest =
-        role === "vet" ? "/vet/profile" : role === "doctor" ? "/medibondhu/profile" : "/";
+      const dest = postSignupRouteForModule(signupModule);
       const navState =
-        role === "doctor"
+        isDoctor
           ? {
               doctorPrefill: {
                 qualification: doctorQualification,
@@ -166,9 +169,24 @@ export default function Signup() {
     }
   };
 
-  const fromLogin = (routeLocation.state as { from?: string })?.from === "login";
+  const fromLogin = routeState?.from === "login";
   const backTo = fromLogin ? "/login" : "/";
   const backLabel = fromLogin ? "Back to Sign In" : "Back to Home";
+  const accentColor = moduleDef?.accentColor;
+  const loginLink = "/login";
+
+  const moduleBadge =
+    moduleDef && step >= 2 ? (
+      <div
+        className="rounded-lg border px-3 py-2 text-sm text-left"
+        style={accentColor ? { borderColor: accentColor, backgroundColor: `${accentColor}14` } : undefined}
+      >
+        <span className="text-muted-foreground">{t("signup.signingUpFor")}: </span>
+        <span className="font-semibold" style={accentColor ? { color: accentColor } : undefined}>
+          {t(moduleDef.badgeKey)}
+        </span>
+      </div>
+    ) : null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-hero p-4 relative">
@@ -186,11 +204,13 @@ export default function Signup() {
           <Link to="/" className="inline-block">
             <h1 className="text-4xl font-display font-bold text-primary-foreground">🐄 FarmBondhu</h1>
           </Link>
-          <p className="text-primary-foreground/80 mt-2 font-body">Create a new account</p>
+          <p className="text-primary-foreground/80 mt-2 font-body">
+            {moduleDef && step >= 2 ? t(moduleDef.titleKey) : t("signup.moduleSubtitle")}
+          </p>
         </div>
 
         <Card className="shadow-elevated border-0 overflow-hidden">
-          <div className="h-1 bg-gradient-hero" />
+          <div className={`h-1 ${accentColor && step >= 2 ? "" : "bg-gradient-hero"}`} style={accentColor && step >= 2 ? { backgroundColor: accentColor } : undefined} />
           <CardHeader className="text-center pb-2">
             <h2 className="text-2xl font-display font-bold text-foreground">Register</h2>
             {!registered && (
@@ -212,30 +232,43 @@ export default function Signup() {
                 <p className="text-muted-foreground text-sm">Taking you to the app…</p>
               </div>
             ) : step === 1 ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground text-center">What type of user are you?</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {ROLES.map((r) => (
+              <div className="space-y-5">
+                <p className="text-sm font-medium text-foreground text-center">{t("signup.moduleTitle")}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {SIGNUP_MODULES.map((mod) => (
                     <button
-                      key={r.value}
+                      key={mod.key}
                       type="button"
-                      onClick={() => setRole(r.value)}
+                      onClick={() => setSignupModule(mod.key)}
                       className={`p-4 rounded-lg border-2 text-left transition-all hover:shadow-card ${
-                        role === r.value ? "border-primary bg-accent" : "border-border bg-card"
+                        signupModule === mod.key ? "border-primary bg-accent" : "border-border bg-card"
                       }`}
+                      style={
+                        signupModule === mod.key
+                          ? { borderColor: mod.accentColor, backgroundColor: `${mod.accentColor}14` }
+                          : undefined
+                      }
                     >
-                      <span className="text-2xl">{r.icon}</span>
-                      <p className="font-semibold text-card-foreground mt-1">{r.label}</p>
-                      <p className="text-xs text-muted-foreground">{r.desc}</p>
+                      <span className="text-2xl">{mod.icon}</span>
+                      <p className="font-semibold text-card-foreground mt-1">{t(mod.titleKey)}</p>
+                      <p className="text-xs text-muted-foreground">{t(mod.descKey)}</p>
                     </button>
                   ))}
                 </div>
-                <Button onClick={() => role && setStep(2)} className="w-full bg-gradient-hero text-primary-foreground" size="lg" disabled={!role}>
+
+                <Button
+                  onClick={() => signupModule && setStep(2)}
+                  className="w-full bg-gradient-hero text-primary-foreground"
+                  size="lg"
+                  disabled={!signupModule}
+                >
                   Next Step
                 </Button>
               </div>
             ) : step === 2 ? (
               <form onSubmit={handleSendCode} className="space-y-4">
+                {moduleBadge}
+
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
                   <div className="relative">
@@ -276,7 +309,7 @@ export default function Signup() {
                   </div>
                 </div>
 
-                {role === "vet" && (
+                {isVet && (
                   <>
                     <div className="space-y-2">
                       <Label htmlFor="address">Address</Label>
@@ -324,7 +357,7 @@ export default function Signup() {
                   </>
                 )}
 
-                {role === "doctor" && (
+                {isDoctor && (
                   <>
                     <p className="text-xs text-muted-foreground border-l-4 border-teal-500 pl-3 py-1 rounded-r-md bg-muted/50">
                       After email verification you will upload degree certificate, council registration, and CV on the MediBondhu verification page.
@@ -398,7 +431,12 @@ export default function Signup() {
                 )}
 
                 <div className="flex gap-3">
-                  <Button type="button" variant="outline" onClick={() => setStep(1)} className="flex-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setStep(1)}
+                    className="flex-1"
+                  >
                     Back
                   </Button>
                   <Button type="submit" className="flex-1 bg-gradient-hero text-primary-foreground btn-shiny" disabled={loading}>
@@ -409,6 +447,7 @@ export default function Signup() {
               </form>
             ) : (
               <form onSubmit={handleVerifyOtp} className="space-y-4">
+                {moduleBadge}
                 <p className="text-sm text-muted-foreground text-center">
                   We sent a 6-digit code to <strong>{email}</strong>. Enter it below to finish registration.
                 </p>
@@ -444,7 +483,7 @@ export default function Signup() {
               <div className="mt-6 text-center">
                 <p className="text-muted-foreground text-sm">
                   Already have an account?{" "}
-                  <Link to="/login" className="text-primary font-semibold hover:underline">
+                  <Link to={loginLink} className="text-primary font-semibold hover:underline">
                     Sign In
                   </Link>
                 </p>

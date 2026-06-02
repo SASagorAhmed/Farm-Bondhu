@@ -12,11 +12,13 @@ import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { toast } from "sonner";
 import { Info, Send } from "lucide-react";
 import { MB } from "@/components/medibondhu/MediChrome";
+import { useMediDoctorPreviewActions, MEDI_DOCTOR_ADMIN_PREVIEW_EMPTY } from "@/hooks/useMediDoctorPreviewActions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function MediDoctorPrescriptionNew() {
   const navigate = useNavigate();
+  const { readOnly } = useMediDoctorPreviewActions();
   const [searchParams] = useSearchParams();
   const [patientUserId, setPatientUserId] = useState("");
   const [appointmentId, setAppointmentId] = useState("");
@@ -68,6 +70,14 @@ export default function MediDoctorPrescriptionNew() {
         </p>
       </header>
 
+      {readOnly && (
+        <Alert className="rounded-xl border-amber-500/30 bg-amber-500/5">
+          <Info className="h-4 w-4 text-amber-600" />
+          <AlertTitle>Read-only preview</AlertTitle>
+          <AlertDescription>{MEDI_DOCTOR_ADMIN_PREVIEW_EMPTY}</AlertDescription>
+        </Alert>
+      )}
+
       <Alert className="rounded-xl border-cyan-500/25 bg-cyan-500/5">
         <Info className="h-4 w-4" style={{ color: MB }} />
         <AlertTitle>Patient identifier</AlertTitle>
@@ -83,11 +93,11 @@ export default function MediDoctorPrescriptionNew() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="rx-patient">Patient user UUID</Label>
-            <Input id="rx-patient" className="rounded-xl font-mono text-sm" value={patientUserId} onChange={(e) => setPatientUserId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autoComplete="off" />
+            <Input id="rx-patient" className="rounded-xl font-mono text-sm" value={patientUserId} onChange={(e) => setPatientUserId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autoComplete="off" disabled={readOnly} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="rx-appt">Appointment ID <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <Input id="rx-appt" className="rounded-xl font-mono text-sm" value={appointmentId} onChange={(e) => setAppointmentId(e.target.value)} placeholder="Link to MediBondhu visit" autoComplete="off" />
+            <Input id="rx-appt" className="rounded-xl font-mono text-sm" value={appointmentId} onChange={(e) => setAppointmentId(e.target.value)} placeholder="Link to MediBondhu visit" autoComplete="off" disabled={readOnly} />
           </div>
         </CardContent>
       </Card>
@@ -100,11 +110,11 @@ export default function MediDoctorPrescriptionNew() {
         <CardContent className="space-y-4 pt-4">
           <div className="space-y-2">
             <Label htmlFor="rx-dx">Diagnosis / impression</Label>
-            <Textarea id="rx-dx" rows={4} className="rounded-xl resize-none" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="Primary diagnosis or problem list" />
+            <Textarea id="rx-dx" rows={4} className="rounded-xl resize-none" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="Primary diagnosis or problem list" disabled={readOnly} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="rx-advice">Advice & plan</Label>
-            <Textarea id="rx-advice" rows={3} className="rounded-xl resize-none" value={advice} onChange={(e) => setAdvice(e.target.value)} placeholder="Lifestyle, investigations, referrals…" />
+            <Textarea id="rx-advice" rows={3} className="rounded-xl resize-none" value={advice} onChange={(e) => setAdvice(e.target.value)} placeholder="Lifestyle, investigations, referrals…" disabled={readOnly} />
           </div>
         </CardContent>
       </Card>
@@ -117,11 +127,11 @@ export default function MediDoctorPrescriptionNew() {
         <CardContent className="grid gap-4 sm:grid-cols-2 pt-4">
           <div className="space-y-2 sm:col-span-2 md:col-span-1">
             <Label htmlFor="rx-med">Drug name</Label>
-            <Input id="rx-med" className="rounded-xl" value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="Generic or brand name" />
+            <Input id="rx-med" className="rounded-xl" value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="Generic or brand name" disabled={readOnly} />
           </div>
           <div className="space-y-2 sm:col-span-2 md:col-span-1">
             <Label htmlFor="rx-dose">Dosage / frequency</Label>
-            <Input id="rx-dose" className="rounded-xl" value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="e.g. 500 mg — 1+0+1 × 7 days" />
+            <Input id="rx-dose" className="rounded-xl" value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="e.g. 500 mg — 1+0+1 × 7 days" disabled={readOnly} />
           </div>
           <Separator className="sm:col-span-2" />
           <div className="sm:col-span-2 flex flex-col sm:flex-row gap-3">
@@ -132,7 +142,7 @@ export default function MediDoctorPrescriptionNew() {
               type="button"
               className="rounded-xl flex-1 gap-2 text-white font-semibold h-11"
               style={{ backgroundColor: MB }}
-              disabled={save.isPending}
+              disabled={readOnly || save.isPending}
               onClick={() => save.mutate()}
             >
               <Send className="h-4 w-4" /> {save.isPending ? "Issuing…" : "Issue prescription"}

@@ -1,4 +1,5 @@
 import sql from "../db.js";
+import { inferSignupModuleFromAccess } from "./inferSignupModule.js";
 
 /**
  * Builds the same aggregate `User` object the React AuthContext expected from Supabase.
@@ -79,6 +80,21 @@ export async function buildUserBundle(userId) {
       ? true
       : Boolean(profile.farmer_open_medibondhu);
 
+  const signupModuleRaw = profile.signup_module == null ? "" : String(profile.signup_module).trim().toLowerCase();
+  const storedSignupModule =
+    signupModuleRaw === "vetbondhu" ||
+    signupModuleRaw === "medibondhu" ||
+    signupModuleRaw === "farm" ||
+    signupModuleRaw === "marketplace" ||
+    signupModuleRaw === "vendor" ||
+    signupModuleRaw === "vet" ||
+    signupModuleRaw === "doctor"
+      ? signupModuleRaw
+      : undefined;
+
+  const capabilities = Array.from(defaultCaps);
+  const signupModule = inferSignupModuleFromAccess(storedSignupModule, roles, capabilities);
+
   return {
     id: profile.id,
     name: profile.name,
@@ -86,8 +102,9 @@ export async function buildUserBundle(userId) {
     primaryRole,
     roles,
     adminLevel,
-    capabilities: Array.from(defaultCaps),
+    capabilities,
     farmerOpenMedibondhu,
+    signupModule,
     avatar: profile.avatar_url || undefined,
     phone: profile.phone || undefined,
     location: profile.location || undefined,
