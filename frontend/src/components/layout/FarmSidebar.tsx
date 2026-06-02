@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Warehouse, PawPrint, Wheat, HeartPulse, BarChart3, Wallet,
   Skull, DollarSign, Scale, LogOut, Menu, PanelLeftClose,
-  UserCircle, Shield, Settings,
+  UserCircle, Shield, Settings, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -51,6 +51,7 @@ export default function FarmSidebar() {
   const FARM_BOTTOM: NavItem[] = [
     { title: t("sidebar.accessCenter"), url: "/dashboard/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
     { title: t("sidebar.profile"), url: profilePath, icon: UserCircle, iconColor: ICON_COLORS.profile },
+    { title: t("sidebar.helpSupport"), url: "/dashboard/support", icon: Headphones, iconColor: ICON_COLORS.dashboard },
     { title: t("sidebar.settings"), url: "/dashboard/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
   ];
 
@@ -99,7 +100,7 @@ export default function FarmSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["marketplace", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="farm" collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

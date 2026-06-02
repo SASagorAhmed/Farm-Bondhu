@@ -11,12 +11,19 @@ import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Warehouse, PawPrint, Wheat, HeartPulse, BarChart3, Wallet,
   ShoppingCart, Package, ClipboardList, Store, Stethoscope, CalendarCheck, FileText,
-  Users, Shield, TrendingUp, LogOut, ChevronDown, Menu, PanelLeftClose, Skull, DollarSign, BookOpen, UserCircle, Settings, Bell,
-  MessageSquareText,
+  LogOut, ChevronDown, Menu, PanelLeftClose, Skull, DollarSign, BookOpen, UserCircle, Settings, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
 import WorkspaceButtons from "./WorkspaceButtons";
+import AdminModuleSwitcher from "./AdminModuleSwitcher";
+import {
+  getAdminModuleForPath,
+  getAdminModuleNavGroups,
+  isAdminHubPath,
+  type AdminNavItem,
+} from "@/lib/adminModules";
+import { isAdminNavItemActive } from "@/lib/adminNavMatch";
 
 interface NavItem {
   title: string;
@@ -109,25 +116,7 @@ const NAV_BY_ROLE: Record<UserRole, { label: string; items: NavItem[] }[]> = {
       items: [{ title: "Learning Center", url: "/learning", icon: BookOpen, iconColor: ICON_COLORS.learning }],
     },
   ],
-  admin: [
-    { label: "Admin Panel", items: [
-      { title: "Dashboard", url: "/admin", icon: LayoutDashboard, iconColor: ICON_COLORS.admin },
-      { title: "Users", url: "/admin/users", icon: Users, iconColor: ICON_COLORS.users },
-      { title: "Admin Team", url: "/admin/team", icon: Shield, iconColor: ICON_COLORS.shield },
-      { title: "Approvals", url: "/admin/approvals", icon: Shield, iconColor: ICON_COLORS.shield },
-      { title: "Vet Approvals", url: "/admin/vet-approvals", icon: Stethoscope, iconColor: ICON_COLORS.stethoscope },
-      { title: "Broadcast", url: "/admin/broadcast", icon: Bell, iconColor: ICON_COLORS.heartPulse },
-      { title: "FarmBondhu Shop", url: "/admin/farmbondhu-shop", icon: Store, iconColor: ICON_COLORS.farm },
-      { title: "Marketplace", url: "/admin/marketplace", icon: ShoppingCart, iconColor: ICON_COLORS.cart },
-      { title: "Reports", url: "/admin/reports", icon: TrendingUp, iconColor: ICON_COLORS.trending },
-      { title: "Learning Posts", url: "/admin/learning", icon: BookOpen, iconColor: ICON_COLORS.learning },
-      { title: "Vet payouts", url: "/admin/medibondhu-overview", icon: Stethoscope, iconColor: ICON_COLORS.stethoscope },
-      { title: "MediBondhu Human", url: "/admin/medibondhu-human", icon: Stethoscope, iconColor: ICON_COLORS.medibondhu },
-      { title: "Farms", url: "/admin/farms", icon: Warehouse, iconColor: ICON_COLORS.farm },
-      { title: "Orders", url: "/admin/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders },
-      { title: "Community", url: "/admin/community", icon: MessageSquareText, iconColor: ICON_COLORS.community },
-    ]},
-  ],
+  admin: [],
 };
 
 export default function DashboardSidebar() {
@@ -139,8 +128,46 @@ export default function DashboardSidebar() {
 
   if (!user) return null;
 
+  const isAdmin = user.primaryRole === "admin";
+  const onAdminHub = isAdmin && isAdminHubPath(location.pathname);
+  const activeAdminModule = isAdmin ? getAdminModuleForPath(location.pathname) : null;
+
+  const allModulesItem: AdminNavItem = {
+    title: "All modules",
+    url: "/admin",
+    icon: LayoutDashboard,
+    iconColor: ICON_COLORS.admin,
+  };
+
+  const adminNavGroups = activeAdminModule
+    ? getAdminModuleNavGroups(activeAdminModule.id)
+    : null;
+
+  const adminGroups =
+    adminNavGroups && activeAdminModule
+      ? [
+          {
+            label: "Navigation",
+            items: [allModulesItem],
+          },
+          ...adminNavGroups.map((group) => ({
+            label: group.label,
+            items: group.items,
+          })),
+        ]
+      : activeAdminModule
+        ? [
+            {
+              label: activeAdminModule.label,
+              items: [allModulesItem, ...activeAdminModule.navItems],
+            },
+          ]
+        : !onAdminHub && isAdmin
+          ? [{ label: "Admin", items: [allModulesItem] }]
+          : [];
+
   // Smart My Shop link: non-sellers go to access center
-  const rawGroups = NAV_BY_ROLE[user.primaryRole] || [];
+  const rawGroups = isAdmin ? adminGroups : NAV_BY_ROLE[user.primaryRole] || [];
   const groups = rawGroups.map((group) => ({
     ...group,
     items: group.items.map((item) =>
@@ -149,15 +176,31 @@ export default function DashboardSidebar() {
         : item
     ),
   }));
-  const roleLabel = `${formatUserRoleLabel(user)} Panel`;
-  const roleColor = user.primaryRole === "admin" ? ICON_COLORS.admin
+  const roleLabel = isAdmin
+    ? onAdminHub
+      ? "Admin Control Center"
+      : activeAdminModule
+        ? activeAdminModule.label
+        : "Admin Control Center"
+    : `${formatUserRoleLabel(user)} Panel`;
+  const roleColor = user.primaryRole === "admin"
+    ? activeAdminModule?.color ?? ICON_COLORS.admin
     : user.primaryRole === "vet" ? ICON_COLORS.stethoscope
     : user.primaryRole === "doctor" ? ICON_COLORS.medibondhu
     : user.primaryRole === "vendor" ? ICON_COLORS.cart
     : ICON_COLORS.farm;
+  const currentWorkspace =
+    user.primaryRole === "vet"
+      ? "vet"
+      : user.primaryRole === "doctor"
+        ? "medibondhuDoctor"
+        : user.primaryRole === "vendor" || user.primaryRole === "buyer"
+          ? "marketplace"
+          : "farm";
 
   const BOTTOM_ITEMS = [
     { title: "Profile", url: "/admin/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+    { title: "Help & Support", url: "/admin/support", icon: Headphones, iconColor: ICON_COLORS.admin },
     { title: "Settings", url: "/admin/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
   ];
 
@@ -167,25 +210,46 @@ export default function DashboardSidebar() {
         <div className="flex items-center justify-between">
           {!collapsed ? (
             <>
-              <div className="flex items-center gap-2">
-                <Warehouse className="h-4 w-4" style={{ color: roleColor }} />
-                <span className="text-sm font-semibold tracking-tight" style={{ color: roleColor }}>{roleLabel}</span>
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {isAdmin && activeAdminModule && !onAdminHub ? (
+                  <AdminModuleSwitcher activeModule={activeAdminModule} collapsed={false} />
+                ) : (
+                  <>
+                    <Warehouse className="h-4 w-4 shrink-0" style={{ color: roleColor }} />
+                    <span className="text-sm font-semibold tracking-tight truncate" style={{ color: roleColor }}>
+                      {roleLabel}
+                    </span>
+                  </>
+                )}
               </div>
-              <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+              <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0">
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </>
           ) : (
-            <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto">
-              <Menu className="h-4 w-4" />
-            </button>
+            <>
+              {isAdmin && activeAdminModule && !onAdminHub ? (
+                <AdminModuleSwitcher activeModule={activeAdminModule} collapsed={true} />
+              ) : null}
+              <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto">
+                <Menu className="h-4 w-4" />
+              </button>
+            </>
           )}
         </div>
       </SidebarHeader>
 
       <SidebarContent>
         {groups.map((group) => {
-          const groupHasActive = group.items.some((item) => location.pathname === item.url);
+          const siblingUrls = group.items.map((item) => item.url);
+          const groupHasActive = group.items.some((item) =>
+            isAdminNavItemActive(
+              location.pathname,
+              location.search,
+              item.url,
+              siblingUrls,
+            ),
+          );
 
           return (
             <CollapsibleGroup
@@ -195,9 +259,14 @@ export default function DashboardSidebar() {
               collapsed={collapsed}
             >
               {group.items.map((item) => {
-                const active = location.pathname === item.url;
+                const active = isAdminNavItemActive(
+                  location.pathname,
+                  location.search,
+                  item.url,
+                  siblingUrls,
+                );
                 return (
-                  <SidebarMenuItem key={item.url}>
+                  <SidebarMenuItem key={`${group.label}-${item.title}`}>
                     <SidebarMenuButton asChild isActive={active}>
                       <NavLink
                         to={item.url}
@@ -220,7 +289,16 @@ export default function DashboardSidebar() {
           );
         })}
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vet", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        {isAdmin && (
+          <WorkspaceButtons
+            targets={["farm", "marketplace", "vet", "vetbondhu", "medibondhu", "medibondhuDoctor", "learning", "community"]}
+            collapsed={collapsed}
+            sectionLabel="Preview workspaces"
+          />
+        )}
+        {!isAdmin && (
+          <WorkspaceButtons currentWorkspace={currentWorkspace} collapsed={collapsed} />
+        )}
 
         {/* Bottom section: Access Center, Profile, Settings */}
         <div className="px-2 py-1">
@@ -275,6 +353,15 @@ const GROUP_COLORS: Record<string, string> = {
   "MediBondhu": ICON_COLORS.stethoscope,
   "Learning": ICON_COLORS.learning,
   "Admin Panel": ICON_COLORS.admin,
+  "Platform": ICON_COLORS.admin,
+  "Farm Management": ICON_COLORS.farm,
+  "VetBondhu": ICON_COLORS.vetbondhu,
+  "MediBondhu": ICON_COLORS.medibondhu,
+  "Marketplace": ICON_COLORS.cart,
+  "Marketplace admin": ICON_COLORS.cart,
+  "FarmBondhu official shop": ICON_COLORS.farm,
+  "Navigation": ICON_COLORS.admin,
+  "Community": ICON_COLORS.community,
   "Vet Services": ICON_COLORS.stethoscope,
   "Store Management": ICON_COLORS.cart,
 };

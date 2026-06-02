@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   ShoppingCart, ShoppingBag, ClipboardList, LogOut, Menu, PanelLeftClose, LayoutGrid,
-  Heart, Grid3X3, Settings, UserCircle, Shield, MessageCircle, Store, Package,
+  Heart, Grid3X3, Settings, UserCircle, Shield, MessageCircle, Store, Package, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -41,6 +41,7 @@ const SELLER_ITEMS: NavItem[] = [
 const BUYER_BOTTOM: NavItem[] = [
   { title: "Access Center", url: "/buyer/access-center", icon: Shield, iconColor: MARKETPLACE_THEME.accessCenter },
   { title: "Profile", url: "/buyer/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Help & Support", url: "/buyer/support", icon: Headphones, iconColor: MARKETPLACE_THEME.primary },
   { title: "Settings", url: "/buyer/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -101,7 +102,7 @@ export default function BuyerSidebar() {
         {!collapsed && (
           <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shopping</p>
         )}
-        <div className="px-2 py-1">
+        <div className="px-2 py-1 min-w-0">
           <SidebarMenu>{BUYER_CORE.map((item) => renderItem(item, brandColor))}</SidebarMenu>
         </div>
 
@@ -113,15 +114,15 @@ export default function BuyerSidebar() {
                 Seller tools
               </p>
             )}
-            <div className="px-2 py-1">
+            <div className="px-2 py-1 min-w-0">
               <SidebarMenu>{SELLER_ITEMS.map((item) => renderItem(item, VENDOR_THEME.primary))}</SidebarMenu>
             </div>
           </>
         )}
 
-        <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="marketplace" collapsed={collapsed} />
 
-        <div className="px-2 py-1">
+        <div className="px-2 py-1 min-w-0">
           <Separator className="my-2" />
           <SidebarMenu>{BUYER_BOTTOM.map((item) => renderItem(item, brandColor))}</SidebarMenu>
         </div>

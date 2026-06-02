@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, readSession, API_BASE, type AppSession, clearStoredSession } from "@/api/client";
-import { AuthContext, type User, type SignupData, type UserRole } from "./auth-context";
+import { AuthContext, type User, type SignupData, type UserRole, WORKSPACE_CAPABILITIES, isSuperAdmin } from "./auth-context";
+import { primaryRoleForModule } from "@/lib/signupModules";
 import { queryClient } from "@/lib/queryClient";
 import { withApiTiming } from "@/lib/perfMetrics";
 
@@ -11,6 +12,7 @@ function meQueryKey(token?: string) {
 }
 
 const AUTH_PROFILE_STALE_MS = 120 * 1000;
+const AUTH_PROFILE_FOCUS_REFRESH_MS = 30 * 1000;
 
 function shellUserFromSession(session: AppSession): User {
   const email = session.user?.email || "";
@@ -75,17 +77,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const key = meQueryKey(token);
     const cached = queryClient.getQueryData<MeResult>(key);
+    if (cached?.ok && !opts?.force) {
+      setUser(cached.user);
+      setAuthzHydrating(true);
+      void queryClient
+        .fetchQuery({
+          queryKey: key,
+          staleTime: 0,
+          queryFn: fetchMe,
+        })
+        .then((r) => {
+          if (r.ok) setUser(r.user);
+        })
+        .finally(() => {
+          setAuthzHydrating(false);
+        });
+      return;
+    }
     if (cached?.ok) {
       setUser(cached.user);
-      if (!opts?.force) {
-        // Warm cache gives instant paint; background refresh keeps it fresh.
-        setAuthzHydrating(false);
-        return;
-      }
     }
     const r = await queryClient.fetchQuery({
       queryKey: key,
-      staleTime: AUTH_PROFILE_STALE_MS,
+      staleTime: opts?.force ? 0 : AUTH_PROFILE_STALE_MS,
       queryFn: fetchMe,
     });
     if (r.ok) {
@@ -149,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshIfActive = async () => {
       if (!active) return;
       const now = Date.now();
-      if (now - lastRefreshAt < AUTH_PROFILE_STALE_MS) return;
+      if (now - lastRefreshAt < AUTH_PROFILE_FOCUS_REFRESH_MS) return;
       lastRefreshAt = now;
       await loadProfile({ force: true, keepUserOnError: true });
     };
@@ -193,12 +207,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadProfile]);
 
   const sendSignupOtp = useCallback(async (data: SignupData) => {
+    const moduleKey = data.signup_module;
+    const carePath = data.signup_care_path;
+    const primaryRole = moduleKey ? primaryRoleForModule(moduleKey) : carePath ? "farmer" : data.role;
     const { error } = await api.auth.sendRegistrationOtp({
       email: data.email,
       password: data.password,
       data: {
         name: data.name,
-        primary_role: data.role,
+        primary_role: primaryRole,
+        signup_module: moduleKey || null,
+        signup_care_path: carePath || null,
         phone: data.phone || null,
         location: data.location || null,
         district: data.district || data.location || null,
@@ -270,11 +289,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const hasCapability = useCallback((capability: string) => {
-    return user?.capabilities.includes(capability) ?? false;
+    if (!user) return false;
+    if (user.capabilities.includes(capability)) return true;
+    if (isSuperAdmin(user) && (WORKSPACE_CAPABILITIES as readonly string[]).includes(capability)) {
+      return true;
+    }
+    return false;
   }, [user]);
 
-  const refreshProfile = useCallback(async () => {
-    if (session?.access_token) await loadProfile();
+  const refreshProfile = useCallback(async (opts?: { force?: boolean }) => {
+    if (session?.access_token) {
+      await loadProfile({ force: opts?.force ?? false, keepUserOnError: true });
+    }
   }, [session, loadProfile]);
 
   return (

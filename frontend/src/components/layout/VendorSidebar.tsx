@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, Store, Package, ClipboardList, Boxes, DollarSign, Star, Settings,
-  LogOut, Menu, PanelLeftClose, UserCircle, Shield, ShoppingBag,
+  LogOut, Menu, PanelLeftClose, UserCircle, Shield, ShoppingBag, Headphones, Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -27,8 +27,9 @@ interface NavItem {
 
 const VENDOR_ITEMS: NavItem[] = [
   { title: "Dashboard", url: "/seller/dashboard", icon: LayoutDashboard, iconColor: VC },
-  { title: "My Store", url: "/seller/my-shop", icon: Store, iconColor: VC },
+  { title: "My Shop", url: "/seller/my-shop", icon: Store, iconColor: VC },
   { title: "Products", url: "/seller/products", icon: Package, iconColor: ICON_COLORS.package },
+  { title: "Photo Editor", url: "/seller/photo-editor", icon: Palette, iconColor: ICON_COLORS.marketplace },
   { title: "Orders", url: "/seller/orders", icon: ClipboardList, iconColor: ICON_COLORS.orders },
   { title: "Inventory", url: "/seller/inventory", icon: Boxes, iconColor: ICON_COLORS.warehouse },
   { title: "Payouts", url: "/seller/payouts", icon: DollarSign, iconColor: ICON_COLORS.dollar },
@@ -43,6 +44,7 @@ const BUYER_ITEMS: NavItem[] = [
 const VENDOR_BOTTOM: NavItem[] = [
   { title: "Access Center", url: "/seller/access-center", icon: Shield, iconColor: VENDOR_THEME.primaryDark },
   { title: "Profile", url: "/seller/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Help & Support", url: "/seller/support", icon: Headphones, iconColor: VC },
 ];
 
 export default function VendorSidebar() {
@@ -129,7 +131,7 @@ export default function VendorSidebar() {
           </>
         )}
 
-        <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="marketplace" collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

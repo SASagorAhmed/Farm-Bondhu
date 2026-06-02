@@ -17,12 +17,22 @@ export function queryKeys() {
     animals: (userId?: string) => ["animals", userId || "anonymous"] as const,
     farms: (userId?: string) => ["farms", userId || "anonymous"] as const,
     products: () => ["marketplace-products"] as const,
-    adminOrders: () => ["admin-orders"] as const,
+    marketplaceBanners: () => ["marketplace-banners"] as const,
+    adminMarketplaceBanners: () => ["admin-marketplace-banners"] as const,
+    adminMarketplaceChatSound: () => ["admin-marketplace-chat-sound"] as const,
+    adminOrders: (filters?: string) => ["admin-orders", filters || "all"] as const,
+    adminMarketplaceBuyers: (filters?: string) => ["admin-marketplace-buyers", filters || "all"] as const,
+    adminMarketplaceSellers: (filters?: string) => ["admin-marketplace-sellers", filters || "all"] as const,
+    adminOrderDetail: (orderId?: string) => ["admin-order-detail", orderId || "unknown"] as const,
+    adminMarketplaceTransactions: (filters?: string) => ["admin-marketplace-transactions", filters || "all"] as const,
     vetApprovals: () => ["admin-vet-approvals"] as const,
     adminMarketplaceProducts: () => ["admin-marketplace-products"] as const,
     adminMarketplaceShops: () => ["admin-marketplace-shops"] as const,
     adminTeam: () => ["admin-team-members"] as const,
     officialShopProducts: () => ["official-shop-products"] as const,
+    officialShopProductCount: () => ["official-shop-product-count"] as const,
+    officialShopMeta: () => ["official-shop-meta"] as const,
+    officialShopOrders: () => ["official-shop-orders"] as const,
     vetBookingsDashboard: (userId?: string) => ["vet-dashboard-bookings", userId || "anonymous"] as const,
     vetConsultations: (userId?: string) => ["vet-consultations", userId || "anonymous"] as const,
     adminDashboardStats: () => ["admin-dashboard-stats"] as const,
@@ -36,6 +46,10 @@ export function queryKeys() {
     vetbondhuWaitingRoomBooking: (bookingId?: string) => ["vetbondhu-waiting-room-booking", bookingId || "unknown"] as const,
     vetbondhuConsultationRoom: (bookingId?: string) => ["vetbondhu-consultation-room", bookingId || "unknown"] as const,
     vetEarnings: (userId?: string) => ["vet-earnings", userId || "anonymous"] as const,
+    sellerEarnings: (userId?: string) => ["seller-earnings", userId || "anonymous"] as const,
+    sellerWithdrawals: (userId?: string) => ["seller-withdrawals", userId || "anonymous"] as const,
+    sellerEarningsBreakdown: (userId?: string) => ["seller-earnings-breakdown", userId || "anonymous"] as const,
+    adminSellerWithdrawals: (status?: string) => ["admin-seller-withdrawals", status || "all"] as const,
     vetById: (vetId?: string) => ["vet-profile", vetId || "unknown"] as const,
     vetSlots: (vetId?: string, date?: string) => ["vet-slots", vetId || "unknown", date || "none"] as const,
     orders: (userId?: string) => ["orders", userId || "anonymous"] as const,
@@ -94,7 +108,16 @@ if (isBrowser) {
     queryClient,
     persister,
     maxAge: 12 * 60 * 60 * 1000,
-    buster: "v2-medibondhu-opening-slots",
+    buster: "v4-seller-payouts",
+    dehydrateOptions: {
+      shouldDehydrateQuery: (query) => {
+        const key = query.queryKey[0];
+        if (key === "seller-earnings" || key === "seller-earnings-breakdown" || key === "seller-withdrawals") {
+          return false;
+        }
+        return query.state.status === "success";
+      },
+    },
   });
 }
 

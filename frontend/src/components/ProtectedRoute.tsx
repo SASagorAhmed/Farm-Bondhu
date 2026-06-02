@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth, type User, UserRole } from "@/contexts/AuthContext";
+import { useAuth, type User, UserRole, isPlatformAdmin, isAdminPreviewPath } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
+import { inferModuleFromPath } from "@/lib/signupModules";
 
 const MEDI_DOCTOR_PROFILE_SETUP = "/medibondhu/profile";
 
@@ -37,7 +39,54 @@ export default function ProtectedRoute({
   capabilityBypassRoles,
 }: Props) {
   const { pathname } = useLocation();
-  const { isAuthenticated, isLoading, hasResolvedSession, authzHydrating, user, hasRole, hasCapability } = useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    hasResolvedSession,
+    authzHydrating,
+    user,
+    hasRole,
+    hasCapability,
+    refreshProfile,
+  } = useAuth();
+  const [capabilityRetried, setCapabilityRetried] = useState(false);
+  const [capabilityRetrying, setCapabilityRetrying] = useState(false);
+
+  const adminPreviewBypass =
+    Boolean(user && isPlatformAdmin(user) && isAdminPreviewPath(pathname));
+
+  const capabilityBypass =
+    Boolean(
+      capabilityBypassRoles?.length &&
+        user &&
+        capabilityBypassRoles.some((r) => hasRole(r))
+    );
+
+  let capabilityAllowed = true;
+  if (requireAnyCapability?.length) {
+    capabilityAllowed =
+      capabilityBypass || requireAnyCapability.some((c) => hasCapability(c));
+  } else if (requiredCapability) {
+    capabilityAllowed = hasCapability(requiredCapability);
+  }
+
+  const needsCapabilityCheck = Boolean(requiredCapability || requireAnyCapability?.length);
+  const rolesAllowed = !allowedRoles?.length || Boolean(user && allowedRoles.some((r) => hasRole(r)));
+  const capabilityDenied =
+    isAuthenticated &&
+    !adminPreviewBypass &&
+    rolesAllowed &&
+    needsCapabilityCheck &&
+    !capabilityAllowed;
+
+  useEffect(() => {
+    if (!capabilityDenied || capabilityRetried || capabilityRetrying) return;
+    setCapabilityRetrying(true);
+    void refreshProfile({ force: true }).finally(() => {
+      setCapabilityRetrying(false);
+      setCapabilityRetried(true);
+    });
+  }, [capabilityDenied, capabilityRetried, capabilityRetrying, refreshProfile]);
 
   if (isLoading && !hasResolvedSession) {
     return (
@@ -47,36 +96,48 @@ export default function ProtectedRoute({
     );
   }
 
-  // After initial session bootstrap, keep current content visible while background profile refresh runs.
   if (isLoading && isAuthenticated) return <>{children}</>;
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    const module = inferModuleFromPath(pathname);
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: pathname, ...(module ? { module } : {}) }}
+      />
+    );
+  }
 
   const requiresAuthz = Boolean(allowedRoles?.length || requiredCapability || requireAnyCapability?.length);
   if (requiresAuthz && authzHydrating) {
-    // Keep routes responsive while role/capability bundle refreshes in background.
     if (isAuthenticated) return <>{children}</>;
-    return <Navigate to="/login" replace />;
+    const module = inferModuleFromPath(pathname);
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: pathname, ...(module ? { module } : {}) }}
+      />
+    );
+  }
+
+  if (adminPreviewBypass) {
+    return <>{children}</>;
   }
 
   if (allowedRoles && user && !allowedRoles.some((r) => hasRole(r))) {
     return <Navigate to="/access-denied" replace />;
   }
 
-  if (requireAnyCapability?.length) {
-    const bypass =
-      capabilityBypassRoles?.length &&
-      user &&
-      capabilityBypassRoles.some((r) => hasRole(r));
-    const allowed =
-      Boolean(bypass) || requireAnyCapability.some((c) => hasCapability(c));
-    if (!allowed) {
-      if (shouldRedirectPendingDoctorToMediProfileSetup(pathname, hasRole, hasCapability)) {
-        return <Navigate to={MEDI_DOCTOR_PROFILE_SETUP} replace />;
-      }
-      return <Navigate to="/access-denied" replace />;
+  if (capabilityDenied) {
+    if (capabilityRetrying || !capabilityRetried) {
+      return (
+        <div className="h-screen flex items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
     }
-  } else if (requiredCapability && !hasCapability(requiredCapability)) {
     if (shouldRedirectPendingDoctorToMediProfileSetup(pathname, hasRole, hasCapability)) {
       return <Navigate to={MEDI_DOCTOR_PROFILE_SETUP} replace />;
     }
@@ -98,14 +159,25 @@ export function getDefaultRoute(role: UserRole): string {
   }
 }
 
-/** Post-login landing: respects MediBondhu landing preference; OFF always starts from dashboard. */
-export function getPostLoginPath(user: Pick<User, "primaryRole" | "farmerOpenMedibondhu">): string {
-  if (user.farmerOpenMedibondhu === false) {
-    return "/dashboard";
+/** Post-login landing: care-only users → module home; buyers → marketplace; farmers respect MediBondhu preference. */
+export function getPostLoginPath(
+  user: Pick<User, "primaryRole" | "farmerOpenMedibondhu" | "capabilities">
+): string {
+  if (user.primaryRole === "vet" || user.primaryRole === "doctor") {
+    return getDefaultRoute(user.primaryRole);
   }
-  const mediLandingRoles = new Set<UserRole>(["farmer", "buyer", "vendor"]);
-  if (mediLandingRoles.has(user.primaryRole) && user.farmerOpenMedibondhu !== false) {
-    return "/medibondhu";
+
+  const caps = user.capabilities || [];
+  const hasVet = caps.includes("can_book_vet");
+  const hasHuman = caps.includes("can_book_human");
+  if (hasVet && !hasHuman) return "/vetbondhu";
+  if (hasHuman && !hasVet) return "/medibondhu";
+
+  if (user.primaryRole === "buyer") {
+    return "/marketplace";
+  }
+  if (user.primaryRole === "farmer") {
+    return user.farmerOpenMedibondhu !== false ? "/medibondhu" : "/dashboard";
   }
   return getDefaultRoute(user.primaryRole);
 }

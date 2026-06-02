@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import VetSidebar from "./VetSidebar";
+import { useLocation, useNavigate } from "react-router-dom";
+import { SidebarProvider } from "@/components/ui/sidebar";import VetSidebar from "./VetSidebar";
 import TopBar from "./TopBar";
 import FarmChatbot from "@/components/FarmChatbot";
+import WorkspacePreviewOutlet from "./WorkspacePreviewOutlet";
 import { API_BASE, readSession } from "@/api/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, isPlatformAdmin } from "@/contexts/AuthContext";
 
 function isVetProfileComplete(profile: Record<string, unknown> | null | undefined) {
   if (!profile) return false;
@@ -18,10 +18,28 @@ export default function VetLayout() {
   const navigate = useNavigate();
   const [checkingProfile, setCheckingProfile] = useState(true);
   const isVet = Boolean(user && hasRole("vet"));
+  const platformAdminPreview = isPlatformAdmin(user);
   const hasCheckedRef = useRef(false);
 
   useEffect(() => {
-    if (!isVet) {
+    if (platformAdminPreview || !isVet) return;
+    const sendHeartbeat = async () => {
+      const token = readSession()?.access_token;
+      if (!token) return;
+      await fetch(`${API_BASE}/v1/vetbondhu/vet/presence/heartbeat`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
+    };
+    void sendHeartbeat();
+    const interval = window.setInterval(() => {
+      void sendHeartbeat();
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [isVet, platformAdminPreview]);
+
+  useEffect(() => {
+    if (platformAdminPreview || !isVet) {
       setCheckingProfile(false);
       hasCheckedRef.current = false;
       return;
@@ -62,7 +80,7 @@ export default function VetLayout() {
     return () => {
       active = false;
     };
-  }, [isVet, location.pathname, navigate]);
+  }, [isVet, platformAdminPreview, location.pathname, navigate]);
 
   if (checkingProfile) {
     return (
@@ -88,7 +106,7 @@ export default function VetLayout() {
         <div className="flex-1 flex flex-col min-h-0">
           <TopBar />
           <main className="flex-1 p-4 md:p-6 bg-background overflow-auto">
-            <Outlet />
+            <WorkspacePreviewOutlet />
           </main>
         </div>
       </div>

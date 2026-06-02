@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   LogOut, Menu, PanelLeftClose, BookOpen, LayoutGrid, UserCircle,
-  Shield, Settings,
+  Shield, Settings, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -30,6 +30,7 @@ const LEARNING_ITEMS: NavItem[] = [
 const LEARNING_BOTTOM: NavItem[] = [
   { title: "Access Center", url: "/learning/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
   { title: "Profile", url: "/learning/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Help & Support", url: "/learning/support", icon: Headphones, iconColor: LB },
   { title: "Settings", url: "/learning/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -94,7 +95,7 @@ export default function LearningSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "marketplace", "vetbondhu", "medibondhu", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="learning" collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

@@ -1,4 +1,4 @@
-import { useAuth, formatUserRoleLabel } from "@/contexts/AuthContext";
+import { useAuth, formatUserRoleLabel, isPlatformAdmin, isAdminPreviewPath } from "@/contexts/AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarCheck, FileText, LogOut, Menu, PanelLeftClose, Search, LayoutGrid, Stethoscope, UserCircle,
-  Shield, Settings, ClipboardList, CalendarDays, Users, Wallet,
+  Shield, Settings, ClipboardList, CalendarDays, Users, Wallet, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -41,7 +41,8 @@ const DOCTOR_ITEMS: NavItem[] = [
 
 const MEDI_BOTTOM: NavItem[] = [
   { title: "Profile", url: "/medibondhu/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
-  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
+  { title: "Access Center", url: "/medibondhu/access-center", icon: Shield, iconColor: MB },
+  { title: "Help & Support", url: "/medibondhu/support", icon: Headphones, iconColor: MB },
   { title: "Settings", url: "/medibondhu/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -52,13 +53,17 @@ export default function MediBondhuSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const isVetPortalUser = hasRole("vet") || hasCapability("can_consult_as_vet");
-  /** Full clinical workspace: approved for human practice, or platform admin. */
-  const canUseFullDoctorWorkspace =
-    hasCapability("can_practice_human") || hasRole("admin");
-  /** Show doctor section for doctors (pending or approved) and admins. */
-  const showDoctorNav = hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human");
-  const showPatientCareNav = !showDoctorNav;
-  const doctorNavItems = hasRole("doctor") && !canUseFullDoctorWorkspace ? [] : DOCTOR_ITEMS;
+  const adminInAppPreview =
+    isPlatformAdmin(user) && isAdminPreviewPath(location.pathname);
+  /** Full clinical workspace: approved for human practice. */
+  const canUseFullDoctorWorkspace = hasCapability("can_practice_human");
+  const isDoctorUser = hasRole("doctor") || hasCapability("can_practice_human");
+  /** Doctors and platform admins previewing user-facing MediBondhu routes. */
+  const showDoctorNav = isDoctorUser || adminInAppPreview;
+  /** Patient care hidden for doctors and for admin preview (clinical workspace only). */
+  const showPatientCareNav = !isDoctorUser && !adminInAppPreview;
+  const doctorNavItems =
+    hasRole("doctor") && !canUseFullDoctorWorkspace && !adminInAppPreview ? [] : DOCTOR_ITEMS;
   const profilePath = isVetPortalUser ? "/vet/profile" : "/medibondhu/profile";
   const mediBottom = MEDI_BOTTOM.map((item) =>
     item.url === "/medibondhu/profile" ? { ...item, url: profilePath } : item
@@ -89,9 +94,6 @@ export default function MediBondhuSidebar() {
       </SidebarMenuItem>
     );
   };
-
-  const workspaceTargets: string[] = ["farm", "marketplace", "learning", "community", "vetbondhu"];
-  if (isVetPortalUser) workspaceTargets.push("vet");
 
   return (
     <Sidebar collapsible="icon" className="medibondhu-sidebar">
@@ -155,7 +157,7 @@ export default function MediBondhuSidebar() {
           </div>
         )}
 
-        <WorkspaceButtons targets={workspaceTargets} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace={showDoctorNav ? "medibondhuDoctor" : "medibondhu"} collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

@@ -8,7 +8,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   CalendarCheck, FileText, LogOut, Menu, PanelLeftClose, Search, LayoutGrid, Stethoscope, UserCircle,
-  Shield, Settings, Scale,
+  Shield, Settings, Scale, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -25,8 +25,9 @@ interface NavItem {
 }
 
 const VB_BOTTOM: NavItem[] = [
-  { title: "Access Center", url: "/vetbondhu/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
+  { title: "Access Center", url: "/vetbondhu/access-center", icon: Shield, iconColor: VB },
   { title: "Profile", url: "/vetbondhu/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
+  { title: "Help & Support", url: "/vetbondhu/support", icon: Headphones, iconColor: VB },
   { title: "Settings", url: "/vetbondhu/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
 ];
 
@@ -101,7 +102,7 @@ export default function VetBondhuSidebar() {
           </SidebarMenu>
         </div>
 
-        <WorkspaceButtons targets={["farm", "marketplace", "learning", "community", "medibondhu"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="vetbondhu" collapsed={collapsed} />
 
         <div className="px-2 py-1">
           <Separator className="my-2" />

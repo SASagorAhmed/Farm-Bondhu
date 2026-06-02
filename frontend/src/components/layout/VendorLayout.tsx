@@ -1,4 +1,4 @@
-import { Outlet } from "react-router-dom";
+import WorkspacePreviewOutlet from "./WorkspacePreviewOutlet";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import VendorSidebar from "./VendorSidebar";
 import TopBar from "./TopBar";
@@ -12,7 +12,7 @@ export default function VendorLayout() {
         <div className="flex-1 flex flex-col min-h-0">
           <TopBar />
           <main className="flex-1 p-4 md:p-6 bg-background overflow-auto">
-            <Outlet />
+            <WorkspacePreviewOutlet />
           </main>
         </div>
       </div>

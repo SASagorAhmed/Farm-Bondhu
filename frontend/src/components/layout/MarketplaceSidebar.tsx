@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   ShoppingCart, Store, ClipboardList, ShoppingBag, Package, LogOut, Menu,
-  PanelLeftClose, Truck, UserCircle, Shield, Settings, MessageCircle, Scale,
+  PanelLeftClose, Truck, UserCircle, Shield, Settings, MessageCircle, Scale, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -57,6 +57,7 @@ export default function MarketplaceSidebar() {
   const MARKETPLACE_BOTTOM: NavItem[] = [
     { title: t("sidebar.accessCenter"), url: "/marketplace/access-center", icon: Shield, iconColor: MARKETPLACE_THEME.accessCenter },
     { title: t("sidebar.profile"), url: profilePath, icon: UserCircle, iconColor: ICON_COLORS.profile },
+    { title: t("sidebar.helpSupport"), url: "/marketplace/support", icon: Headphones, iconColor: buyerBrandColor },
     { title: t("sidebar.settings"), url: "/marketplace/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
   ];
 
@@ -114,7 +115,7 @@ export default function MarketplaceSidebar() {
         {!collapsed && visibleShopping.length > 0 && (
           <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shopping</p>
         )}
-        <div className="px-2 py-1">
+        <div className="px-2 py-1 min-w-0">
           <SidebarMenu>{visibleShopping.map((item) => renderItem(item, buyerBrandColor))}</SidebarMenu>
         </div>
 
@@ -126,15 +127,15 @@ export default function MarketplaceSidebar() {
                 Seller tools
               </p>
             )}
-            <div className="px-2 py-1">
+            <div className="px-2 py-1 min-w-0">
               <SidebarMenu>{visibleSeller.map((item) => renderItem(item, sellerBrandColor))}</SidebarMenu>
             </div>
           </>
         )}
 
-        <WorkspaceButtons targets={["farm", "vetbondhu", "medibondhu", "learning", "community"]} collapsed={collapsed} />
+        <WorkspaceButtons currentWorkspace="marketplace" collapsed={collapsed} />
 
-        <div className="px-2 py-1">
+        <div className="px-2 py-1 min-w-0">
           <Separator className="my-2" />
           <SidebarMenu>{MARKETPLACE_BOTTOM.map((item) => renderItem(item, buyerBrandColor))}</SidebarMenu>
         </div>

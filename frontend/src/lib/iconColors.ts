@@ -42,6 +42,7 @@ export const ICON_COLORS = {
   prescription: "#12C2D6",
   medibondhu: "#12C2D6",   // MediBondhu brand color
   vetbondhu: "#059669",    // Emerald — VetBondhu animal-care brand (isolated surface)
+  vetbondhuDeep: "#047857", // emerald-700 — richer VetBondhu chrome (e.g. Access Center)
 
   // Admin
   admin: "#6366F1",        // Indigo
