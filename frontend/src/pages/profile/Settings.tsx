@@ -3,15 +3,17 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bell, Globe, Palette, ShieldCheck, ArrowLeft, UserCircle } from "lucide-react";
+import { Bell, Globe, Palette, ShieldCheck, ArrowLeft, UserCircle, Headphones } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { getWorkspaceSupportBase } from "@/lib/workspaceAccent";
 
 export default function Settings() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, hasRole, hasCapability } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const [notifications, setNotifications] = useState({ orders: true, promotions: false, updates: true });
@@ -31,7 +33,11 @@ export default function Settings() {
       <Card
         className="border-primary/30 bg-primary/5 cursor-pointer hover:bg-primary/10 transition-colors"
         onClick={() => {
-          const target = hasRole("vet") || hasCapability("can_consult_as_vet") ? "/vet/profile" : "/profile";
+          const target = hasRole("admin")
+            ? "/admin/profile"
+            : hasRole("vet") || hasCapability("can_consult_as_vet")
+              ? "/vet/profile"
+              : "/profile";
           navigate(target);
         }}
       >
@@ -40,6 +46,20 @@ export default function Settings() {
           <div className="flex-1">
             <p className="text-sm font-medium text-foreground">{t("settings.editProfile")}</p>
             <p className="text-xs text-muted-foreground">{t("settings.editProfileDesc")}</p>
+          </div>
+          <ArrowLeft className="h-4 w-4 text-muted-foreground rotate-180" />
+        </CardContent>
+      </Card>
+
+      <Card
+        className="border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => navigate(getWorkspaceSupportBase(location.pathname))}
+      >
+        <CardContent className="flex items-center gap-3 py-4">
+          <Headphones className="h-5 w-5 text-muted-foreground" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">{t("settings.helpSupport")}</p>
+            <p className="text-xs text-muted-foreground">{t("settings.helpSupportDesc")}</p>
           </div>
           <ArrowLeft className="h-4 w-4 text-muted-foreground rotate-180" />
         </CardContent>

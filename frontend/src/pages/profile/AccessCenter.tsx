@@ -10,11 +10,18 @@ import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Tractor, Stethoscope, Store, Building2,
+  Tractor, Stethoscope, Store, ShoppingCart, BookOpen, MessageSquareText,
   CheckCircle, Clock, XCircle, ArrowRight, Shield, ArrowLeft, Trash2,
   Power, PowerOff, PauseCircle,
 } from "lucide-react";
 import AccessRequestForm from "@/components/profile/AccessRequestForm";
+import SellerOnboardingForm from "@/components/marketplace/SellerOnboardingForm";
+import { fetchSellerOnboardingMe } from "@/lib/sellerOnboardingApi";
+import type { SellerOnboardingMe } from "@/lib/marketplaceLaneLabels";
+import type { UserRole } from "@/contexts/AuthContext";
+import { ICON_COLORS, iconBg } from "@/lib/iconColors";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+import { VENDOR_THEME } from "@/lib/vendorTheme";
 
 interface AccessCard {
   type: string;
@@ -24,6 +31,49 @@ interface AccessCard {
   iconColor: string;
   requirements: string[];
   capability: string;
+  /** Self-service enable/disable; skips approval_requests workflow. */
+  selfService?: boolean;
+}
+
+function moduleCardSurface(color: string, state: "active" | "paused") {
+  return {
+    borderColor: state === "active" ? `${color}66` : `${color}40`,
+    backgroundColor: state === "active" ? iconBg(color) : `${color}0D`,
+  };
+}
+
+function moduleBadgeStyle(color: string, state: "active" | "paused") {
+  return {
+    backgroundColor: state === "active" ? `${color}1A` : `${color}14`,
+    color,
+    border: `1px solid ${color}33`,
+  };
+}
+
+function isSelfServiceCard(card: AccessCard, hasRole: (role: UserRole) => boolean): boolean {
+  if (card.selfService) return true;
+  return card.capability === "can_book_human" && hasRole("farmer");
+}
+
+function activeAccessDestination(card: AccessCard): { label: string; path: string } | null {
+  switch (card.capability) {
+    case "can_manage_farm":
+      return { label: "Go to Farm", path: "/dashboard" };
+    case "can_book_vet":
+      return { label: "Go to VetBondhu", path: "/vetbondhu" };
+    case "can_book_human":
+      return { label: "Go to MediBondhu", path: "/medibondhu" };
+    case "can_sell":
+      return { label: "Go to Seller tools", path: "/seller/dashboard" };
+    case "can_buy":
+      return { label: "Go to Marketplace", path: "/marketplace" };
+    case "can_access_learning":
+      return { label: "Go to Learning", path: "/learning" };
+    case "can_access_community":
+      return { label: "Go to Community", path: "/community" };
+    default:
+      return null;
+  }
 }
 
 const ACCESS_CARDS: AccessCard[] = [
@@ -32,16 +82,16 @@ const ACCESS_CARDS: AccessCard[] = [
     title: "Farm Management",
     description: "Access full farm ERP — manage farms, animals, feed, health, production, and reports.",
     icon: Tractor,
-    iconColor: "hsl(var(--primary))",
+    iconColor: ICON_COLORS.farm,
     requirements: ["Farm ownership or operation details", "Location information", "Animal type and capacity"],
     capability: "can_manage_farm",
   },
   {
     type: "vet_service_access",
-    title: "Vet Consultation Services",
-    description: "Book chat, voice, and video consultations with verified veterinarians for your animals.",
+    title: "VetBondhu Patient Booking",
+    description: "Book animal telemed as a patient or farmer — chat, voice, and video with verified veterinarians.",
     icon: Stethoscope,
-    iconColor: "hsl(160, 84%, 39%)",
+    iconColor: ICON_COLORS.vetbondhuDeep,
     requirements: ["Animal types you manage", "Location for service area", "Contact information"],
     capability: "can_book_vet",
   },
@@ -50,7 +100,7 @@ const ACCESS_CARDS: AccessCard[] = [
     title: "MediBondhu Human Doctors",
     description: "Book outpatient slots with verified physicians — separate from animal VetBondhu care.",
     icon: Stethoscope,
-    iconColor: "hsl(188, 84%, 45%)",
+    iconColor: ICON_COLORS.medibondhu,
     requirements: ["Valid profile", "Contact information"],
     capability: "can_book_human",
   },
@@ -59,24 +109,44 @@ const ACCESS_CARDS: AccessCard[] = [
     title: "Seller / Vendor Access",
     description: "Open your own shop on the marketplace — list products, manage orders, and grow your business.",
     icon: Store,
-    iconColor: "hsl(25, 95%, 53%)",
+    iconColor: VENDOR_THEME.primary,
     requirements: ["Business or farm details", "Product categories", "Contact and payment info"],
     capability: "can_sell",
   },
   {
-    type: "business_buyer_access",
-    title: "Business / Wholesale Buyer",
-    description: "Access bulk purchasing, wholesale pricing, and B2B features for large-scale orders.",
-    icon: Building2,
-    iconColor: "hsl(262, 83%, 58%)",
-    requirements: ["Business registration details", "Expected order volume", "Delivery location"],
-    capability: "can_bulk_buy",
+    type: "marketplace_access",
+    title: "Marketplace",
+    description: "Browse products, add to cart, and place orders on the FarmBondhu marketplace.",
+    icon: ShoppingCart,
+    iconColor: MARKETPLACE_THEME.primary,
+    requirements: [],
+    capability: "can_buy",
+    selfService: true,
+  },
+  {
+    type: "learning_access",
+    title: "Learning Center",
+    description: "Access guides, courses, and farming knowledge in the Learning workspace.",
+    icon: BookOpen,
+    iconColor: ICON_COLORS.learning,
+    requirements: [],
+    capability: "can_access_learning",
+    selfService: true,
+  },
+  {
+    type: "community_access",
+    title: "Community",
+    description: "Join discussions, ask questions, and share knowledge with other FarmBondhu members.",
+    icon: MessageSquareText,
+    iconColor: ICON_COLORS.community,
+    requirements: [],
+    capability: "can_access_community",
+    selfService: true,
   },
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pending: { label: "Under Review", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400", icon: Clock },
-  approved: { label: "Approved", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400", icon: CheckCircle },
+  pending: { label: "Under Review", color: "bg-muted text-muted-foreground border border-border", icon: Clock },
   rejected: { label: "Rejected", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400", icon: XCircle },
 };
 
@@ -106,14 +176,16 @@ export default function AccessCenter() {
   const [withdrawing, setWithdrawing] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [farmerLandingSaving, setFarmerLandingSaving] = useState(false);
+  const [sellerOnboarding, setSellerOnboarding] = useState<SellerOnboardingMe | null>(null);
 
   useEffect(() => {
     const requestType = searchParams.get("request");
-    if (requestType && ACCESS_CARDS.some(c => c.type === requestType)) {
+    const card = requestType ? ACCESS_CARDS.find((c) => c.type === requestType) : undefined;
+    if (card && requestType && !isSelfServiceCard(card, hasRole)) {
       setActiveForm(requestType);
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, hasRole]);
 
   const fetchData = async () => {
     if (!user) return;
@@ -144,6 +216,7 @@ export default function AccessCenter() {
         is_enabled: Boolean(c.is_enabled),
       }))
     );
+    await fetchSellerOnboardingMe().then(setSellerOnboarding);
     setLoading(false);
   };
 
@@ -162,6 +235,7 @@ export default function AccessCenter() {
   for (const c of capabilities) {
     capabilityMap[c.capability_code] = c;
   }
+  const isVetPractitioner = hasRole("vet") || hasCapability("can_consult_as_vet");
 
   const handleRequestSubmit = async (type: string, payload: Record<string, string>) => {
     if (!user) return;
@@ -214,7 +288,7 @@ export default function AccessCenter() {
         variant: "destructive",
       });
       await fetchData();
-      await refreshProfile();
+      await refreshProfile({ force: true });
     } else {
       toast({
         title: newEnabled ? "Access enabled" : "Access disabled",
@@ -223,7 +297,7 @@ export default function AccessCenter() {
           : "Workspace hidden from your sidebar. You can re-enable anytime.",
       });
       await fetchData();
-      await refreshProfile();
+      await refreshProfile({ force: true });
     }
     setToggling(null);
   };
@@ -268,6 +342,27 @@ export default function AccessCenter() {
 
   if (activeForm) {
     const card = ACCESS_CARDS.find((c) => c.type === activeForm);
+    if (activeForm === "seller_access") {
+      return (
+        <div className="space-y-4">
+          <Button variant="ghost" size="sm" onClick={() => setActiveForm(null)} className="gap-2 text-muted-foreground">
+            <ArrowLeft className="h-4 w-4" /> Back to Access Center
+          </Button>
+          <SellerOnboardingForm
+            defaultBusinessName={user?.name || ""}
+            defaultPhone={user?.phone || ""}
+            defaultLocation={user?.location || ""}
+            onCancel={() => setActiveForm(null)}
+            onSuccess={async () => {
+              toast({ title: "Application submitted", description: "Your seller categories are under review." });
+              setActiveForm(null);
+              await fetchData();
+              await refreshProfile();
+            }}
+          />
+        </div>
+      );
+    }
     return (
       <AccessRequestForm
         type={activeForm}
@@ -293,42 +388,117 @@ export default function AccessCenter() {
         </div>
       </motion.div>
 
+      {isVetPractitioner && (
+        <Card
+          className="transition-all duration-200"
+          style={moduleCardSurface(ICON_COLORS.vetbondhu, "active")}
+        >
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-10 w-10 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: iconBg(ICON_COLORS.vetbondhu) }}
+                >
+                  <Stethoscope className="h-5 w-5" style={{ color: ICON_COLORS.vetbondhu }} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Vet Portal</CardTitle>
+                  <CardDescription className="mt-1">
+                    Clinical workspace for consultations, prescriptions, availability, and earnings.
+                  </CardDescription>
+                </div>
+              </div>
+              <Badge className="border-0 shrink-0" style={moduleBadgeStyle(ICON_COLORS.vetbondhu, "active")}>
+                <CheckCircle className="h-3 w-3 mr-1" /> Active
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0 grid gap-2 sm:grid-cols-2">
+            <Button
+              size="sm"
+              className="w-full text-white hover:opacity-90"
+              style={{ backgroundColor: ICON_COLORS.vetbondhu }}
+              onClick={() => navigate("/vet/dashboard")}
+            >
+              Go to Vet Dashboard <ArrowRight className="h-4 w-4 ml-1" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              style={{ borderColor: `${ICON_COLORS.vetbondhu}55`, color: ICON_COLORS.vetbondhu }}
+              onClick={() => navigate("/vet/profile")}
+            >
+              Manage Vet Profile
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {ACCESS_CARDS.map((card, i) => {
           const cap = capabilityMap[card.capability];
           const roleDefault = !cap && hasCapability(card.capability); // active via role_permissions
           const hasCapEnabled = cap?.is_enabled === true || roleDefault;
           const hasCapDisabled = cap && !cap.is_enabled;
-          const isFarmerDoctorAccess = card.capability === "can_book_human" && hasRole("farmer");
-          const requestStatus = isFarmerDoctorAccess ? undefined : statusMap[card.type];
+          const selfService = isSelfServiceCard(card, hasRole);
+          let requestStatus = selfService ? undefined : statusMap[card.type];
+          if (card.type === "seller_access") {
+            const grants = sellerOnboarding?.grants || [];
+            const hasPendingLane = grants.some((g) => g.status === "pending");
+            const hasApprovedLane = grants.some((g) => g.status === "approved");
+            const hasRejectedLane = grants.some((g) => g.status === "rejected");
+            if (hasPendingLane) requestStatus = "pending";
+            else if (!hasCapEnabled && hasRejectedLane && !hasApprovedLane) requestStatus = "rejected";
+            else if (statusMap.seller_onboarding) requestStatus = statusMap.seller_onboarding;
+          }
           const isPending = requestStatus === "pending";
           const isRejected = requestStatus === "rejected";
-          const pendingRequest = isPending ? requests.find(r => r.request_type === card.type && r.status === "pending") : null;
+          const pendingRequest = isPending
+            ? requests.find(
+                (r) =>
+                  (r.request_type === card.type || (card.type === "seller_access" && r.request_type === "seller_onboarding")) &&
+                  r.status === "pending"
+              )
+            : null;
 
-          // Determine card state
-          const canRequest = !isFarmerDoctorAccess && !cap && !roleDefault && !requestStatus;
+          const canRequest =
+            !selfService &&
+            !cap &&
+            !roleDefault &&
+            (card.type === "seller_access"
+              ? !hasCapEnabled && !(sellerOnboarding?.grants || []).some((g) => g.status === "pending") && !isPending
+              : !requestStatus);
+          const activeDestination = hasCapEnabled ? activeAccessDestination(card) : null;
 
           return (
             <motion.div key={card.type} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-              <Card className={`h-full transition-all duration-200 ${
-                hasCapEnabled ? "border-green-300 dark:border-green-700 bg-green-50/50 dark:bg-green-950/20" :
-                hasCapDisabled ? "border-yellow-300 dark:border-yellow-700 bg-yellow-50/50 dark:bg-yellow-950/20" : ""
-              }`}>
+              <Card
+                className="h-full transition-all duration-200"
+                style={
+                  hasCapEnabled
+                    ? moduleCardSurface(card.iconColor, "active")
+                    : hasCapDisabled
+                      ? moduleCardSurface(card.iconColor, "paused")
+                      : undefined
+                }
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${card.iconColor}15` }}>
+                      <div className="h-10 w-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: iconBg(card.iconColor) }}>
                         <card.icon className="h-5 w-5" style={{ color: card.iconColor }} />
                       </div>
                       <CardTitle className="text-base">{card.title}</CardTitle>
                     </div>
                     {hasCapEnabled && (
-                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      <Badge className="border-0" style={moduleBadgeStyle(card.iconColor, "active")}>
                         <CheckCircle className="h-3 w-3 mr-1" /> Active
                       </Badge>
                     )}
                     {hasCapDisabled && (
-                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                      <Badge className="border-0" style={moduleBadgeStyle(card.iconColor, "paused")}>
                         <PauseCircle className="h-3 w-3 mr-1" /> Paused
                       </Badge>
                     )}
@@ -347,7 +517,7 @@ export default function AccessCenter() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   {/* Requirements - show only when no capability yet */}
-                  {!cap && !isFarmerDoctorAccess && (
+                  {!cap && !selfService && card.requirements.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs font-medium text-muted-foreground mb-2">Requirements:</p>
                       <ul className="space-y-1">
@@ -363,20 +533,28 @@ export default function AccessCenter() {
 
                   {/* State: No request yet */}
                   {canRequest && (
-                    <Button size="sm" className="w-full" onClick={() => setActiveForm(card.type)}>
+                    <Button
+                      size="sm"
+                      className="w-full text-white hover:opacity-90"
+                      style={{ backgroundColor: card.iconColor }}
+                      onClick={() => setActiveForm(card.type)}
+                    >
                       Request Access <ArrowRight className="h-4 w-4 ml-1" />
                     </Button>
                   )}
 
                   {/* Farmer + human doctor access: no request workflow, simple direct enable/disable */}
-                  {isFarmerDoctorAccess && !hasCapEnabled && !hasCapDisabled && (
+                  {selfService && !hasCapEnabled && !hasCapDisabled && (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground text-center">
-                        Doctor booking is available for farmers. Enable it anytime.
+                        {card.capability === "can_book_human"
+                          ? "Doctor booking is available for farmers. Enable it anytime."
+                          : "Enable this workspace anytime. It will appear in your sidebar when active."}
                       </p>
                       <Button
                         size="sm"
-                        className="w-full"
+                        className="w-full text-white hover:opacity-90"
+                        style={{ backgroundColor: card.iconColor }}
                         onClick={() => handleToggleCapability(card.capability, true)}
                         disabled={toggling === card.capability}
                       >
@@ -407,7 +585,12 @@ export default function AccessCenter() {
 
                   {/* State: Rejected */}
                   {isRejected && !cap && (
-                    <Button size="sm" variant="outline" className="w-full" onClick={() => setActiveForm(card.type)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => (card.type === "seller_access" ? navigate("/seller/onboarding") : setActiveForm(card.type))}
+                    >
                       Re-apply
                     </Button>
                   )}
@@ -415,7 +598,20 @@ export default function AccessCenter() {
                   {/* State: Approved & Enabled */}
                   {hasCapEnabled && (
                     <div className="space-y-2">
-                      <p className="text-xs text-green-600 dark:text-green-400 text-center font-medium">✓ You have full access to this module.</p>
+                      <p className="text-xs text-center font-medium" style={{ color: card.iconColor }}>
+                        ✓ You have full access to this module.
+                      </p>
+                      {activeDestination && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          style={{ borderColor: `${card.iconColor}55`, color: card.iconColor }}
+                          onClick={() => navigate(activeDestination.path)}
+                        >
+                          {activeDestination.label} <ArrowRight className="h-4 w-4 ml-1" />
+                        </Button>
+                      )}
                       {card.capability === "can_book_human" && (
                         <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/60 p-3 text-left">
                           <div className="space-y-0.5 pr-2 min-w-0">
@@ -451,10 +647,13 @@ export default function AccessCenter() {
                   {/* State: Approved & Disabled */}
                   {hasCapDisabled && (
                     <div className="space-y-2">
-                      <p className="text-xs text-yellow-600 dark:text-yellow-400 text-center font-medium">Access is paused. Re-enable anytime.</p>
+                      <p className="text-xs text-center font-medium opacity-80" style={{ color: card.iconColor }}>
+                        Access is paused. Re-enable anytime.
+                      </p>
                       <Button
                         size="sm"
-                        className="w-full"
+                        className="w-full text-white hover:opacity-90"
+                        style={{ backgroundColor: card.iconColor }}
                         onClick={() => handleToggleCapability(card.capability, true)}
                         disabled={toggling === card.capability}
                       >

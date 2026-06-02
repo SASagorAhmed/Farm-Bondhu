@@ -5,40 +5,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
-import { useAuth, formatUserRoleLabel } from "@/contexts/AuthContext";
+import { useAuth, formatUserRoleLabel, getUserRoleBadgeClass } from "@/contexts/AuthContext";
 import { api } from "@/api/client";
-import { UserCircle, Mail, Phone, MapPin, Pencil, X, Save, ArrowLeft } from "lucide-react";
+import { UserCircle, Mail, Phone, Pencil, X, Save, ArrowLeft, Palette } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import RoleChangeRequest from "@/components/profile/RoleChangeRequest";
 import MediDoctorProfileSetup from "@/pages/doctor/MediDoctorProfileSetup";
-
-const ROLE_COLORS: Record<string, string> = {
-  buyer: "bg-blue-100 text-blue-800",
-  farmer: "bg-green-100 text-green-800",
-  vendor: "bg-orange-100 text-orange-800",
-  vet: "bg-purple-100 text-purple-800",
-  doctor: "bg-teal-100 text-teal-800",
-  admin: "bg-red-100 text-red-800",
-};
+import UserAddressesSection from "@/components/address/UserAddressesSection";
+import AdminProfilePanel from "@/components/admin/AdminProfilePanel";
+import { usePhotoEditorProfileSessionExport } from "@/features/photoEditor/hooks/usePhotoEditorProfileSessionExport";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function ProfilePage() {
   const { user, refreshProfile, hasRole, hasCapability } = useAuth();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: user?.name || "",
     phone: user?.phone || "",
-    location: user?.location || "",
   });
-  const showDoctorClinicalProfile = hasRole("doctor") || hasRole("admin") || hasCapability("can_practice_human");
+  const isAdmin = user?.primaryRole === "admin";
+  const showDoctorClinicalProfile =
+    !isAdmin && (hasRole("doctor") || hasCapability("can_practice_human"));
+  const showSellerPhotoEditor = hasCapability("can_sell");
+
+  usePhotoEditorProfileSessionExport(user?.id, refreshProfile);
 
   const handleEdit = () => {
     setForm({
       name: user?.name || "",
       phone: user?.phone || "",
-      location: user?.location || "",
     });
     setEditing(true);
   };
@@ -59,7 +58,6 @@ export default function ProfilePage() {
       .update({
         name: form.name.trim(),
         phone: form.phone.trim() || null,
-        location: form.location.trim() || null,
       })
       .eq("id", user.id);
 
@@ -100,10 +98,14 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
-            <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
-              <UserCircle className="h-8 w-8 text-primary" />
+            <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <UserCircle className="h-8 w-8 text-primary" />
+              )}
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               {editing ? (
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Name</Label>
@@ -117,11 +119,28 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <p className="font-semibold text-foreground">{user?.name || "—"}</p>
-                  <Badge className={ROLE_COLORS[user?.primaryRole || "buyer"]}>{formatUserRoleLabel(user)}</Badge>
+                  <Badge className={getUserRoleBadgeClass(user)}>{formatUserRoleLabel(user)}</Badge>
                 </>
               )}
             </div>
           </div>
+
+          {showSellerPhotoEditor && !editing && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() =>
+                navigate(
+                  "/seller/photo-editor/edit/new?preset=profile_photo&target=profile&returnTo=/seller/profile",
+                )
+              }
+            >
+              <Palette className="h-3.5 w-3.5" />
+              {t("seller.photoEditor.editInPhotoEditor")}
+            </Button>
+          )}
 
           <div className="grid gap-3 pt-2">
             {/* Email - always read-only */}
@@ -152,27 +171,6 @@ export default function ProfilePage() {
               )
             )}
 
-            {/* Location */}
-            {editing ? (
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                  <MapPin className="h-3 w-3" /> Location
-                </Label>
-                <Input
-                  value={form.location}
-                  onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-                  placeholder="Your location"
-                  className="h-9"
-                />
-              </div>
-            ) : (
-              user?.location && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPin className="h-4 w-4 shrink-0" />
-                  <span>{user.location}</span>
-                </div>
-              )
-            )}
           </div>
 
           {editing && (
@@ -187,6 +185,10 @@ export default function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      {!isAdmin && <UserAddressesSection />}
+
+      {isAdmin && <AdminProfilePanel />}
 
       {/* Role Change Request */}
       {user?.primaryRole !== "admin" && <RoleChangeRequest />}

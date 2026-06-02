@@ -42,15 +42,6 @@ const FORM_FIELDS: Record<string, { label: string; key: string; type: "text" | "
     { label: "Products You Want to Sell", key: "products", type: "textarea", required: true },
     { label: "Business Registration (if any)", key: "registration", type: "text" },
   ],
-  business_buyer_access: [
-    { label: "Business Name", key: "business_name", type: "text", required: true },
-    { label: "Contact Person", key: "contact_person", type: "text", required: true },
-    { label: "Phone Number", key: "phone", type: "text", required: true },
-    { label: "Location", key: "location", type: "text", required: true },
-    { label: "Expected Monthly Order Volume", key: "volume", type: "text", required: true },
-    { label: "Business Type", key: "business_type", type: "select", options: ["Restaurant", "Hotel", "Wholesale", "Processing Plant", "Retail Chain", "Other"], required: true },
-    { label: "Additional Details", key: "details", type: "textarea" },
-  ],
 };
 
 export default function AccessRequestForm({ type, title, onSubmit, onCancel }: Props) {

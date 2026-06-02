@@ -49,8 +49,8 @@ export default function Reports() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Reports</h1>
-          <p className="text-muted-foreground mt-1">Platform-wide analytics and reports</p>
+          <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Analytics</h1>
+          <p className="text-muted-foreground mt-1">Platform-wide usage summary and revenue</p>
         </div>
         <Button variant="outline" onClick={() => toast.info("Report export coming soon!")}><Download className="h-4 w-4 mr-2" />Export Report</Button>
       </motion.div>
