@@ -20,30 +20,42 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
 import {
+  marketplaceFilterTabsListClass,
+  marketplaceFilterTabsListStyle,
+  marketplaceFilterTabsTriggerClass,
+  marketplaceCategoryFilterTabsTriggerClass,
+} from "@/components/marketplace/marketplaceCalloutStyles";
+import {
   MarketplaceLane,
   getCategoriesForLane,
+  normalizeLaneSlug,
   resolveCategorySlug,
   productMatchesLane,
   sortProducts,
   SortOption,
 } from "@/lib/marketplaceCategories";
-import { dbToProduct, MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { dbToProduct, isFlashSaleActive, MarketplaceProduct } from "@/lib/marketplaceProduct";
 import MarketplaceProductCard from "@/components/marketplace/MarketplaceProductCard";
+import MarketplaceBrowseBannerCarousel from "@/components/marketplace/MarketplaceBrowseBannerCarousel";
+import FlashSaleSection from "@/components/marketplace/FlashSaleSection";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 
 const LANE_TABS: { value: MarketplaceLane; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "pharmacy", label: "Pharmacy" },
+  { value: "medibondhu", label: "MediBondhu Pharmacy" },
+  { value: "vetbondhu", label: "VetBondhu Pharmacy" },
   { value: "farm", label: "Farm Supplies" },
+  { value: "pet", label: "Pet Supplies" },
+  { value: "livestock_dairy", label: "Livestock & Dairy" },
+  { value: "farm_machinery", label: "Farm Machinery" },
 ];
+
+const SUBCATEGORY_VISIBLE_LIMIT = 8;
 
 export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [lane, setLane] = useState<MarketplaceLane>(() => {
-    const l = searchParams.get("lane");
-    return l === "pharmacy" || l === "farm" ? l : "all";
-  });
+  const [lane, setLane] = useState<MarketplaceLane>(() => normalizeLaneSlug(searchParams.get("lane")));
   const [category, setCategory] = useState(() => {
     const fromUrl = resolveCategorySlug(searchParams.get("category"));
     return fromUrl || "all";
@@ -57,6 +69,7 @@ export default function Marketplace() {
   const [inStockOnly, setInStockOnly] = useState(false);
   const [freeDeliveryOnly, setFreeDeliveryOnly] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   const queryClient = useQueryClient();
   const { addItem, itemCount } = useCart();
@@ -65,7 +78,8 @@ export default function Marketplace() {
 
   const { data: products = [] } = useQuery({
     queryKey: queryKeys().products(),
-    staleTime: moduleCachePolicy.marketplace.staleTime,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
     gcTime: moduleCachePolicy.marketplace.gcTime,
     refetchOnMount: true,
     queryFn: async () => {
@@ -89,11 +103,31 @@ export default function Marketplace() {
   useEffect(() => {
     const urlLane = searchParams.get("lane");
     const urlCat = resolveCategorySlug(searchParams.get("category"));
-    if (urlLane === "pharmacy" || urlLane === "farm" || urlLane === "all") setLane(urlLane);
+    setLane(normalizeLaneSlug(urlLane));
     if (urlCat) setCategory(urlCat);
   }, [searchParams]);
 
   const laneCategories = useMemo(() => getCategoriesForLane(lane), [lane]);
+
+  useEffect(() => {
+    setShowAllCategories(false);
+  }, [lane]);
+
+  const visibleLaneCategories = useMemo(() => {
+    if (showAllCategories || laneCategories.length <= SUBCATEGORY_VISIBLE_LIMIT) {
+      return laneCategories;
+    }
+
+    const firstCategories = laneCategories.slice(0, SUBCATEGORY_VISIBLE_LIMIT);
+    const selectedCategory = laneCategories.find((c) => c.slug === category);
+    if (!selectedCategory || firstCategories.some((c) => c.slug === selectedCategory.slug)) {
+      return firstCategories;
+    }
+
+    return [...firstCategories.slice(0, SUBCATEGORY_VISIBLE_LIMIT - 1), selectedCategory];
+  }, [category, laneCategories, showAllCategories]);
+
+  const hiddenCategoryCount = Math.max(laneCategories.length - visibleLaneCategories.length, 0);
 
   const filtered = useMemo(() => {
     let list = products.filter((p) => {
@@ -111,9 +145,15 @@ export default function Marketplace() {
     return sortProducts(list, sort);
   }, [products, lane, category, search, sort, inStockOnly, freeDeliveryOnly, verifiedOnly]);
 
+  const hasActiveFlashDeals = useMemo(
+    () => filtered.some((p) => isFlashSaleActive(p)),
+    [filtered]
+  );
+
   const updateLane = (next: MarketplaceLane) => {
     setLane(next);
     setCategory("all");
+    setShowAllCategories(false);
     const params = new URLSearchParams(searchParams);
     if (next === "all") params.delete("lane");
     else params.set("lane", next);
@@ -144,6 +184,7 @@ export default function Marketplace() {
     setInStockOnly(false);
     setFreeDeliveryOnly(false);
     setVerifiedOnly(false);
+    setShowAllCategories(false);
     setSearchParams(new URLSearchParams(), { replace: true });
   };
 
@@ -158,7 +199,7 @@ export default function Marketplace() {
           )}
           <div>
             <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Marketplace</h1>
-            <p className="text-muted-foreground mt-1">Farm supplies, pharmacy & livestock</p>
+            <p className="text-muted-foreground mt-1">Pharmacy, farm, pet, livestock & machinery — all in one place</p>
           </div>
         </div>
         <Button variant="outline" className="relative" onClick={() => navigate("/cart")}>
@@ -173,16 +214,6 @@ export default function Marketplace() {
           )}
         </Button>
       </motion.div>
-
-      <Tabs value={lane} onValueChange={(v) => updateLane(v as MarketplaceLane)}>
-        <TabsList>
-          {LANE_TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
 
       <div className="flex flex-col lg:flex-row gap-3">
         <div className="relative flex-1">
@@ -209,17 +240,49 @@ export default function Marketplace() {
         </Select>
       </div>
 
+      <MarketplaceBrowseBannerCarousel onNavigate={(href) => navigate(href)} />
+
+      <Tabs value={lane} onValueChange={(v) => updateLane(v as MarketplaceLane)}>
+        <TabsList className={`${marketplaceFilterTabsListClass} flex-wrap h-auto`} style={marketplaceFilterTabsListStyle}>
+          {LANE_TABS.map((t) => (
+            <TabsTrigger key={t.value} value={t.value} className={marketplaceFilterTabsTriggerClass}>
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
       <div className="flex flex-wrap gap-4 items-center">
         <Tabs value={category} onValueChange={updateCategory}>
           <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="all" className="text-xs">
+            <TabsTrigger value="all" className={`${marketplaceCategoryFilterTabsTriggerClass} text-xs`}>
               All
             </TabsTrigger>
-            {laneCategories.map((c) => (
-              <TabsTrigger key={c.slug} value={c.slug} className="text-xs">
+            {visibleLaneCategories.map((c) => (
+              <TabsTrigger key={c.slug} value={c.slug} className={`${marketplaceCategoryFilterTabsTriggerClass} text-xs`}>
                 {c.label}
               </TabsTrigger>
             ))}
+            {hiddenCategoryCount > 0 && (
+              <button
+                type="button"
+                className={`${marketplaceCategoryFilterTabsTriggerClass} border border-[#E91E8C]/30 bg-background/80 text-xs`}
+                onClick={() => setShowAllCategories(true)}
+                aria-expanded={showAllCategories}
+              >
+                +{hiddenCategoryCount} more
+              </button>
+            )}
+            {showAllCategories && laneCategories.length > SUBCATEGORY_VISIBLE_LIMIT && (
+              <button
+                type="button"
+                className={`${marketplaceCategoryFilterTabsTriggerClass} border border-[#E91E8C]/30 bg-background/80 text-xs`}
+                onClick={() => setShowAllCategories(false)}
+                aria-expanded={showAllCategories}
+              >
+                Less
+              </button>
+            )}
           </TabsList>
         </Tabs>
       </div>
@@ -239,18 +302,46 @@ export default function Marketplace() {
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map((p, i) => (
-          <motion.div key={p.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}>
-            <MarketplaceProductCard
-              product={p}
-              onOpen={() => navigate(`/marketplace/${p.id}`)}
-              onAddToCart={() => addItem(p)}
-              onBuyNow={() => navigate("/checkout")}
-            />
-          </motion.div>
-        ))}
-      </div>
+      <FlashSaleSection
+        products={filtered}
+        maxItems={12}
+        showViewAll={false}
+        onNavigate={navigate}
+        onAddToCart={(p) => addItem(p)}
+        onBuyNow={() => navigate("/checkout")}
+      />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">All Products</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {filtered.length > 0
+              ? hasActiveFlashDeals
+                ? `${filtered.length} listings — includes flash deals and regular products`
+                : `${filtered.length} listings`
+              : "Browse the full marketplace catalog"}
+          </p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map((p, i) => (
+            <motion.div
+              key={p.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(i * 0.03, 0.3) }}
+            >
+              <MarketplaceProductCard
+                product={p}
+                onOpen={() => navigate(`/marketplace/${p.id}`)}
+                onAddToCart={() => addItem(p)}
+                onBuyNow={() => navigate("/checkout")}
+              />
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
       {filtered.length === 0 && (
         <div className="text-center py-12 space-y-3">
           <p className="text-muted-foreground">

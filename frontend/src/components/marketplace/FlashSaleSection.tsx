@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
-import { MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { isFlashSaleActive, MarketplaceProduct } from "@/lib/marketplaceProduct";
 import MarketplaceProductCard from "./MarketplaceProductCard";
 
 function pad(n: number) {
@@ -41,12 +41,20 @@ interface Props {
   onNavigate: (path: string) => void;
   onAddToCart: (product: MarketplaceProduct) => void;
   onBuyNow: (product: MarketplaceProduct) => void;
+  /** Hide header link when already on the browse page */
+  showViewAll?: boolean;
+  maxItems?: number;
 }
 
-export default function FlashSaleSection({ products, onNavigate, onAddToCart, onBuyNow }: Props) {
-  const flashProducts = products.filter(
-    (p) => p.is_flash_sale || (p.originalPrice && p.originalPrice > p.price)
-  ).slice(0, 8);
+export default function FlashSaleSection({
+  products,
+  onNavigate,
+  onAddToCart,
+  onBuyNow,
+  showViewAll = true,
+  maxItems = 8,
+}: Props) {
+  const flashProducts = products.filter((p) => isFlashSaleActive(p)).slice(0, maxItems);
   const countdown = useCountdown(flashProducts[0]?.flash_sale_end);
 
   if (flashProducts.length === 0) return null;
@@ -68,21 +76,22 @@ export default function FlashSaleSection({ products, onNavigate, onAddToCart, on
           <span>:</span>
           <span className="bg-black/25 px-2 py-1 rounded">{pad(countdown.s)}</span>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="text-xs"
-          onClick={() => onNavigate("/marketplace?lane=all")}
-        >
-          View All
-        </Button>
+        {showViewAll && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="text-xs"
+            onClick={() => onNavigate("/marketplace?lane=all")}
+          >
+            View All
+          </Button>
+        )}
       </div>
       <div className="flex gap-3 p-4 overflow-x-auto pb-5 snap-x snap-mandatory">
         {flashProducts.map((p) => (
-          <div key={p.id} className="min-w-[200px] max-w-[220px] snap-start shrink-0">
+          <div key={p.id} className="min-w-[260px] max-w-[280px] snap-start shrink-0">
             <MarketplaceProductCard
               product={p}
-              compact
               showPharmacyBadge
               onOpen={() => onNavigate(`/marketplace/${p.id}`)}
               onAddToCart={() => onAddToCart(p)}

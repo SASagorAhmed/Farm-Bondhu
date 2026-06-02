@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
 import { api } from "@/api/client";
-import { ArrowRight, Pill, Wheat } from "lucide-react";
+import { ArrowRight, Pill, Wheat, Stethoscope } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+import { ICON_COLORS } from "@/lib/iconColors";
 import {
   BUYER_HOME_CATEGORIES,
   getLaneForProductCategory,
@@ -92,8 +93,12 @@ export default function BuyerHome() {
     return counts;
   }, [products]);
 
-  const pharmacyProducts = useMemo(
-    () => products.filter((p) => getLaneForProductCategory(p.category) === "pharmacy"),
+  const medibondhuProducts = useMemo(
+    () => products.filter((p) => getLaneForProductCategory(p.category) === "medibondhu"),
+    [products]
+  );
+  const vetbondhuProducts = useMemo(
+    () => products.filter((p) => getLaneForProductCategory(p.category) === "vetbondhu"),
     [products]
   );
   const farmProducts = useMemo(
@@ -145,11 +150,22 @@ export default function BuyerHome() {
       </section>
 
       <ProductRail
-        title="Pharmacy"
+        title="MediBondhu Pharmacy"
         icon={Pill}
-        iconColor={MARKETPLACE_THEME.accent}
-        products={pharmacyProducts}
-        viewAllHref="/marketplace?lane=pharmacy"
+        iconColor={ICON_COLORS.medibondhu}
+        products={medibondhuProducts}
+        viewAllHref="/marketplace?lane=medibondhu"
+        onNavigate={navigate}
+        onAddToCart={(p) => addItem(p)}
+        onBuyNow={() => navigate("/checkout")}
+      />
+
+      <ProductRail
+        title="VetBondhu Pharmacy"
+        icon={Stethoscope}
+        iconColor={ICON_COLORS.vetbondhu}
+        products={vetbondhuProducts}
+        viewAllHref="/marketplace?lane=vetbondhu"
         onNavigate={navigate}
         onAddToCart={(p) => addItem(p)}
         onBuyNow={() => navigate("/checkout")}

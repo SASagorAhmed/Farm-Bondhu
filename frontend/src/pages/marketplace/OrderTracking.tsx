@@ -1,13 +1,17 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useOrders, OrderStatus } from "@/contexts/OrderContext";
-import { ArrowLeft, Package, CheckCircle2, Truck, MapPin, Clock, XCircle, RotateCcw, Banknote } from "lucide-react";
+import { useOrders, OrderStatus, formatDeliveryAddressLines } from "@/contexts/OrderContext";
+import { ArrowLeft, Package, CheckCircle2, Truck, MapPin, Clock, XCircle, RotateCcw, Banknote, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
+import ProductReviewDialog from "@/components/marketplace/ProductReviewDialog";
+import { fetchOrderReviewStatus, type OrderReviewStatusItem } from "@/lib/marketplaceReviewsApi";
 
 const STATUS_STEPS: { status: OrderStatus; label: string; icon: React.ElementType }[] = [
   { status: "pending", label: "Order Placed", icon: Clock },
@@ -36,6 +40,17 @@ export default function OrderTracking() {
   const navigate = useNavigate();
   const { getOrder, cancelOrder, requestReturn } = useOrders();
   const order = getOrder(orderId || "");
+  const [reviewTarget, setReviewTarget] = useState<OrderReviewStatusItem | null>(null);
+
+  const { data: reviewStatus } = useQuery({
+    queryKey: ["order-review-status", orderId],
+    enabled: Boolean(order && order.status === "delivered" && orderId),
+    queryFn: () => fetchOrderReviewStatus(orderId!),
+  });
+
+  const reviewByProduct = new Map(
+    (reviewStatus?.ok ? reviewStatus.data.items : []).map((item) => [item.productId, item]),
+  );
 
   if (!order) {
     return (
@@ -169,7 +184,9 @@ export default function OrderTracking() {
           <div className="h-1" style={{ background: `linear-gradient(to right, ${MARKETPLACE_THEME.primary}, ${ICON_COLORS.vet})` }} />
           <CardHeader><CardTitle className="font-display text-base">Items</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {order.items.map(item => (
+            {order.items.map(item => {
+              const reviewItem = reviewByProduct.get(item.productId);
+              return (
               <div key={item.productId} className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded bg-accent/30 flex items-center justify-center shrink-0">
                   <img src={item.image} alt={item.name} className="h-6 w-6 object-contain opacity-50" />
@@ -177,10 +194,24 @@ export default function OrderTracking() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
                   <p className="text-xs text-muted-foreground">×{item.qty}</p>
+                  {reviewItem?.canReview && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs gap-1"
+                      onClick={() => setReviewTarget(reviewItem)}
+                    >
+                      <Star className="h-3 w-3" /> Write a review
+                    </Button>
+                  )}
+                  {reviewItem?.alreadyReviewed && (
+                    <p className="text-[11px] text-muted-foreground">Review submitted</p>
+                  )}
                 </div>
                 <p className="text-sm font-bold text-foreground">৳{(item.price * item.qty).toLocaleString()}</p>
               </div>
-            ))}
+            )})}
             <div className="border-t pt-2 space-y-1 text-sm">
               {order.shippingFee > 0 && <div className="flex justify-between text-muted-foreground"><span>Shipping</span><span>৳{order.shippingFee}</span></div>}
               <div className="flex justify-between font-bold text-foreground"><span>Total</span><span style={{ color: MARKETPLACE_THEME.primary }}>৳{order.total.toLocaleString()}</span></div>
@@ -197,7 +228,15 @@ export default function OrderTracking() {
               <p className="flex items-center gap-1 text-muted-foreground mb-1"><MapPin className="h-3.5 w-3.5" />Delivery Address</p>
               <p className="font-medium text-foreground">{order.deliveryAddress.recipientName}</p>
               <p className="text-muted-foreground">{order.deliveryAddress.phone}</p>
-              <p className="text-muted-foreground">{order.deliveryAddress.address}, {order.deliveryAddress.area}, {order.deliveryAddress.city}</p>
+              {order.deliveryAddress.altPhone && (
+                <p className="text-muted-foreground">Alt: {order.deliveryAddress.altPhone}</p>
+              )}
+              {formatDeliveryAddressLines(order.deliveryAddress).map((line) => (
+                <p key={line} className="text-muted-foreground">{line}</p>
+              ))}
+              {order.deliveryAddress.note && (
+                <p className="text-muted-foreground italic">Note: {order.deliveryAddress.note}</p>
+              )}
             </div>
             <div>
               <p className="flex items-center gap-1 text-muted-foreground mb-1"><Banknote className="h-3.5 w-3.5" />Payment</p>
@@ -223,6 +262,15 @@ export default function OrderTracking() {
             </Button>
           )}
         </div>
+      )}
+      {reviewTarget && order && (
+        <ProductReviewDialog
+          open={Boolean(reviewTarget)}
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+          orderId={order.id}
+          productId={reviewTarget.productId}
+          productName={reviewTarget.name}
+        />
       )}
     </div>
   );

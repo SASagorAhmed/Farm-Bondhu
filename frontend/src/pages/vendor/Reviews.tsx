@@ -1,57 +1,118 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { api } from "@/api/client";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { Star, MessageSquare, ThumbsUp, TrendingUp } from "lucide-react";
+import { Star, MessageSquare, TrendingUp, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
 import StatCard from "@/components/dashboard/StatCard";
+import SellerReviewInbox, { useSellerReviewStats } from "@/components/marketplace/seller/SellerReviewInbox";
+import SellerCommentInbox, { useSellerCommentStats } from "@/components/marketplace/seller/SellerCommentInbox";
+
+type Filter = "all" | "needs_reply" | "replied";
+
+const filterTabs: { value: Filter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "needs_reply", label: "Needs reply" },
+  { value: "replied", label: "Replied" },
+];
 
 export default function Reviews() {
   const { user } = useAuth();
-  const [products, setProducts] = useState<any[]>([]);
+  const userId = user?.id || "";
+  const [reviewFilter, setReviewFilter] = useState<Filter>("all");
+  const [commentFilter, setCommentFilter] = useState<Filter>("all");
+  const [mainTab, setMainTab] = useState("reviews");
 
-  useEffect(() => {
-    if (!user) return;
-    api.from("products").select("*").eq("seller_id", user.id).then(({ data }) => { if (data) setProducts(data); });
-  }, [user]);
+  const { data: reviewStats } = useSellerReviewStats(userId);
+  const { data: commentStats } = useSellerCommentStats(userId);
 
-  const totalReviews = products.reduce((s, p) => s + (p.review_count || 0), 0);
-  const avgRating = products.length > 0 ? (products.reduce((s: number, p: any) => s + Number(p.rating), 0) / products.length).toFixed(1) : "0";
+  const needsReplyTotal = (reviewStats?.needsReplyCount ?? 0) + (commentStats?.needsReplyCount ?? 0);
+  const reviewResponseRate = reviewStats?.responseRate ?? 0;
 
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Reviews</h1>
-        <p className="text-muted-foreground mt-1">Customer feedback and ratings for your products</p>
+        <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">Reviews & Feedback</h1>
+        <p className="text-muted-foreground mt-1">Read verified reviews and answer customer questions professionally</p>
       </motion.div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Average Rating" value={`⭐ ${avgRating}`} icon={<Star className="h-5 w-5" />} iconColor={ICON_COLORS.finance} index={0} />
-        <StatCard title="Total Reviews" value={totalReviews} icon={<MessageSquare className="h-5 w-5" />} iconColor={ICON_COLORS.marketplace} index={1} />
-        <StatCard title="Products" value={products.length} icon={<ThumbsUp className="h-5 w-5" />} iconColor={ICON_COLORS.farm} index={2} />
-        <StatCard title="Response Rate" value="—" icon={<TrendingUp className="h-5 w-5" />} iconColor={ICON_COLORS.vet} index={3} />
+        <StatCard
+          title="Verified reviews"
+          value={reviewStats?.total ?? 0}
+          icon={<Star className="h-5 w-5" />}
+          iconColor={ICON_COLORS.finance}
+          index={0}
+        />
+        <StatCard
+          title="Needs reply"
+          value={needsReplyTotal}
+          icon={<Clock className="h-5 w-5" />}
+          iconColor={ICON_COLORS.marketplace}
+          index={1}
+        />
+        <StatCard
+          title="Review response rate"
+          value={`${reviewResponseRate}%`}
+          icon={<TrendingUp className="h-5 w-5" />}
+          iconColor={ICON_COLORS.farm}
+          index={2}
+        />
+        <StatCard
+          title="Questions"
+          value={commentStats?.total ?? 0}
+          icon={<MessageSquare className="h-5 w-5" />}
+          iconColor={ICON_COLORS.vet}
+          index={3}
+        />
       </div>
 
       <Card className="shadow-card overflow-hidden">
         <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.finance}, ${ICON_COLORS.marketplace})` }} />
-        <CardHeader><CardTitle className="text-lg font-display">Product Ratings</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {products.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">No products yet. Add products to see reviews.</p>
-          ) : (
-            products.map(p => (
-              <div key={p.id} className="flex items-center gap-3 p-3 rounded-lg bg-accent/30">
-                <div className="flex-1"><p className="font-medium text-foreground">{p.name}</p><p className="text-xs text-muted-foreground">{p.review_count || 0} reviews</p></div>
-                <div className="flex items-center gap-1">
-                  {[1,2,3,4,5].map(s => <Star key={s} className="h-3.5 w-3.5" fill={s <= Math.round(Number(p.rating)) ? ICON_COLORS.finance : "transparent"} style={{ color: ICON_COLORS.finance }} />)}
-                  <span className="text-sm font-medium text-foreground ml-1">{Number(p.rating).toFixed(1)}</span>
-                </div>
-              </div>
-            ))
-          )}
+        <CardContent className="p-4 md:p-6">
+          <Tabs value={mainTab} onValueChange={setMainTab}>
+            <TabsList className="mb-4 flex-wrap">
+              <TabsTrigger value="reviews">
+                Verified reviews
+                {(reviewStats?.needsReplyCount ?? 0) > 0 && (
+                  <span className="ml-1 text-[10px]">({reviewStats?.needsReplyCount})</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="comments">
+                Questions
+                {(commentStats?.needsReplyCount ?? 0) > 0 && (
+                  <span className="ml-1 text-[10px]">({commentStats?.needsReplyCount})</span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="reviews" className="space-y-4 mt-0">
+              <Tabs value={reviewFilter} onValueChange={(v) => setReviewFilter(v as Filter)}>
+                <TabsList className="flex-wrap h-auto">
+                  {filterTabs.map((t) => (
+                    <TabsTrigger key={t.value} value={t.value} className="text-xs">
+                      {t.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <SellerReviewInbox userId={userId} filter={reviewFilter} />
+            </TabsContent>
+
+            <TabsContent value="comments" className="space-y-4 mt-0">
+              <Tabs value={commentFilter} onValueChange={(v) => setCommentFilter(v as Filter)}>
+                <TabsList className="flex-wrap h-auto">
+                  {filterTabs.map((t) => (
+                    <TabsTrigger key={t.value} value={t.value} className="text-xs">
+                      {t.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <SellerCommentInbox userId={userId} filter={commentFilter} />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

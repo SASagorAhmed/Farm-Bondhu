@@ -7,8 +7,15 @@ import { ArrowLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
+import { ICON_COLORS } from "@/lib/iconColors";
 import { MARKETPLACE_CATEGORIES, resolveCategorySlug } from "@/lib/marketplaceCategories";
 import { dbToProduct } from "@/lib/marketplaceProduct";
+
+const LANE_BADGE: Partial<Record<string, { label: string; color: string }>> = {
+  medibondhu: { label: "MediBondhu Pharmacy", color: ICON_COLORS.medibondhu },
+  vetbondhu: { label: "VetBondhu Pharmacy", color: ICON_COLORS.vetbondhu },
+  pet: { label: "Pet Supplies", color: ICON_COLORS.marketplace },
+};
 
 export default function Categories() {
   const navigate = useNavigate();
@@ -68,8 +75,10 @@ export default function Categories() {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {categoryCounts[cat.slug] ?? 0} products
                 </p>
-                {cat.lane === "pharmacy" && (
-                  <p className="text-[10px] mt-1 font-medium text-rose-500">Pharmacy</p>
+                {LANE_BADGE[cat.lane] && (
+                  <p className="text-[10px] mt-1 font-medium" style={{ color: LANE_BADGE[cat.lane]!.color }}>
+                    {LANE_BADGE[cat.lane]!.label}
+                  </p>
                 )}
               </CardContent>
             </Card>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -16,24 +17,43 @@ import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ImagePlus, Tag, Truck, Zap, Loader2 } from "lucide-react";
+import { ImagePlus, Tag, Truck, Loader2, Palette } from "lucide-react";
+import { PHOTO_EDITOR_EXPORT_URL_KEY } from "@/features/photoEditor/types";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+import type { MarketplaceLane } from "@/lib/marketplaceCategories";
+import { getLaneForProductCategory, getSubcategoriesForLane } from "@/lib/marketplaceCategories";
+import { ALL_MARKETPLACE_LANES, laneLabel } from "@/lib/marketplaceLaneLabels";
 import {
   EMPTY_PRODUCT_FORM,
   ProductFormErrors,
   ProductFormValues,
+  WholesaleRule,
   UNIT_PRESETS,
   computeFormDiscountPercent,
-  getCategoryGroups,
   validateProductForm,
+  wholesalePreviewText,
 } from "@/lib/marketplaceProductForm";
+
+type ProductLane = Exclude<MarketplaceLane, "all">;
+
+function resolveInitialPickerLane(
+  lanes: readonly ProductLane[],
+  category: string,
+  defaultLane?: ProductLane,
+): ProductLane | "" {
+  if (!lanes.length) return "";
+  const fromCategory = getLaneForProductCategory(category);
+  if (fromCategory !== "all" && lanes.includes(fromCategory)) return fromCategory;
+  if (defaultLane && lanes.includes(defaultLane)) return defaultLane;
+  if (lanes.length === 1) return lanes[0];
+  return "";
+}
 
 export interface ProductFormDialogProps {
   open: boolean;
@@ -44,6 +64,14 @@ export interface ProductFormDialogProps {
   description?: string;
   submitLabel?: string;
   accentColor?: string;
+  /** Top marketplace lanes shown in the category picker (e.g. seller-approved lanes). */
+  allowedLanes?: readonly ProductLane[];
+  /** Single-lane picker (e.g. product detail edit). Ignored when allowedLanes is set. */
+  allowedLane?: ProductLane;
+  /** Pre-select marketplace lane on create (e.g. active products tab). */
+  defaultPickerLane?: ProductLane;
+  /** Override "Create with Photo Editor" destination (defaults to seller flow). */
+  photoEditorCreateUrl?: string;
   onSubmit: (values: ProductFormValues) => Promise<void>;
 }
 
@@ -62,22 +90,54 @@ export default function ProductFormDialog({
   description,
   submitLabel,
   accentColor = ICON_COLORS.marketplace,
+  allowedLanes,
+  allowedLane,
+  defaultPickerLane,
+  photoEditorCreateUrl,
   onSubmit,
 }: ProductFormDialogProps) {
+  const defaultPhotoEditorCreateUrl = `/seller/photo-editor/edit/new?preset=product_photo&target=product&returnTo=${encodeURIComponent("/seller/products")}`;
+  const navigate = useNavigate();
   const [values, setValues] = useState<ProductFormValues>(EMPTY_PRODUCT_FORM);
   const [errors, setErrors] = useState<ProductFormErrors>({});
   const [saving, setSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pickerLane, setPickerLane] = useState<ProductLane | "">("");
 
-  const { pharmacy, farm } = useMemo(() => getCategoryGroups(), []);
+  const pickerLanes = useMemo((): ProductLane[] => {
+    if (allowedLanes?.length) return [...allowedLanes];
+    if (allowedLane) return [allowedLane];
+    return [...ALL_MARKETPLACE_LANES];
+  }, [allowedLanes, allowedLane]);
+
+  const subcategoriesForPicker = useMemo(
+    () => (pickerLane ? getSubcategoriesForLane(pickerLane) : []),
+    [pickerLane],
+  );
+
+  const showLaneSelect = pickerLanes.length > 1;
   const discount = computeFormDiscountPercent(values.original_price, values.price);
 
   useEffect(() => {
     if (!open) return;
-    setValues(initialValues ? { ...initialValues, imageFile: null } : { ...EMPTY_PRODUCT_FORM });
+    const nextValues = initialValues ? { ...initialValues, imageFile: null } : { ...EMPTY_PRODUCT_FORM };
+    setValues(nextValues);
     setErrors({});
-    setPreviewUrl(initialValues?.image || null);
-  }, [open, initialValues]);
+    setPreviewUrl(nextValues.image || null);
+    setPickerLane(
+      resolveInitialPickerLane(
+        pickerLanes,
+        nextValues.category,
+        mode === "create" ? defaultPickerLane : undefined,
+      ),
+    );
+    const exported = sessionStorage.getItem(PHOTO_EDITOR_EXPORT_URL_KEY);
+    if (exported) {
+      sessionStorage.removeItem(PHOTO_EDITOR_EXPORT_URL_KEY);
+      setValues((prev) => ({ ...prev, image: exported, imageFile: null }));
+      setPreviewUrl(exported);
+    }
+  }, [open, initialValues, pickerLanes, mode, defaultPickerLane]);
 
   useEffect(() => {
     if (!values.imageFile) return;
@@ -117,7 +177,7 @@ export default function ProductFormDialog({
           </DialogTitle>
           <DialogDescription>
             {description ??
-              "Add photo, pricing, stock, delivery, and optional flash sale or wholesale pricing."}
+              "Add photo, pricing, stock, delivery, and optional wholesale pricing."}
           </DialogDescription>
         </DialogHeader>
 
@@ -134,26 +194,61 @@ export default function ProductFormDialog({
               {errors.name && <p className="text-xs text-destructive mt-1">{errors.name}</p>}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Category</Label>
-                <Select value={values.category} onValueChange={(v) => set("category", v)}>
-                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Pharmacy</SelectLabel>
-                      {pharmacy.map((c) => (
-                        <SelectItem key={c.slug} value={c.slug}>{c.label}</SelectItem>
+              <div className="space-y-3">
+                {showLaneSelect ? (
+                  <div>
+                    <Label>Marketplace category</Label>
+                    <Select
+                      value={pickerLane || undefined}
+                      onValueChange={(lane) => {
+                        setPickerLane(lane as ProductLane);
+                        set("category", "");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select marketplace category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pickerLanes.map((lane) => (
+                          <SelectItem key={lane} value={lane}>
+                            {laneLabel(lane)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : pickerLanes.length === 1 ? (
+                  <div>
+                    <Label>Marketplace category</Label>
+                    <p className="text-sm text-muted-foreground py-2">{laneLabel(pickerLanes[0])}</p>
+                  </div>
+                ) : null}
+                <div>
+                  <Label>Subcategory</Label>
+                  <Select
+                    value={values.category || undefined}
+                    onValueChange={(v) => set("category", v)}
+                    disabled={!pickerLane}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          pickerLane ? "Select subcategory" : "Select marketplace category first"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[min(60vh,16rem)]">
+                      {subcategoriesForPicker.map((c) => (
+                        <SelectItem key={c.slug} value={c.slug}>
+                          {c.label}
+                        </SelectItem>
                       ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel>Farm</SelectLabel>
-                      {farm.map((c) => (
-                        <SelectItem key={c.slug} value={c.slug}>{c.label}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {errors.category && <p className="text-xs text-destructive mt-1">{errors.category}</p>}
+                    </SelectContent>
+                  </Select>
+                  {errors.category && (
+                    <p className="text-xs text-destructive mt-1">{errors.category}</p>
+                  )}
+                </div>
               </div>
               <div>
                 <Label>Unit / pack size</Label>
@@ -203,6 +298,19 @@ export default function ProductFormDialog({
                   }}
                 />
                 <p className="text-xs text-muted-foreground">JPG or PNG, max 5MB. Required for new listings.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => {
+                    onOpenChange(false);
+                    navigate(photoEditorCreateUrl ?? defaultPhotoEditorCreateUrl);
+                  }}
+                >
+                  <Palette className="h-3.5 w-3.5" />
+                  Create with Photo Editor
+                </Button>
                 {errors.image && <p className="text-xs text-destructive">{errors.image}</p>}
               </div>
             </div>
@@ -249,7 +357,7 @@ export default function ProductFormDialog({
           <div className="space-y-3">
             <SectionTitle>Inventory</SectionTitle>
             <div className="max-w-xs">
-              <Label>Stock quantity</Label>
+              <Label>Available stock (units)</Label>
               <Input
                 type="number"
                 min={0}
@@ -258,12 +366,15 @@ export default function ProductFormDialog({
                 onChange={(e) => set("stock", e.target.value)}
               />
               {errors.stock && <p className="text-xs text-destructive mt-1">{errors.stock}</p>}
+              <p className="text-xs text-muted-foreground mt-1">
+                Decreases automatically when orders are placed. Update this to restock.
+              </p>
             </div>
           </div>
 
           <Separator />
 
-          <div className="rounded-lg border border-border p-4 space-y-2">
+          <div className="rounded-lg border border-border p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Truck className="h-4 w-4" style={{ color: accentColor }} />
@@ -271,35 +382,39 @@ export default function ProductFormDialog({
               </div>
               <Switch checked={values.free_delivery} onCheckedChange={(v) => set("free_delivery", v)} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Platform shipping is ৳60 per order unless any item has free delivery.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-border p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4" style={{ color: MARKETPLACE_THEME.accent }} />
-                <Label className="font-semibold">Flash sale</Label>
-              </div>
-              <Switch checked={values.is_flash_sale} onCheckedChange={(v) => set("is_flash_sale", v)} />
-            </div>
-            {values.is_flash_sale && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Sale ends at</Label>
-                <Input
-                  type="datetime-local"
-                  value={values.flash_sale_end}
-                  onChange={(e) => set("flash_sale_end", e.target.value)}
-                />
-                {errors.flash_sale_end && (
-                  <p className="text-xs text-destructive mt-1">{errors.flash_sale_end}</p>
-                )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  Product appears in the homepage Flash Sale row with countdown timer.
-                </p>
+            {!values.free_delivery && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Dhaka metro delivery (৳)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={values.delivery_charge_dhaka}
+                    onChange={(e) => set("delivery_charge_dhaka", e.target.value)}
+                  />
+                  {errors.delivery_charge_dhaka && (
+                    <p className="text-xs text-destructive mt-1">{errors.delivery_charge_dhaka}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Outside Dhaka delivery (৳)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={values.delivery_charge_outside}
+                    onChange={(e) => set("delivery_charge_outside", e.target.value)}
+                  />
+                  {errors.delivery_charge_outside && (
+                    <p className="text-xs text-destructive mt-1">{errors.delivery_charge_outside}</p>
+                  )}
+                </div>
               </div>
             )}
+            <p className="text-xs text-muted-foreground">
+              Default platform rates are ৳80 (Dhaka metro) and ৳120 (other areas). One delivery fee applies per top category in an order; same category uses the highest product charge.
+            </p>
           </div>
 
           <div className="rounded-lg border border-border p-4 space-y-3">
@@ -314,19 +429,7 @@ export default function ProductFormDialog({
               />
             </div>
             {values.wholesaleEnabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Min order qty</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={values.wholesale_min_qty}
-                    onChange={(e) => set("wholesale_min_qty", e.target.value)}
-                  />
-                  {errors.wholesale_min_qty && (
-                    <p className="text-xs text-destructive mt-1">{errors.wholesale_min_qty}</p>
-                  )}
-                </div>
+              <div className="space-y-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Wholesale price (৳)</Label>
                   <Input
@@ -339,6 +442,64 @@ export default function ProductFormDialog({
                     <p className="text-xs text-destructive mt-1">{errors.wholesale_price}</p>
                   )}
                 </div>
+
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">Discount unlock rule</Label>
+                  <RadioGroup
+                    value={values.wholesale_rule}
+                    onValueChange={(v) => set("wholesale_rule", v as WholesaleRule)}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="quantity" id="wh-rule-qty" />
+                      <Label htmlFor="wh-rule-qty" className="font-normal text-sm">Minimum quantity</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="order_value" id="wh-rule-value" />
+                      <Label htmlFor="wh-rule-value" className="font-normal text-sm">Minimum order value (৳ on this line)</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="quantity_and_value" id="wh-rule-both" />
+                      <Label htmlFor="wh-rule-both" className="font-normal text-sm">Both quantity and value</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {(values.wholesale_rule === "quantity" || values.wholesale_rule === "quantity_and_value") && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Min order qty</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={values.wholesale_min_qty}
+                      onChange={(e) => set("wholesale_min_qty", e.target.value)}
+                    />
+                    {errors.wholesale_min_qty && (
+                      <p className="text-xs text-destructive mt-1">{errors.wholesale_min_qty}</p>
+                    )}
+                  </div>
+                )}
+
+                {(values.wholesale_rule === "order_value" || values.wholesale_rule === "quantity_and_value") && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Min order value (৳ at retail price)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={values.wholesale_min_order_bdt}
+                      onChange={(e) => set("wholesale_min_order_bdt", e.target.value)}
+                    />
+                    {errors.wholesale_min_order_bdt && (
+                      <p className="text-xs text-destructive mt-1">{errors.wholesale_min_order_bdt}</p>
+                    )}
+                  </div>
+                )}
+
+                {wholesalePreviewText(values) && (
+                  <p className="text-xs text-muted-foreground rounded-md bg-muted/50 p-2">
+                    {wholesalePreviewText(values)}
+                  </p>
+                )}
               </div>
             )}
           </div>

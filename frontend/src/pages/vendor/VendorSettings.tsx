@@ -11,6 +11,7 @@ import { Settings, Store, Bell, CreditCard, MapPin, Save } from "lucide-react";
 import { motion } from "framer-motion";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { toast } from "sonner";
+import ChatNotificationSoundSettings from "@/components/marketplace/ChatNotificationSoundSettings";
 
 export default function VendorSettings() {
   const { user } = useAuth();
@@ -114,6 +115,10 @@ export default function VendorSettings() {
             <p className="text-xs text-muted-foreground">Payouts are processed within 2-3 business days</p>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-2">
+          <ChatNotificationSoundSettings />
+        </div>
 
         {/* Notification Preferences */}
         <Card className="shadow-card overflow-hidden lg:col-span-2">
