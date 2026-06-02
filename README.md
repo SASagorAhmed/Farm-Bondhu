@@ -1,6 +1,8 @@
 # FarmBondhu
 
-FarmBondhu is a green SaaS enterprise ecosystem for Bangladesh. It connects agriculture, GreenBondhu Marketplace commerce, VetBondhu animal care, MediBondhu human healthcare, community learning, AI-assisted tools, and admin operations inside one role-based digital platform.
+FarmBondhu is a Green Enterprise Multi-Service SaaS and Marketplace Ecosystem that integrates agriculture, e-commerce, veterinary care, healthcare, AI tools, and community services into a single scalable platform.
+
+Designed with role-based architecture, it enables farmers, sellers, buyers, doctors, veterinarians, learners, and administrators to manage operations, services, and transactions through specialized digital workspaces.
 
 FarmBondhu is not only for agriculture users. A person can use only the service they need: buy from the marketplace, book a doctor consultation, get veterinary support for a pet or livestock animal, run a seller shop, manage a farm, join the community, or operate the platform as an admin.
 
@@ -141,12 +143,37 @@ FarmBondhu/
 
 ## Key Documentation
 
+### Platform overview
+
 - [Project overview](aboutproject.md)
+- [Customers guide](docs/customers.md)
+
+### Customer and module guides
+
+- [Farm management guide](docs/farm_management.md)
+- [Community guide](docs/community.md)
 - [Marketplace reference](docs/marketplace.md)
+- [VetBondhu guide](docs/vetbondhu.md)
+
+### Marketplace and admin
+
+- [Admin reference](docs/admin.md)
+
+### VetBondhu and MediBondhu
+
 - [Consultation workflow](VETCALL.md)
 - [MediBondhu booking status](docs/MEDIBONDHU_BOOKING_STATUS.md)
 - [MediBondhu QA checklist](docs/MEDIBONDHU_QA_TWO_BROWSER.md)
 - [MediBondhu Zego token notes](docs/MEDIBONDHU_ZEGO_TOKEN.md)
+
+### AI and performance
+
+- [Cow weight detection](docs/ai/cow_weight_detection.md)
+- [Cow detection training](docs/ai/cow_detection_training.md)
+- [Performance phased top 10 report](docs/PERF_PHASED_TOP10_REPORT.md)
+
+### Setup references
+
 - [Backend setup](backend/README.md)
 - [Frontend setup](frontend/README.md)
 
