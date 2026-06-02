@@ -27,6 +27,7 @@ import LinkPreview from "@/components/community/LinkPreview";
 import SharedPostEmbed, { type SharedPostData } from "@/components/community/SharedPostEmbed";
 import { CATEGORY_LABELS, ANIMAL_LABELS } from "@/components/community/PostCard";
 import { withApiTiming } from "@/lib/perfMetrics";
+import { useAdminPreviewMode } from "@/hooks/useAdminPreviewMode";
 
 type PostRow = {
   id: string; user_id: string; post_type: string; title: string; body: string;
@@ -42,6 +43,7 @@ type AnswerRow = { id: string; user_id: string; body: string; is_best_answer: bo
 export default function PostDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { canModerate } = useAdminPreviewMode();
   const navigate = useNavigate();
   const [post, setPost] = useState<PostRow | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -63,6 +65,8 @@ export default function PostDetail() {
 
   const isQuestionType = post?.post_type === "question" || post?.post_type === "help_request";
   const isPostOwner = user?.id === post?.user_id;
+  const canEditPost = isPostOwner || canModerate;
+  const canDeletePost = isPostOwner || canModerate;
 
   const fetchAll = async () => {
     if (!id) return;
@@ -207,25 +211,33 @@ export default function PostDetail() {
               <div className="flex items-center gap-1.5 shrink-0">
                 <PostTypeBadge type={post.post_type} />
                 <PriorityBadge priority={post.priority} />
-                {isPostOwner && (
-                  <>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={startEditPost}><Pencil className="h-4 w-4" /></Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete this post?</AlertDialogTitle>
-                          <AlertDialogDescription>This will permanently delete your post and all its comments and answers.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={deletePost} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </>
+                {canEditPost && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={startEditPost}><Pencil className="h-4 w-4" /></Button>
+                )}
+                {canDeletePost && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {canModerate && !isPostOwner ? "Delete this post as Super Admin?" : "Delete this post?"}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {canModerate && !isPostOwner
+                            ? "This will permanently delete this post and all its comments and answers."
+                            : "This will permanently delete your post and all its comments and answers."}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={deletePost} className="bg-destructive text-destructive-foreground">
+                          {canModerate && !isPostOwner ? "Delete as Super Admin" : "Delete"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </div>
             </div>
@@ -314,6 +326,7 @@ export default function PostDetail() {
               answer={{ ...a, author_name: profiles[a.user_id]?.name, author_role: profiles[a.user_id]?.primary_role }}
               isPostOwner={isPostOwner}
               isAnswerOwner={user?.id === a.user_id}
+              canModerate={canModerate}
               onMarkBest={markBestAnswer}
               onDelete={deleteAnswer}
               onSaveEdit={saveEditAnswer}
@@ -354,6 +367,18 @@ export default function PostDetail() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => startEditComment(c)}><Pencil className="h-3.5 w-3.5 mr-2" /> Edit</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => deleteComment(c.id)} className="text-destructive"><Trash2 className="h-3.5 w-3.5 mr-2" /> Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {canModerate && user?.id !== c.user_id && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto"><MoreVertical className="h-3.5 w-3.5" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => deleteComment(c.id)} className="text-destructive">
+                        <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete as Super Admin
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}

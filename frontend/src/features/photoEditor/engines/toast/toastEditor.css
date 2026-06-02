@@ -1,0 +1,60 @@
+/* FarmBondhu overrides for TOAST UI Image Editor layout */
+.toast-editor-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+}
+
+.toast-editor-root .toast-editor-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toast-editor-root .toast-editor-canvas-wrap .tui-image-editor-container {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  min-height: 0;
+}
+
+/* Header hidden in theme — remove dead 64px gap */
+.toast-editor-root .tui-image-editor-header {
+  display: none !important;
+}
+
+.toast-editor-root .tui-image-editor-main-container {
+  top: 0 !important;
+}
+
+.toast-editor-root .tui-image-editor-main {
+  top: 0 !important;
+}
+
+.toast-editor-root .tui-image-editor-wrap {
+  overflow: hidden !important;
+}
+
+/* Bottom menu: bounded tool panel so it does not cover the whole image */
+.toast-editor-root .tui-image-editor-container.bottom .tui-image-editor-submenu {
+  max-height: min(42vh, 280px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+/* Left menu: sidebar tool panel */
+.toast-editor-root .tui-image-editor-container.left {
+  height: 100% !important;
+}
+
+.toast-editor-root .tui-image-editor-container.left .tui-image-editor-submenu {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.toast-editor-root .tui-image-editor-container.left .tui-image-editor-main-container {
+  height: 100% !important;
+}
