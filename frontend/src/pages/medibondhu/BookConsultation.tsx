@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -49,6 +49,17 @@ export default function BookConsultation() {
   });
 
   const selectedSlot = useMemo(() => slots.find((s) => s.id === slotId), [slots, slotId]);
+  const hasOpenSlots = Boolean(doctor?.has_open_slots) || slots.length > 0;
+  const acceptingPatients = Boolean(doctor?.is_available ?? true);
+  const onlineAvailable = acceptingPatients && Boolean(doctor?.online_consultation) && hasOpenSlots;
+  const chamberAvailable = acceptingPatients && Boolean(doctor?.chamber_consultation) && hasOpenSlots;
+  const selectedTypeAvailable = ctype === "online" ? onlineAvailable : chamberAvailable;
+  const availabilityLabel = String(doctor?.availability_label || "");
+
+  useEffect(() => {
+    if (ctype === "online" && !onlineAvailable && chamberAvailable) setCtype("chamber");
+    if (ctype === "chamber" && !chamberAvailable && onlineAvailable) setCtype("online");
+  }, [chamberAvailable, ctype, onlineAvailable]);
 
   const slotLabel = useMemo(
     () => (s: Slot) => {
@@ -73,6 +84,17 @@ export default function BookConsultation() {
   const book = useMutation({
     mutationFn: async () => {
       if (!doctorId || !slotId) throw new Error("Choose a time slot to continue");
+      if (!selectedTypeAvailable) {
+        throw new Error(
+          !acceptingPatients
+            ? "Doctor is not accepting appointments right now"
+            : !hasOpenSlots
+              ? "No future schedule is available"
+              : ctype === "online"
+                ? "This doctor is not offering online visits right now"
+                : "This doctor is not offering chamber visits right now"
+        );
+      }
       const { res, body } = await mediHumanJson<{ data?: { id?: string; doctor_user_id?: string | null } }>(`/appointments`, {
         method: "POST",
         body: JSON.stringify({
@@ -111,6 +133,16 @@ export default function BookConsultation() {
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Book appointment</p>
         <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground mt-1">Schedule with {docName}</h1>
         {fee != null && !Number.isNaN(fee) && <p className="text-muted-foreground text-sm mt-1">Consultation fee: ৳{fee} (as shown on profile)</p>}
+        {doctor && !acceptingPatients && (
+          <p className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            Doctor is not accepting appointments right now.
+          </p>
+        )}
+        {doctor && acceptingPatients && !hasOpenSlots && (
+          <p className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            No future schedule is published yet. Please check another doctor or return later.
+          </p>
+        )}
       </div>
 
       <Card className="rounded-2xl overflow-hidden border-border shadow-sm">
@@ -181,18 +213,25 @@ export default function BookConsultation() {
             <span className="text-sm font-medium text-foreground">3. Visit type</span>
             <RadioGroup value={ctype} onValueChange={(v) => setCtype(v as "online" | "chamber")} className="mt-2 flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
-                <RadioGroupItem value="online" id="online" />
-                <Label htmlFor="online" className="font-normal">
+                <RadioGroupItem value="online" id="online" disabled={!onlineAvailable} />
+                <Label htmlFor="online" className={`font-normal ${!onlineAvailable ? "text-muted-foreground" : ""}`}>
                   Video / online consultation
                 </Label>
               </div>
               <div className="flex items-center gap-2">
-                <RadioGroupItem value="chamber" id="chamber" />
-                <Label htmlFor="chamber" className="font-normal">
+                <RadioGroupItem value="chamber" id="chamber" disabled={!chamberAvailable} />
+                <Label htmlFor="chamber" className={`font-normal ${!chamberAvailable ? "text-muted-foreground" : ""}`}>
                   In-person (chamber)
                 </Label>
               </div>
             </RadioGroup>
+            {(!onlineAvailable || !chamberAvailable) && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {availabilityLabel === "No schedule"
+                  ? "Visit types are disabled until the doctor publishes a future schedule."
+                  : "Disabled visit types are not currently offered by this doctor."}
+              </p>
+            )}
           </div>
 
           <div>
@@ -233,10 +272,10 @@ export default function BookConsultation() {
             type="button"
             className="w-full h-12 rounded-xl text-base font-semibold text-white mt-2"
             style={{ backgroundColor: MB }}
-            disabled={!slotId || book.isPending}
+            disabled={!slotId || !selectedTypeAvailable || book.isPending}
             onClick={() => book.mutate()}
           >
-            {book.isPending ? "Confirming…" : "Confirm booking"}
+            {book.isPending ? "Confirming…" : selectedTypeAvailable ? "Confirm booking" : "Unavailable"}
           </Button>
         </CardContent>
       </Card>

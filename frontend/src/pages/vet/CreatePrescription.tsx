@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { vetbondhuApi } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { ICON_COLORS } from "@/lib/iconColors";
 import { ALL_ANIMAL_TYPES, getAnimalTypeLabel, normalizeAnimalType } from "@/lib/animalTypes";
 import { motion } from "framer-motion";
 import {
@@ -27,6 +28,7 @@ const TIMING_OPTIONS = ["morning", "afternoon", "evening", "night", "before feed
 const BANGLA_DOSE_PATTERN_OPTIONS = ["১+০+০", "০+১+০", "০+০+১", "১+০+১", "১+১+০", "০+১+১", "১+১+১", "দিনে ১ বার", "দিনে ২ বার", "দিনে ৩ বার", "১ দিন পর পর", "সপ্তাহে ১ বার", "প্রয়োজন হলে"];
 const BANGLA_TIMING_OPTIONS = ["সকালে", "দুপুরে", "রাতে", "খাবারের আগে", "খাবারের পরে", "প্রয়োজন হলে"];
 const ROUTE_OPTIONS = ["oral", "injection (IM)", "injection (IV)", "injection (SC)", "through water", "through feed", "topical", "nasal", "eye drop", "ear drop"];
+const VB = ICON_COLORS.vetbondhu;
 
 const BN_SEVERITY_LABELS: Record<string, string> = {
   mild: "মৃদু",
@@ -162,9 +164,12 @@ export default function CreatePrescription() {
     shedPenPlaceholder: isBangla ? "শেড A, পেন ৩" : "Shed A, Pen 3",
     affectedCount: isBangla ? "আক্রান্ত সংখ্যা" : "Affected Count",
     affectedCountPlaceholder: isBangla ? "আক্রান্ত প্রাণীর সংখ্যা" : "No. of affected",
-    symptomsPlaceholder: isBangla ? "দেখা যাওয়া লক্ষণ লিখুন..." : "Describe observed symptoms...",
+    clinicalSummary: isBangla ? "রোগ / সংক্ষিপ্ত বিবরণ" : "Disease Summary",
+    diseaseCondition: isBangla ? "রোগ / অবস্থা" : "Disease / Condition",
+    shortDescription: isBangla ? "সংক্ষিপ্ত বিবরণ / লক্ষণ" : "Short Description / Symptoms",
+    symptomsPlaceholder: isBangla ? "রোগের সংক্ষিপ্ত বিবরণ ও দেখা যাওয়া লক্ষণ লিখুন..." : "Describe the condition, observed symptoms, and short case summary...",
     findingsPlaceholder: isBangla ? "শারীরিক পরীক্ষার পর্যবেক্ষণ..." : "Physical exam findings...",
-    diagnosisPlaceholder: isBangla ? "প্রাথমিক বা চূড়ান্ত রোগ নির্ণয়..." : "Provisional or final diagnosis...",
+    diagnosisPlaceholder: isBangla ? "যেমন: FMD, নিউক্যাসল, পেটের সমস্যা..." : "e.g. FMD, Newcastle disease, digestive disorder...",
     medicineNamePlaceholder: isBangla ? "যেমন: Tylosin, Amoxicillin" : "e.g. Tylosin, Amoxicillin",
     medicineType: isBangla ? "ধরন" : "Type",
     route: isBangla ? "প্রয়োগ পদ্ধতি" : "Route",
@@ -192,7 +197,7 @@ export default function CreatePrescription() {
     followUpNotesPlaceholder: isBangla ? "ফলো-আপের অতিরিক্ত নির্দেশনা..." : "Additional notes for follow-up...",
     requiredTitle: isBangla ? "প্রয়োজনীয়" : "Required",
     selectAnimalTypeMsg: isBangla ? "অনুগ্রহ করে প্রাণীর ধরন নির্বাচন করুন।" : "Please select animal type.",
-    diagnosisOrSymptomsMsg: isBangla ? "রোগ নির্ণয় বা লক্ষণ লিখুন।" : "Please add diagnosis or symptoms.",
+    diagnosisOrSymptomsMsg: isBangla ? "রোগ / অবস্থা বা সংক্ষিপ্ত বিবরণ লিখুন।" : "Please add disease / condition or short description.",
     medicineOrCareMsg: isBangla ? "কমপক্ষে একটি ঔষধ বা পরিচর্যা নির্দেশনা যোগ করুন।" : "Add at least one medicine or care instruction.",
     draftSaved: isBangla ? "ড্রাফট সংরক্ষিত" : "Draft Saved",
     issuedSaved: isBangla ? "প্রেসক্রিপশন ইস্যু হয়েছে ✅" : "Prescription Issued ✅",
@@ -287,7 +292,7 @@ export default function CreatePrescription() {
 
     try {
       // Create prescription
-      const { data: prescription, error: pErr } = await api
+      const { data: prescription, error: pErr } = await vetbondhuApi
         .from("prescriptions")
         .insert({
           consultation_id: consultationId || null,
@@ -369,7 +374,7 @@ export default function CreatePrescription() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: VB }} />
       </div>
     );
   }
@@ -390,7 +395,7 @@ export default function CreatePrescription() {
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
-            <Stethoscope className="h-6 w-6 text-primary" />
+            <Stethoscope className="h-6 w-6" style={{ color: VB }} />
             {isBangla ? "প্রেসক্রিপশন তৈরি করুন" : "Create Prescription"}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -413,10 +418,10 @@ export default function CreatePrescription() {
       {/* Section 1: Consultation Header (read-only if from consultation) */}
       {booking && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="border-l-4 border-l-primary">
+          <Card className="border-l-4" style={{ borderLeftColor: VB }}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-primary" />
+                <ClipboardList className="h-4 w-4" style={{ color: VB }} />
                 {isBangla ? "কনসালটেশন বিবরণ" : "Consultation Details"}
               </CardTitle>
             </CardHeader>
@@ -541,13 +546,13 @@ export default function CreatePrescription() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Heart className="h-4 w-4 text-red-500" />
-                {isBangla ? "রোগ নির্ণয়" : "Diagnosis"}
+              <Heart className="h-4 w-4" style={{ color: VB }} />
+                {t.clinicalSummary}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs">{isBangla ? "লক্ষণ" : "Symptoms"}</Label>
+              <Label className="text-xs">{t.shortDescription}</Label>
               <Textarea placeholder={t.symptomsPlaceholder} value={symptoms} onChange={e => setSymptoms(e.target.value)} rows={3} />
             </div>
             <div className="space-y-1.5">
@@ -556,7 +561,7 @@ export default function CreatePrescription() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs">{isBangla ? "রোগ নির্ণয়" : "Diagnosis"}</Label>
+              <Label className="text-xs">{t.diseaseCondition}</Label>
                 <Textarea placeholder={t.diagnosisPlaceholder} value={diagnosis} onChange={e => setDiagnosis(e.target.value)} rows={2} />
               </div>
               <div className="space-y-1.5">
@@ -587,7 +592,7 @@ export default function CreatePrescription() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <Pill className="h-4 w-4 text-blue-500" />
+                <Pill className="h-4 w-4" style={{ color: VB }} />
                 {isBangla ? `ঔষধ (${medicines.length})` : `Medicines (${medicines.length})`}
               </CardTitle>
               <Button type="button" variant="outline" size="sm" onClick={addMedicine}>
@@ -698,7 +703,7 @@ export default function CreatePrescription() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4 text-orange-500" />
+              <FileText className="h-4 w-4" style={{ color: VB }} />
               {t.additionalCare}
             </CardTitle>
           </CardHeader>
@@ -730,7 +735,7 @@ export default function CreatePrescription() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <CalendarCheck className="h-4 w-4 text-primary" />
+              <CalendarCheck className="h-4 w-4" style={{ color: VB }} />
               {t.followUp}
             </CardTitle>
           </CardHeader>
@@ -771,7 +776,12 @@ export default function CreatePrescription() {
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
           {isBangla ? "ড্রাফট সংরক্ষণ করুন" : "Save Draft"}
         </Button>
-        <Button className="w-full sm:w-auto bg-primary hover:bg-primary/90" onClick={() => handleSubmit("issued")} disabled={saving}>
+        <Button
+          className="w-full sm:w-auto text-white"
+          style={{ backgroundColor: VB }}
+          onClick={() => handleSubmit("issued")}
+          disabled={saving}
+        >
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
           {isBangla ? "প্রেসক্রিপশন ইস্যু করুন" : "Issue Prescription"}
         </Button>

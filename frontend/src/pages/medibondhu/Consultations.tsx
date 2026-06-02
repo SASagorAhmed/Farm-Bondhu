@@ -20,7 +20,20 @@ type ApptRow = {
   doctor_name?: string | null;
   specialty_name?: string | null;
   slot_start?: string | null;
+  leave_deadline_at?: string | null;
+  left_user_id?: string | null;
 };
+
+function appointmentDisplayStatus(appt: ApptRow) {
+  if (appt.status === "in_progress" && appt.leave_deadline_at) return "ending";
+  return appt.status;
+}
+
+function canRejoinNow(appt: ApptRow, currentUserId?: string) {
+  if (appt.status !== "in_progress") return false;
+  if (!appt.leave_deadline_at) return true;
+  return !!currentUserId && String(appt.left_user_id || "") === String(currentUserId);
+}
 
 export default function Consultations() {
   const navigate = useNavigate();
@@ -78,15 +91,28 @@ export default function Consultations() {
             screen.
           </p>
         </div>
-        <Button
-          type="button"
-          size="lg"
-          className="rounded-xl font-semibold text-white shrink-0"
-          style={{ backgroundColor: MB }}
-          onClick={() => navigate("/medibondhu/doctors")}
-        >
-          Book a doctor
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="lg"
+            variant="outline"
+            className="rounded-xl font-semibold shrink-0"
+            style={{ borderColor: `${MB}66`, color: MB }}
+            onClick={() => navigate("/medibondhu/doctors?available=true")}
+          >
+            <Video className="h-4 w-4 mr-2" />
+            Available doctors
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            className="rounded-xl font-semibold text-white shrink-0"
+            style={{ backgroundColor: MB }}
+            onClick={() => navigate("/medibondhu/doctors")}
+          >
+            Book a doctor
+          </Button>
+        </div>
       </header>
 
       {!q.isLoading && appointments.length > 0 && (
@@ -165,7 +191,7 @@ export default function Consultations() {
                   <Badge variant="outline" className="capitalize rounded-md font-normal">
                     {a.consultation_type}
                   </Badge>
-                  <MediStatusBadge status={a.status} />
+                  <MediStatusBadge status={appointmentDisplayStatus(a)} />
                   {String(a.consultation_type || "").toLowerCase() === "online" &&
                     isMediPatientWaitingForDoctor(a.status) && (
                     <Button
@@ -183,7 +209,8 @@ export default function Consultations() {
                     </Button>
                   )}
                   {String(a.consultation_type || "").toLowerCase() === "online" &&
-                    isMediOnlineVideoReady(a.status) && (
+                    isMediOnlineVideoReady(a.status) &&
+                    canRejoinNow(a, user?.id) && (
                     <Button
                       type="button"
                       variant="outline"
@@ -198,6 +225,11 @@ export default function Consultations() {
                       Join video
                     </Button>
                   )}
+                  {String(a.consultation_type || "").toLowerCase() === "online" &&
+                    isMediOnlineVideoReady(a.status) &&
+                    !canRejoinNow(a, user?.id) && (
+                      <span className="text-xs text-muted-foreground">Ending...</span>
+                    )}
                   <ChevronRight className="h-5 w-5 text-muted-foreground hidden sm:block group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </CardContent>
@@ -224,9 +256,14 @@ export default function Consultations() {
               <p className="font-display font-bold text-lg text-foreground">No appointments yet</p>
               <p className="text-sm text-muted-foreground mt-2">When you book a doctor, your visits will appear here with status and visit type.</p>
             </div>
-            <Button type="button" className="rounded-xl text-white font-semibold" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctors")}>
-              Find a doctor
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Button type="button" className="rounded-xl text-white font-semibold" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctors?available=true")}>
+                Available doctors
+              </Button>
+              <Button type="button" variant="outline" className="rounded-xl font-semibold" style={{ borderColor: `${MB}66`, color: MB }} onClick={() => navigate("/medibondhu/doctors")}>
+                Find a doctor
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -11,6 +11,7 @@ import { FileText, Plus, Eye, Loader2, Send } from "lucide-react";
 import { format } from "date-fns";
 import { getAnimalTypeLabel } from "@/lib/animalTypes";
 import { toast } from "@/hooks/use-toast";
+import { ICON_COLORS } from "@/lib/iconColors";
 
 interface Prescription {
   id: string;
@@ -27,11 +28,12 @@ interface Prescription {
 
 const statusStyles: Record<string, { label: string; class: string }> = {
   draft: { label: "Draft", class: "bg-muted text-muted-foreground" },
-  issued: { label: "Issued", class: "bg-green-100 text-green-700" },
+  issued: { label: "Issued", class: "bg-emerald-100 text-emerald-700" },
   updated: { label: "Updated", class: "bg-blue-100 text-blue-700" },
   canceled: { label: "Canceled", class: "bg-red-100 text-red-700" },
-  completed: { label: "Completed", class: "bg-primary/10 text-primary" },
+  completed: { label: "Completed", class: "bg-emerald-100 text-emerald-700" },
 };
+const VB = ICON_COLORS.vetbondhu;
 
 function formatDateTimeSafe(value: string | null | undefined, fallback = "Unknown time") {
   if (!value) return fallback;
@@ -114,10 +116,10 @@ export default function VetPrescriptions() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold text-foreground">Prescriptions</h1>
-          <p className="text-muted-foreground mt-1">View and manage all prescriptions you've issued.</p>
+          <h1 className="text-2xl font-display font-bold text-foreground">VetBondhu Prescriptions</h1>
+          <p className="text-muted-foreground mt-1">View disease summaries and prescriptions you've created for animal care.</p>
         </div>
-        <Button onClick={() => navigate("/vet/prescriptions/create")}>
+        <Button className="text-white" style={{ backgroundColor: VB }} onClick={() => navigate("/vet/prescriptions/create")}>
           <Plus className="h-4 w-4 mr-1" /> New Prescription
         </Button>
       </motion.div>
@@ -125,7 +127,7 @@ export default function VetPrescriptions() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
+            <FileText className="h-5 w-5" style={{ color: VB }} />
             All Prescriptions ({prescriptions.length})
           </CardTitle>
         </CardHeader>
@@ -160,7 +162,7 @@ export default function VetPrescriptions() {
                         </div>
                         <p className="text-sm text-muted-foreground capitalize">
                           {getAnimalTypeLabel(p.animal_type) || p.animal_type}
-                          {p.diagnosis && ` — ${p.diagnosis.substring(0, 60)}`}
+                          {p.diagnosis && ` — Disease / Condition: ${p.diagnosis.substring(0, 60)}`}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {formatDateTimeSafe(p.created_at)}
@@ -173,7 +175,8 @@ export default function VetPrescriptions() {
                       {p.status === "draft" ? (
                         <Button
                           size="sm"
-                          className="shrink-0"
+                          className="shrink-0 text-white"
+                          style={{ backgroundColor: VB }}
                           disabled={issuingId === p.id}
                           onClick={(event) => {
                             event.stopPropagation();

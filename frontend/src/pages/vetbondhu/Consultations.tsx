@@ -215,7 +215,7 @@ export default function Consultations() {
                       <StatusBadge status={bookingDisplayStatus(c)} />
                     </div>
                     <p className="text-sm text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p>
-                    <p className="text-sm text-foreground"><span className="text-muted-foreground">Symptoms:</span> {c.symptoms}</p>
+                    <p className="text-sm text-foreground"><span className="text-muted-foreground">Symptoms:</span> {c.symptoms || "Not provided"}</p>
                     {canShowJoinButton(c, user?.id) && (
                       <div className="pt-1">
                         <Button

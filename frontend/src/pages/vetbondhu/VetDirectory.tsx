@@ -20,6 +20,10 @@ import { ICON_COLORS } from "@/lib/iconColors";
 
 const VB = ICON_COLORS.vetbondhu;
 
+function vetIsOnline(vet: Vet) {
+  return vet.is_online ?? vet.available;
+}
+
 export default function VetDirectory() {
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get("search") || "";
@@ -33,7 +37,9 @@ export default function VetDirectory() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    vetbondhuApi.from("vets").select("*").then(({ data }) => {
+    let cancelled = false;
+    const loadVets = () => vetbondhuApi.from("vets").select("*").then(({ data }) => {
+      if (cancelled) return;
       if (data) {
         setVets(
           data.map((v: any) => ({
@@ -46,18 +52,29 @@ export default function VetDirectory() {
             fee: Number(v.fee ?? v.consultation_fee ?? 500),
             location: v.location || "Bangladesh",
             available: v.available ?? true,
+            is_online: Boolean(v.is_online ?? v.available ?? false),
+            status_label: String(v.status_label || (v.is_online ? "Online" : "Offline")),
+            last_seen_at: v.last_seen_at || null,
             avatar: v.avatar || "",
             degree: v.degree || "DVM",
           }))
         );
       }
     });
+    void loadVets();
+    const interval = window.setInterval(() => {
+      void loadVets();
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   const filtered = vets.filter(v => {
     if (search && !String(v.name || "").toLowerCase().includes(search.toLowerCase()) && !String(v.specialization || "").toLowerCase().includes(search.toLowerCase())) return false;
     if (animalFilter !== "all" && !v.animalTypes.includes(animalFilter)) return false;
-    if (availOnly && !v.available) return false;
+    if (availOnly && !vetIsOnline(v)) return false;
     if (specialityParam && SPECIALITY_ANIMAL_MAP[specialityParam]) {
       const animals = SPECIALITY_ANIMAL_MAP[specialityParam];
       if (!v.animalTypes.some(a => animals.includes(a))) return false;
@@ -84,6 +101,7 @@ export default function VetDirectory() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((vet, i) => {
           const displayAnimalTypes = vet.animalTypes.length ? vet.animalTypes : ["general"];
+          const isOnline = vetIsOnline(vet);
           return (
             <motion.div key={vet.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
               <Card className="shadow-card hover:shadow-elevated transition-all duration-300 overflow-hidden group h-full flex flex-col">
@@ -96,7 +114,7 @@ export default function VetDirectory() {
                     <p className="text-xs font-medium truncate" style={{ color: VB }}>{vet.specialization}</p>
                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><GraduationCap className="h-3 w-3 shrink-0" /><span className="truncate">{vet.degree}</span></p>
                   </div>
-                  <Badge className="shrink-0 text-xs" style={vet.available ? { backgroundColor: `${VB}18`, color: VB, border: `1px solid ${VB}40` } : { backgroundColor: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>{vet.available ? "Available" : "Unavailable"}</Badge>
+                  <Badge className="shrink-0 text-xs" style={isOnline ? { backgroundColor: `${VB}18`, color: VB, border: `1px solid ${VB}40` } : { backgroundColor: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>{isOnline ? "Online" : "Offline"}</Badge>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-sm">
                   <div className="p-2 rounded-lg" style={{ backgroundColor: `${VB}0A` }}><p className="text-xs text-muted-foreground">Rating</p><p className="font-bold text-foreground flex items-center justify-center gap-1"><Star className="h-3 w-3" style={{ color: VB, fill: VB }} />{vet.rating}</p></div>
@@ -107,8 +125,9 @@ export default function VetDirectory() {
                 <div className="flex flex-wrap gap-1">{displayAnimalTypes.map(a => <Badge key={a} variant="outline" className="text-xs capitalize" style={{ borderColor: `${VB}40`, color: VB }}>{getAnimalTypeLabel(a)}</Badge>)}</div>
                 <div className="flex gap-2 mt-auto pt-2">
                   <Button variant="outline" size="sm" className="flex-1" style={{ borderColor: `${VB}50`, color: VB }} onClick={() => navigate(`/vetbondhu/vet/${vet.id}`)}>View Profile</Button>
-                  <Button size="sm" className="flex-1 text-white" style={{ backgroundColor: VB }} disabled={!vet.available} onClick={() => navigate(`/vetbondhu/book/${vet.id}`)}><Calendar className="h-3.5 w-3.5 mr-1" />Book Now</Button>
+                  <Button size="sm" className="flex-1 text-white" style={{ backgroundColor: isOnline ? VB : "hsl(var(--muted-foreground))" }} disabled={!isOnline} onClick={() => navigate(`/vetbondhu/book/${vet.id}`)}><Calendar className="h-3.5 w-3.5 mr-1" />{isOnline ? "Book Now" : "Doctor offline"}</Button>
                 </div>
+                {!isOnline && <p className="text-xs text-muted-foreground">Doctor is offline and unavailable right now.</p>}
                 </CardContent>
               </Card>
             </motion.div>

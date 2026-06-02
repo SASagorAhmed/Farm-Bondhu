@@ -67,7 +67,9 @@ export default function DoctorProfile() {
   const online = Boolean(doc.online_consultation);
   const chamber = Boolean(doc.chamber_consultation);
   const offersBooking = online || chamber;
-  const canBook = avail && offersBooking;
+  const hasOpenSlots = Boolean(doc.has_open_slots);
+  const canBook = Boolean(doc.can_book ?? (avail && offersBooking && hasOpenSlots));
+  const availabilityLabel = String(doc.availability_label || (canBook ? "Online" : "Offline"));
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -97,9 +99,9 @@ export default function DoctorProfile() {
                   </div>
                   <Badge
                     variant="outline"
-                    className={avail ? "border-emerald-500/40 text-emerald-800 dark:text-emerald-200 self-center sm:self-start" : "self-center sm:self-start opacity-80"}
+                    className={canBook ? "border-cyan-500/40 text-cyan-800 dark:text-cyan-200 self-center sm:self-start" : "self-center sm:self-start opacity-80"}
                   >
-                    {avail ? "Accepting appointments" : "Not available"}
+                    {availabilityLabel}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground inline-flex items-center justify-center sm:justify-start gap-1.5 flex-wrap">
@@ -127,12 +129,26 @@ export default function DoctorProfile() {
                       <Building2 className="h-3 w-3" /> Chamber visits
                     </Badge>
                   )}
-                  {doc.has_open_slots === true && (
-                    <Badge variant="outline" className="rounded-md gap-1 font-normal border-emerald-500/40 text-emerald-800 dark:text-emerald-200">
+                  {hasOpenSlots && (
+                    <Badge variant="outline" className="rounded-md gap-1 font-normal border-cyan-500/40 text-cyan-800 dark:text-cyan-200">
                       Open times listed
                     </Badge>
                   )}
+                  {!hasOpenSlots && (
+                    <Badge variant="outline" className="rounded-md gap-1 font-normal text-muted-foreground">
+                      No schedule
+                    </Badge>
+                  )}
                 </div>
+                {!canBook && (
+                  <p className="text-sm text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2 mt-3">
+                    {availabilityLabel === "No schedule"
+                      ? "This doctor has not published a future schedule yet."
+                      : availabilityLabel === "Not accepting"
+                        ? "This doctor is not accepting appointments right now."
+                        : "This doctor is offline or has no visit type enabled."}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -186,7 +202,7 @@ export default function DoctorProfile() {
               disabled={!canBook}
               onClick={() => navigate(`/medibondhu/book/${id}`)}
             >
-              <Calendar className="h-5 w-5 mr-2" /> Book appointment · ৳{fee}
+              <Calendar className="h-5 w-5 mr-2" /> {canBook ? `Book appointment · ৳${fee}` : availabilityLabel}
             </Button>
           </CardContent>
         </Card>

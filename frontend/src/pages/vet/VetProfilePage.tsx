@@ -12,10 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ICON_COLORS, iconBg } from "@/lib/iconColors";
 import RoleChangeRequest from "@/components/profile/RoleChangeRequest";
+import UserAddressesSection from "@/components/address/UserAddressesSection";
+import { fetchUserAddresses } from "@/lib/userAddressesApi";
 
 type VetProfile = {
   id?: string;
   full_name: string;
+  degree: string;
   phone: string;
   email: string;
   district: string;
@@ -32,6 +35,7 @@ type VetProfile = {
 
 const EMPTY_PROFILE: VetProfile = {
   full_name: "",
+  degree: "Veterinary Professional",
   phone: "",
   email: "",
   district: "",
@@ -83,6 +87,7 @@ export default function VetProfilePage() {
               ...previous,
               ...incoming,
               full_name: String(incoming.full_name ?? previous.full_name ?? user.name ?? ""),
+              degree: String(incoming.degree ?? previous.degree ?? "Veterinary Professional"),
               phone: String(incoming.phone ?? previous.phone ?? user.phone ?? ""),
               email: String(incoming.email ?? previous.email ?? user.email ?? ""),
               district: String(incoming.district ?? previous.district ?? user.location ?? ""),
@@ -98,6 +103,7 @@ export default function VetProfilePage() {
             if (!vetEditing) {
               const unchanged =
                 form.full_name === hydrated.full_name &&
+                form.degree === hydrated.degree &&
                 form.phone === hydrated.phone &&
                 form.email === hydrated.email &&
                 form.district === hydrated.district &&
@@ -119,6 +125,7 @@ export default function VetProfilePage() {
           const fallback = {
             ...EMPTY_PROFILE,
             full_name: user.name || "",
+            degree: "Veterinary Professional",
             phone: user.phone || "",
             email: user.email || "",
             district: user.location || "",
@@ -219,6 +226,17 @@ export default function VetProfilePage() {
     const token = readSession()?.access_token;
     setSaving(true);
     try {
+      let district = form.district.trim();
+      if (!district) {
+        try {
+          const addresses = await fetchUserAddresses();
+          const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0];
+          if (defaultAddr?.district) district = defaultAddr.district;
+        } catch {
+          /* use empty district; validation below will catch */
+        }
+      }
+
       const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/me`, {
         method: "PUT",
         headers: {
@@ -228,9 +246,10 @@ export default function VetProfilePage() {
         body: JSON.stringify({
           ...form,
           full_name: form.full_name.trim(),
+          degree: form.degree.trim() || "Veterinary Professional",
           phone: form.phone.trim(),
           email: form.email.trim(),
-          district: form.district.trim(),
+          district,
           address: form.address.trim(),
           specialization: form.specialization.trim(),
           experience_years: Number(form.experience_years),
@@ -285,6 +304,9 @@ export default function VetProfilePage() {
               </div>
             )}
             <h2 className="text-lg font-semibold">{form.full_name || user.name}</h2>
+            <p className="text-sm font-medium" style={{ color: ICON_COLORS.vetbondhu }}>
+              {form.degree?.trim() || "Veterinary Professional"}
+            </p>
             <p className="text-sm text-muted-foreground">{form.email || user.email}</p>
             <Badge variant="outline" className="mt-2">{formatUserRoleLabel(user)}</Badge>
             <div className="flex items-center gap-1 mt-2 text-green-600">
@@ -339,6 +361,18 @@ export default function VetProfilePage() {
             <div className="space-y-2">
               <Label className="flex items-center gap-2"><UserCircle className="h-4 w-4" /> Full Name</Label>
               <Input disabled={!vetEditing} value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Doctor designation</Label>
+              <Input
+                disabled={!vetEditing}
+                value={form.degree}
+                onChange={(e) => setForm((p) => ({ ...p, degree: e.target.value }))}
+                placeholder="Veterinary Professional"
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown below your name on VetBondhu prescriptions. Leave empty to use Veterinary Professional.
+              </p>
             </div>
             <div className="space-y-2">
               <Label className="flex items-center gap-2"><Mail className="h-4 w-4" /> Email</Label>
@@ -432,6 +466,8 @@ export default function VetProfilePage() {
       </div>
 
       {user?.primaryRole !== "admin" && <RoleChangeRequest />}
+
+      <UserAddressesSection />
     </div>
   );
 }

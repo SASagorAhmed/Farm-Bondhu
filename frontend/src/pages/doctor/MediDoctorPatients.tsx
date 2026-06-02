@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
+import MediDoctorPreviewEmpty from "@/components/medibondhu/MediDoctorPreviewEmpty";
 import { MB, MediSectionTitle } from "@/components/medibondhu/MediChrome";
 
 type Appointment = {
@@ -28,6 +30,7 @@ type PatientRow = {
 
 export default function MediDoctorPatients() {
   const { user } = useAuth();
+  const { readOnly, previewEmptyHint } = useMediDoctorPreviewActions();
   const navigate = useNavigate();
   const doctorAppointmentsKey = queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0);
 
@@ -112,6 +115,7 @@ export default function MediDoctorPatients() {
                     size="sm"
                     className="rounded-lg text-white gap-1.5"
                     style={{ backgroundColor: MB }}
+                    disabled={readOnly}
                     onClick={() => navigate(`/medibondhu/doctor/rx/new?patient=${encodeURIComponent(p.patientId)}`)}
                   >
                     <FilePlus2 className="h-4 w-4" />
@@ -122,7 +126,9 @@ export default function MediDoctorPatients() {
             </Card>
           ))}
         {isLoading && <p className="text-sm text-muted-foreground">Loading patients...</p>}
-        {!isLoading && patients.length === 0 && <p className="text-sm text-muted-foreground">No patients found yet.</p>}
+        {!isLoading && patients.length === 0 && (
+          <MediDoctorPreviewEmpty title="No patients found yet" hint={previewEmptyHint} />
+        )}
       </div>
     </div>
   );

@@ -13,6 +13,10 @@ import { ICON_COLORS } from "@/lib/iconColors";
 
 const VB = ICON_COLORS.vetbondhu;
 
+function vetIsOnline(vet: Vet) {
+  return vet.is_online ?? vet.available;
+}
+
 export default function VetProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -22,7 +26,9 @@ export default function VetProfile() {
 
   useEffect(() => {
     if (!id) return;
-    vetbondhuApi.from("vets").select("*").eq("id", id).single().then(({ data }) => {
+    let cancelled = false;
+    const loadVet = () => vetbondhuApi.from("vets").select("*").eq("id", id).single().then(({ data }) => {
+      if (cancelled) return;
       if (data) {
         setVet({
           id: data.id,
@@ -34,20 +40,32 @@ export default function VetProfile() {
           fee: Number(data.fee ?? data.consultation_fee ?? 500),
           location: data.location || "Bangladesh",
           available: data.available ?? true,
+          is_online: Boolean(data.is_online ?? data.available ?? false),
+          status_label: String(data.status_label || (data.is_online ? "Online" : "Offline")),
+          last_seen_at: data.last_seen_at || null,
           avatar: data.avatar || "",
           degree: data.degree || "DVM",
         });
       }
       setLoading(false);
     });
+    void loadVet();
+    const interval = window.setInterval(() => {
+      void loadVet();
+    }, 30_000);
     vetbondhuApi.from("consultation_bookings").select("*").eq("vet_mock_id", id).order("created_at", { ascending: false }).limit(5).then(({ data }) => {
-      if (data) setConsultations(data);
+      if (!cancelled && data) setConsultations(data);
     });
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [id]);
 
   if (loading) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
   if (!vet) return <div className="text-center py-12 text-muted-foreground">Vet not found</div>;
   const displayAnimalTypes = vet.animalTypes.length ? vet.animalTypes : ["general"];
+  const isOnline = vetIsOnline(vet);
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -68,7 +86,7 @@ export default function VetProfile() {
                   <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{vet.experience} years</span>
                 </div>
               </div>
-              <Badge style={{ backgroundColor: vet.available ? `${VB}20` : undefined, color: vet.available ? VB : undefined }} className={!vet.available ? "bg-muted text-muted-foreground" : ""}>{vet.available ? "Available" : "Unavailable"}</Badge>
+              <Badge style={{ backgroundColor: isOnline ? `${VB}20` : undefined, color: isOnline ? VB : undefined }} className={!isOnline ? "bg-muted text-muted-foreground" : ""}>{isOnline ? "Online" : "Offline"}</Badge>
             </div>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Consultation Fee</p><p className="text-2xl font-bold" style={{ color: VB }}>৳{vet.fee}</p></div>
@@ -76,7 +94,8 @@ export default function VetProfile() {
               <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Rating</p><p className="text-2xl font-bold text-foreground">{vet.rating}/5</p></div>
             </div>
             <div><h3 className="font-display font-bold text-foreground mb-2">Specializes In</h3><div className="flex flex-wrap gap-2">{displayAnimalTypes.map(a => <Badge key={a} className="capitalize" style={{ backgroundColor: `${VB}20`, color: VB }}>{getAnimalTypeLabel(a)}</Badge>)}</div></div>
-            <Button className="w-full text-white h-12" style={{ backgroundColor: VB }} disabled={!vet.available} onClick={() => navigate(`/vetbondhu/book/${vet.id}`)}><Calendar className="h-4 w-4 mr-2" />Book Consultation — ৳{vet.fee}</Button>
+            <Button className="w-full text-white h-12" style={{ backgroundColor: isOnline ? VB : "hsl(var(--muted-foreground))" }} disabled={!isOnline} onClick={() => navigate(`/vetbondhu/book/${vet.id}`)}><Calendar className="h-4 w-4 mr-2" />{isOnline ? `Book Consultation — ৳${vet.fee}` : "Doctor offline"}</Button>
+            {!isOnline && <p className="text-sm text-muted-foreground text-center">Doctor is offline and unavailable right now.</p>}
           </CardContent>
         </Card>
       </motion.div>
@@ -89,7 +108,7 @@ export default function VetProfile() {
             {consultations.map(c => (
               <div key={c.id} className="p-3 rounded-lg bg-accent/50">
                 <div className="flex justify-between items-start">
-                  <div><p className="font-medium text-foreground">{c.symptoms}</p><p className="text-xs text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p></div>
+                  <div><p className="font-medium text-foreground">{c.symptoms || "No symptoms provided"}</p><p className="text-xs text-muted-foreground">{c.scheduled_date} • {c.scheduled_time} • {c.animal_type}</p></div>
                   <Badge variant="outline" className="capitalize">{c.status}</Badge>
                 </div>
               </div>

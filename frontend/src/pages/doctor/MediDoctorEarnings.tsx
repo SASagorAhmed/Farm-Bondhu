@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { API_BASE, api, readSession } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { MB } from "@/components/medibondhu/MediChrome";
 
@@ -50,6 +51,7 @@ function formatMoney(value: number) {
 
 export default function MediDoctorEarnings() {
   const { user } = useAuth();
+  const { readOnly } = useMediDoctorPreviewActions();
   const queryClient = useQueryClient();
   const [requestAmount, setRequestAmount] = useState("");
   const [requestNote, setRequestNote] = useState("");
@@ -195,14 +197,14 @@ export default function MediDoctorEarnings() {
           <div className="grid md:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Amount (BDT)</Label>
-              <Input type="number" min={0} step="0.01" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} placeholder="Enter withdrawal amount" />
+              <Input type="number" min={0} step="0.01" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} placeholder="Enter withdrawal amount" disabled={readOnly} />
             </div>
             <div className="space-y-2">
               <Label>Note (optional)</Label>
-              <Textarea value={requestNote} onChange={(e) => setRequestNote(e.target.value)} placeholder="Add note for admin" className="min-h-[44px]" />
+              <Textarea value={requestNote} onChange={(e) => setRequestNote(e.target.value)} placeholder="Add note for admin" className="min-h-[44px]" disabled={readOnly} />
             </div>
           </div>
-          <Button onClick={() => void submitWithdrawal()} disabled={submitting || isLoading}>
+          <Button onClick={() => void submitWithdrawal()} disabled={readOnly || submitting || isLoading}>
             {submitting ? "Submitting..." : "Request Withdrawal"}
           </Button>
         </CardContent>

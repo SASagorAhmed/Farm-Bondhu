@@ -9,6 +9,8 @@ import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealt
 import { subscribeMediDoctorInboxNewAppointment } from "@/api/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
+import MediDoctorPreviewEmpty from "@/components/medibondhu/MediDoctorPreviewEmpty";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserRound, Calendar, ClipboardList, FilePlus2, Video } from "lucide-react";
@@ -28,6 +30,7 @@ type Appt = {
 
 export default function MediDoctorDashboard() {
   const { user } = useAuth();
+  const { readOnly, previewEmptyHint } = useMediDoctorPreviewActions();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -148,11 +151,11 @@ export default function MediDoctorDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="rounded-xl gap-2" onClick={() => navigate("/medibondhu/doctor/schedule")}>
+          <Button type="button" variant="outline" className="rounded-xl gap-2" disabled={readOnly} onClick={() => navigate("/medibondhu/doctor/schedule")}>
             <Calendar className="h-4 w-4" />
             Availability
           </Button>
-          <Button type="button" className="rounded-xl gap-2 text-white font-semibold" style={{ backgroundColor: MB }} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
+          <Button type="button" className="rounded-xl gap-2 text-white font-semibold" style={{ backgroundColor: MB }} disabled={readOnly} onClick={() => navigate("/medibondhu/doctor/rx/new")}>
             <FilePlus2 className="h-4 w-4" />
             New prescription
           </Button>
@@ -249,7 +252,7 @@ export default function MediDoctorDashboard() {
                         size="sm"
                         className="rounded-lg gap-1.5 text-white order-first sm:order-none"
                         style={{ backgroundColor: MB }}
-                        disabled={act.isPending || joiningId === a.id}
+                        disabled={readOnly || act.isPending || joiningId === a.id}
                         onClick={async () => {
                           setJoiningId(a.id);
                           try {
@@ -271,10 +274,10 @@ export default function MediDoctorDashboard() {
                         Join video consultation
                       </Button>
                     )}
-                    <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "completed" })}>
+                    <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={readOnly || terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "completed" })}>
                       Mark complete
                     </Button>
-                    <Button type="button" variant="destructive" size="sm" className="rounded-lg" disabled={terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "rejected" })}>
+                    <Button type="button" variant="destructive" size="sm" className="rounded-lg" disabled={readOnly || terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "rejected" })}>
                       Reject visit
                     </Button>
                     {patientKey && (
@@ -283,6 +286,7 @@ export default function MediDoctorDashboard() {
                         size="sm"
                         className="rounded-lg text-white sm:ml-auto"
                         style={{ backgroundColor: MB }}
+                        disabled={readOnly}
                         onClick={() => navigate(`/medibondhu/doctor/rx/new?patient=${encodeURIComponent(patientKey)}&appointment=${encodeURIComponent(a.id)}`)}
                       >
                         Issue Rx
@@ -305,16 +309,7 @@ export default function MediDoctorDashboard() {
       )}
 
       {!q.isLoading && sortedRows.length === 0 && (
-        <Card className="rounded-2xl border-dashed">
-          <CardContent className="p-12 text-center space-y-3 max-w-md mx-auto">
-            <ClipboardList className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="font-semibold text-foreground">No appointments in your queue</p>
-            <p className="text-sm text-muted-foreground">When patients book your open slots, they will appear here with visit details.</p>
-            <Button type="button" variant="outline" className="rounded-xl" onClick={() => navigate("/medibondhu/doctor/schedule")}>
-              Manage availability
-            </Button>
-          </CardContent>
-        </Card>
+        <MediDoctorPreviewEmpty hint={previewEmptyHint} />
       )}
     </div>
   );
