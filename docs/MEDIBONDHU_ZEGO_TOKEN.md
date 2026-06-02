@@ -7,7 +7,7 @@ This document describes how the **server token** from our API relates to the **U
 - **Route:** `POST /v1/tools/zego-token` (see `backend/src/routes/v1/tools.js`).
 - **Auth:** `Authorization: Bearer <access_token>` (authenticated user).
 - **Body (JSON):**
-  - `roomId` (string, required): use the consultation **booking id** as the Zego room id (same value the patient and vet join).
+  - `roomId` (string, required): for MediBondhu human care, use the `medi-human-${appointmentId}` room id from room bootstrap (same value the patient and doctor join).
   - `userName` (string, required): display name for the participant.
 - **Response (JSON):**
   - `token` (string): server-generated credential (HMAC kit token) for the authenticated `req.userId`, room, and user name.
@@ -18,9 +18,9 @@ The `token` field is the **server secret–backed token** suitable as the second
 
 ## Frontend: UIKit production kit token + `create`
 
-Implementation reference: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`.
+Implementation reference: `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`.
 
-1. Call the endpoint above with `roomId: bookingId` and `userName: user.name`.
+1. Call the endpoint above with `roomId: zegoRoomId` and `userName: user.name`.
 2. Dynamically import `@zegocloud/zego-uikit-prebuilt`.
 3. Build the kit token:
 
@@ -28,7 +28,7 @@ Implementation reference: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`.
    const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
      Number(appID),
      String(token), // response `token` from backend
-     String(bookingId),
+     String(zegoRoomId),
      String(user.id),
      String(user.name || "User")
    );

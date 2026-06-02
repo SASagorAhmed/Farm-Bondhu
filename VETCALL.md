@@ -1,11 +1,16 @@
-# Vet Call Workflow (Source of Truth)
+# Consultation Call Workflow (Source of Truth)
 
-This file documents the current MediBondhu consultation call workflow so future changes can follow a consistent flow.
+This file documents the current consultation call workflow. VetBondhu and MediBondhu are separate modules and must stay separate:
+
+- VetBondhu: veterinary calls, VetBondhu routes, VetBondhu green theme, veterinary tables.
+- MediBondhu: human-care calls, MediBondhu routes, MediBondhu cyan theme, `medibondhu_appointments`.
+
+Use VetBondhu as a behavior reference only. Do not mix routes, query keys, colors, or data tables.
 
 ## Scope
 
 - Patient booking and entry flow
-- Vet request receive/accept flow
+- Doctor/vet request receive/start flow
 - Waiting room behavior
 - Room join/rejoin behavior
 - 20-second grace timer behavior
@@ -13,7 +18,7 @@ This file documents the current MediBondhu consultation call workflow so future 
 
 ## Main Booking Statuses
 
-- `pending`: created/paid by patient, waiting for vet accept
+- `pending`: created/paid by patient, waiting for doctor/vet start
 - `confirmed`: treated as pending in UI behavior
 - `in_progress`: active consultation session
 - `completed`: terminal
@@ -23,69 +28,78 @@ This file documents the current MediBondhu consultation call workflow so future 
 
 ### 1) Create booking
 
-File: `frontend/src/pages/medibondhu/BookConsultation.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/BookConsultation.tsx`
 
-- Patient confirms and inserts a row into `consultation_bookings`
-- Booking is created as `status: "pending"` and `payment_status: "paid"`
-- For instant calls, patient is sent to waiting room
-- After successful insert, patient sends a vet inbox broadcast via:
-  - `broadcastVetInboxNewBooking(vetUserId, bookingId)`
+- Patient selects a MediBondhu doctor, future schedule window, and visit type.
+- Appointment is inserted into `medibondhu_appointments`.
+- Online appointments start `pending`; the patient is sent to `/medibondhu/waiting/:appointmentId`.
+- After successful insert, patient sends a MediBondhu doctor inbox broadcast via `broadcastMediDoctorInboxNewAppointment(...)`.
 
-### 2) Waiting for vet
+### 2) Waiting for doctor
 
-File: `frontend/src/pages/medibondhu/WaitingRoom.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/MediWaitingRoom.tsx`
 
-- Waiting room fetches bootstrap booking (`room-bootstrap`) and subscribes to booking realtime updates
+- Waiting room fetches appointment details and subscribes to appointment realtime updates.
 - If status becomes `in_progress`, patient auto-navigates to room
-- If status is terminal (`completed` or `cancelled`), patient goes back to consultations
+- If status is terminal (`completed`, `cancelled`, or `rejected`), patient goes back to consultations
 - Polling fallback is enabled if realtime misses events
 
 ### 3) Join Again from patient consultations
 
-File: `frontend/src/pages/medibondhu/Consultations.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/Consultations.tsx`
 
 Join button destination is status-driven:
 
-- `pending` / `confirmed` -> `/medibondhu/waiting/:bookingId`
-- `in_progress` (joinable) -> `/medibondhu/room/:bookingId`
+- `pending` / `confirmed` -> `/medibondhu/waiting/:appointmentId`
+- `in_progress` (joinable) -> `/medibondhu/room/:appointmentId`
 - terminal -> no join button
 
-This is implemented by `resolveJoinDestination(...)`.
+Joinability follows `leave_deadline_at` / `left_user_id`: if another participant owns the grace window, show ending state instead of opening the room.
 
-## Vet Flow
+## Doctor / Vet Flow
 
 ### 1) New request visibility
 
-Files:
+VetBondhu veterinary files:
 
 - `frontend/src/pages/vet/VetDashboard.tsx`
 - `frontend/src/pages/vet/VetConsultations.tsx`
 - `frontend/src/api/client.ts`
 
-Vet screens are updated through three paths:
+MediBondhu human doctor files:
+
+- `frontend/src/pages/doctor/MediDoctorDashboard.tsx`
+- `frontend/src/pages/doctor/MediDoctorSchedule.tsx`
+- `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
+
+Screens are updated through realtime, polling, and module-specific broadcast wake-ups.
 
 - Supabase postgres realtime (`subscribeConsultationBookings`)
 - Fast polling (`refetchInterval`)
 - Cross-client broadcast wake-up (`subscribeVetInboxNewBooking`)
 
-### 2) Accept booking
+### 2) Start room
 
-Files:
+VetBondhu veterinary files:
 
 - `frontend/src/pages/vet/VetDashboard.tsx`
 - `frontend/src/pages/vet/VetConsultations.tsx`
 
-When vet accepts:
+MediBondhu human-care file:
 
-- Booking is updated to `status: "in_progress"`
-- Vet navigates to `/vet/room/:bookingId`
-- Caches are patched/invalidated so both dashboard and consultations refresh quickly
+- `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
+
+When the doctor opens the MediBondhu room:
+
+- appointment updates to `status: "in_progress"`
+- doctor stays in `/medibondhu/room/:appointmentId`
+- patient waiting room auto-opens the same room
 
 ## Room Entry Rules
 
 ## Patient waiting-room to room permission
 
-File: `frontend/src/pages/medibondhu/WaitingRoom.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/MediWaitingRoom.tsx`
 
 `canPatientJoinRoomNow(...)` allows room join only when:
 
@@ -96,7 +110,7 @@ If not joinable, waiting room sends patient back to consultations with an ending
 
 ## Consultation room active check
 
-File: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
 
 - Room is allowed only for active bookings (`in_progress`)
 - Chat and audio/video both use the same booking/grace state rules
@@ -104,7 +118,7 @@ File: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`
 
 ## Grace Timer (20s) and Rejoin
 
-File: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
 
 When participant leaves:
 
@@ -124,7 +138,7 @@ If timer expires:
 
 ## Chat-Specific Rejoin Fix
 
-File: `frontend/src/pages/medibondhu/ConsultationRoom.tsx`
+MediBondhu file: `frontend/src/pages/medibondhu/MediHumanConsultationRoom.tsx`
 
 Because chat mode has no Zego `onJoinRoom`, UI reset now also happens when:
 
@@ -138,20 +152,18 @@ This prevents stale countdown after successful chat rejoin.
 
 ### Booking/message realtime
 
-- Waiting room booking updates: `waiting-${bookingId}`
-- Room booking updates: `room-booking-${bookingId}`
-- Room messages: `room-${bookingId}` (message inserts)
-- Vet booking streams:
+- VetBondhu booking streams:
   - `vet-dashboard-bookings-${user.id}`
   - `vet-consultations-${user.id}`
+- MediBondhu appointment streams use `subscribeMediHumanAppointments(...)` and module-specific query keys.
 
-### Vet inbox broadcast
+### Module inbox broadcast
 
 File: `frontend/src/api/client.ts`
 
-- Patient send: `broadcastVetInboxNewBooking(...)`
-- Vet subscribe: `subscribeVetInboxNewBooking(...)`
-- Topic format: `vet-inbox-${vetUserId}`
+- VetBondhu patient send: `broadcastVetInboxNewBooking(...)`
+- MediBondhu patient send: `broadcastMediDoctorInboxNewAppointment(...)`
+- VetBondhu topic format: `vet-inbox-${vetUserId}`
 - Event: `new-booking`
 
 If Supabase realtime client is unavailable, broadcast becomes no-op and existing polling/realtime remain fallback.
@@ -159,21 +171,19 @@ If Supabase realtime client is unavailable, broadcast becomes no-op and existing
 ## Navigation Matrix (Quick Reference)
 
 - Patient `pending/confirmed` + Join Again -> waiting room
-- Patient waiting room + vet accepts -> room
+- Patient waiting room + doctor/vet starts -> room
 - Patient `in_progress` + joinable -> room
 - Patient `in_progress` + not joinable (grace owned by other side) -> consultations
-- Vet pending request + Accept -> vet room
+- Doctor/vet pending request + start/accept -> room
 - Any terminal status -> consultations lists
 
 ## Change Guidelines (Future)
 
 If you change this workflow, update all of:
 
-- `BookConsultation.tsx` (creation + broadcast)
-- `Consultations.tsx` (patient Join Again routing)
-- `WaitingRoom.tsx` (status-to-navigation decision)
-- `ConsultationRoom.tsx` (grace + finalize logic)
-- `VetDashboard.tsx` and `VetConsultations.tsx` (vet discovery + invalidation)
+- MediBondhu: `BookConsultation.tsx`, `Consultations.tsx`, `MediWaitingRoom.tsx`, `MediHumanConsultationRoom.tsx`
+- VetBondhu: `BookConsultation.tsx`, `Consultations.tsx`, `WaitingRoom.tsx`, `ConsultationRoom.tsx`
+- Doctor/vet dashboards and consultation lists
 - `api/client.ts` (broadcast helper contract)
 
 Always keep:

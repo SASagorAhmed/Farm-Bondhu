@@ -1,50 +1,76 @@
-# MediBondhu: consultation booking status (FSM + actors)
+# MediBondhu: human appointment status (FSM + actors)
 
-Updates to `consultation_bookings.status` go through `PATCH /v1/medibondhu/bookings/:id` in `backend/src/routes/v1/medibondhu.js`. The handler returns **`403` with `{ error: "Invalid status transition" }`** when the requested next status is not allowed for the **current** status or for the **actor** (patient vs vet vs admin).
+MediBondhu human-care appointments use `medibondhu_appointments` and `/api/v1/medibondhu/*` routes. Do not mix this flow with VetBondhu veterinary `consultation_bookings`.
+
+Status updates go through `PATCH /v1/medibondhu/appointments/:id` in `backend/src/routes/v1/medibondhu.js`.
 
 ## Allowed status values
 
-Statuses must be one of: `pending`, `confirmed`, `in_progress`, `completed`, `cancelled` (see `BOOKING_STATUS` in the same file). Any other value yields **`400` `Invalid status value`**.
+Statuses are:
+
+- `pending`: online appointment requested by patient, waiting for doctor to start
+- `confirmed`: chamber appointment or an accepted waiting state
+- `in_progress`: active online room
+- `completed`: terminal
+- `cancelled`: terminal
+- `rejected`: terminal
 
 ## Who is the actor?
 
-After loading the booking, the server computes:
+After loading the appointment, the server computes:
 
-- **`isAdmin`:** user has role `admin` → may patch allowed admin fields; **status:** any transition to another allowed status value is permitted.
-- **`isVetParticipant`:** `current.computed_vet_user_id === uid` **or** `current.vet_mock_id === uid`.
-- **`isPatientParticipant`:** `current.patient_mock_id === uid`.
+- **Patient:** `patient_user_id === req.userId`
+- **Doctor:** approved MediBondhu doctor whose doctor profile id equals `appointment.doctor_id`
+- **Admin:** admin role/capability
 
-Non-admins must be a participant on the row (otherwise `404` before transition rules run). Vet identity for listings and “Accept” flows must match **`computed_vet_user_id`** (see `coalesce(b.vet_user_id, v.user_id, b.vet_mock_id)` in queries) so the vet browser’s JWT `userId` aligns with the booking.
+Non-admins must be appointment participants.
 
-## Allowed transitions (non-admin)
+## Status transitions
 
-When `patch.status` is present, `prevStatus` is the current row status and `nextStatus` is the requested value.
+### Doctor
 
-### Vet
-
-| From | To |
-|------|-----|
-| `pending` or `confirmed` | `in_progress` or `cancelled` |
-| `in_progress` | `completed` or `cancelled` |
+- `pending` or `confirmed` -> `in_progress` for online visits
+- `pending`, `confirmed`, or `in_progress` -> `completed`
+- allowed doctor/admin cancellation paths use `cancelled`
 
 ### Patient
 
-| From | To |
-|------|-----|
-| `pending`, `confirmed`, or `in_progress` | `cancelled` only |
+- patient can cancel an appointment through the cancellation path
+- patient cannot start or manually complete an appointment
 
-Patients **cannot** set `in_progress` or `completed` via this rule set.
+## 20-second leave/rejoin grace
 
-### Admin
+Active online appointments support a rejoin window:
 
-Any change from `prevStatus` to a valid `nextStatus` in `BOOKING_STATUS` is allowed.
+- `leave_deadline_at`: timestamp when the room should auto-complete
+- `left_user_id`: participant who left
+- participants can set/clear these fields while the appointment is not terminal
+- after the deadline expires, a participant can complete the appointment through the grace-timeout path
 
-## Side effects
+The room UI shows a 20-second countdown and clears it when the leaving participant rejoins in time.
 
-- When `nextStatus === "completed"`, the handler sets `patch.completed_at` to the current ISO timestamp.
+## Availability and booking
 
-## Typical causes of `Invalid status transition`
+Doctor availability is MediBondhu-specific:
 
-- **Stale UI / double action:** e.g. booking already `completed` or `cancelled`, then the client sends another status change.
-- **Wrong actor:** patient tries a vet-only transition or vice versa.
-- **Race:** two clients PATCH status in quick succession; the second request sees a new `prevStatus` and may fail the transition matrix.
+- `is_available`: doctor is accepting patients
+- `online_consultation`: doctor offers online visits
+- `chamber_consultation`: doctor offers chamber visits
+- future `medibondhu_doctor_time_slots`: required for patient booking
+
+The public doctor API decorates doctors with:
+
+- `has_open_slots`
+- `is_online_now`
+- `can_book`
+- `availability_label`
+
+`/medibondhu/doctors?available=true` filters to bookable active doctors in the frontend.
+
+## Common failure causes
+
+- stale UI sends status changes after terminal status
+- patient tries a doctor-only transition
+- doctor profile is not approved or does not match appointment `doctor_id`
+- no future schedule window exists
+- selected visit type is disabled for the doctor
