@@ -3,6 +3,7 @@ import sql from "../../db.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
+import { blockNonSuperAdminPreviewWrite } from "../../middleware/blockNonSuperAdminPreviewWrite.js";
 
 const router = Router();
 
@@ -40,6 +41,7 @@ router.post(
   "/",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const { name, location, type, sheds, total_animals } = req.body || {};
     if (!name || !location || !type) {
@@ -65,6 +67,7 @@ router.patch(
   "/:id",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const body = req.body || {};
@@ -93,6 +96,7 @@ router.delete(
   "/:id",
   requireDatabase,
   requireUser,
+  blockNonSuperAdminPreviewWrite,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const rows = await sql`

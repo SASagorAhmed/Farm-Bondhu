@@ -97,6 +97,34 @@ async function isDoctorApprovedUser(userId) {
   return row?.id ? String(row.id) : null;
 }
 
+/** Approved doctor row, or platform-admin read-only preview with empty payloads. */
+async function resolveDoctorReadAccess(req, userId) {
+  const doctorPk = await isDoctorApprovedUser(userId);
+  if (doctorPk) return { doctorPk, adminPreview: false };
+  if (await isAdminReq(req)) return { doctorPk: null, adminPreview: true };
+  return null;
+}
+
+const EMPTY_DOCTOR_APPOINTMENTS_PAGE = {
+  appointments: [],
+  page: { hasMore: false, nextOffset: null },
+};
+const EMPTY_DOCTOR_PRESCRIPTIONS_PAGE = {
+  prescriptions: [],
+  page: { hasMore: false, nextOffset: null },
+};
+const EMPTY_DOCTOR_EARNINGS_SUMMARY = {
+  gross_earnings: 0,
+  consultation_count: 0,
+  monthly_gross: 0,
+  platform_fee_rate: 0.15,
+  platform_fee: 0,
+  net_earnings: 0,
+  withdrawn_total: 0,
+  pending_withdraw_total: 0,
+  available_balance: 0,
+};
+
 async function computeDoctorEarningsSummary(doctorUserId) {
   const [grossRow] = await sql`
     select
@@ -218,6 +246,29 @@ function isWithinMediTeleconsultWindow(slotStart, slotEnd, nowMs = Date.now()) {
   return nowMs >= startMs - beforeMs && nowMs <= endMs + afterGraceMs;
 }
 
+function decorateMediDoctorAvailability(row) {
+  const hasOpenSlots = Boolean(row?.has_open_slots);
+  const isAvailable = Boolean(row?.is_available);
+  const onlineEnabled = Boolean(row?.online_consultation);
+  const chamberEnabled = Boolean(row?.chamber_consultation);
+  const hasVisitType = onlineEnabled || chamberEnabled;
+  const isOnlineNow = isAvailable && onlineEnabled && hasOpenSlots;
+  const canBook = isAvailable && hasVisitType && hasOpenSlots;
+  let availabilityLabel = "Offline";
+  if (!isAvailable) availabilityLabel = "Not accepting";
+  else if (!hasVisitType) availabilityLabel = "Offline";
+  else if (!hasOpenSlots) availabilityLabel = "No schedule";
+  else if (isOnlineNow) availabilityLabel = "Online";
+  else if (chamberEnabled) availabilityLabel = "Chamber only";
+  return {
+    ...row,
+    has_open_slots: hasOpenSlots,
+    is_online_now: isOnlineNow,
+    can_book: canBook,
+    availability_label: availabilityLabel,
+  };
+}
+
 // ─── Public-ish (auth optional for directory) — still require logged user for MVP safety
 router.get(
   "/hospitals",
@@ -289,13 +340,13 @@ router.get(
       from medibondhu_doctors d
       left join medibondhu_specialties s on s.id = d.specialty_id
       left join medibondhu_hospitals h on h.id = d.hospital_id
-      where d.approval_status = 'approved' and d.is_available = true
+      where d.approval_status = 'approved'
       ${specFrag}
       ${searchFrag}
       order by d.rating_avg desc nulls last, d.full_name asc
       limit ${limit}
     `;
-    res.json({ data: rows });
+    res.json({ data: rows.map(decorateMediDoctorAvailability) });
   })
 );
 
@@ -338,7 +389,7 @@ router.get(
       limit 1
     `;
     if (!row) return res.status(404).json({ error: "Doctor not found" });
-    res.json({ data: row });
+    res.json({ data: decorateMediDoctorAvailability(row) });
   })
 );
 
@@ -378,7 +429,8 @@ router.post(
     try {
       const result = await sql.begin(async (tx) => {
         const [slot] = await tx`
-          select ts.id, ts.doctor_id, ts.slot_end, d.specialty_id
+          select ts.id, ts.doctor_id, ts.slot_end, d.specialty_id,
+            d.is_available, d.online_consultation, d.chamber_consultation
           from medibondhu_doctor_time_slots ts
           join medibondhu_doctors d on d.id = ts.doctor_id
           where ts.id = ${slot_id}::uuid
@@ -386,6 +438,9 @@ router.post(
             for update
         `;
         if (!slot) throw new Error("SLOT_NOT_FOUND");
+        if (!slot.is_available) throw new Error("DOCTOR_NOT_AVAILABLE");
+        if (ctype === "online" && !slot.online_consultation) throw new Error("ONLINE_UNAVAILABLE");
+        if (ctype === "chamber" && !slot.chamber_consultation) throw new Error("CHAMBER_UNAVAILABLE");
         const endMs =
           slot.slot_end instanceof Date
             ? slot.slot_end.getTime()
@@ -441,6 +496,9 @@ router.post(
       }
       if (m.includes("SLOT_WINDOW_ENDED")) return res.status(400).json({ error: "This time slot has ended; choose another" });
       if (m.includes("SLOT_NOT_FOUND")) return res.status(404).json({ error: "Slot not found" });
+      if (m.includes("DOCTOR_NOT_AVAILABLE")) return res.status(400).json({ error: "Doctor is not accepting appointments right now" });
+      if (m.includes("ONLINE_UNAVAILABLE")) return res.status(400).json({ error: "This doctor is not offering online visits right now" });
+      if (m.includes("CHAMBER_UNAVAILABLE")) return res.status(400).json({ error: "This doctor is not offering chamber visits right now" });
       throw e;
     }
   })
@@ -456,8 +514,13 @@ router.get(
     const lim = readLimit(req.query.limit, 50, 100);
 
     if (view === "doctor") {
-      const doctorPk = await isDoctorApprovedUser(uid);
-      if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+      const access = await resolveDoctorReadAccess(req, uid);
+      if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+      if (access.adminPreview) {
+        res.set("Cache-Control", "private, no-store");
+        return res.json({ data: EMPTY_DOCTOR_APPOINTMENTS_PAGE });
+      }
+      const doctorPk = access.doctorPk;
 
       const cacheKey = makeCacheKey(CACHE_PREFIX, {
         userId: uid,
@@ -690,7 +753,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
     const apptId = String(req.params.id || "");
-    const { status, cancellation_reason } = req.body || {};
+    const { status, cancellation_reason, leave_deadline_at, left_user_id } = req.body || {};
     if (!isUuid(apptId)) return res.status(400).json({ error: "Invalid appointment id" });
 
     const [row] = await sql`
@@ -714,6 +777,9 @@ router.patch(
           update medibondhu_appointments set
             status = 'cancelled',
             cancelled_by = ${isPatient ? "patient" : isDoctorOwn ? "doctor" : "admin"},
+            talk_ended_at = coalesce(talk_ended_at, now()),
+            leave_deadline_at = null,
+            left_user_id = null,
             updated_at = now()
           where id = ${apptId}::uuid
         `;
@@ -721,6 +787,66 @@ router.patch(
 
       const [nextRow] = await sql`select * from medibondhu_appointments where id = ${apptId}::uuid`;
       return res.json({ data: nextRow });
+    }
+
+    const isGracePatch =
+      status == null &&
+      (Object.prototype.hasOwnProperty.call(req.body || {}, "leave_deadline_at") ||
+        Object.prototype.hasOwnProperty.call(req.body || {}, "left_user_id"));
+    if (isGracePatch) {
+      const isPatient = String(row.patient_user_id) === uid;
+      const doctorPk = await isDoctorApprovedUser(uid);
+      const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
+      if (!isPatient && !isDoctorOwn && !admin) return res.status(403).json({ error: "Forbidden" });
+      if (terminalMediAppointmentStatus(row.status)) {
+        return res.status(409).json({ error: "This appointment is closed" });
+      }
+      const nextDeadline =
+        leave_deadline_at == null || leave_deadline_at === ""
+          ? null
+          : new Date(String(leave_deadline_at));
+      if (nextDeadline && Number.isNaN(nextDeadline.getTime())) {
+        return res.status(400).json({ error: "Invalid leave deadline" });
+      }
+      const nextLeftUserId = left_user_id == null || left_user_id === "" ? null : String(left_user_id);
+      if (nextLeftUserId && !isUuid(nextLeftUserId)) {
+        return res.status(400).json({ error: "Invalid left user id" });
+      }
+      if (nextLeftUserId && nextLeftUserId !== uid && !admin) {
+        return res.status(403).json({ error: "Can only mark your own leave state" });
+      }
+      const [updatedGrace] = await sql`
+        update medibondhu_appointments
+        set
+          leave_deadline_at = ${nextDeadline ? nextDeadline.toISOString() : null},
+          left_user_id = ${nextLeftUserId},
+          updated_at = now()
+        where id = ${apptId}::uuid
+        returning *
+      `;
+      return res.json({ data: updatedGrace });
+    }
+
+    if (status === "completed" && row.leave_deadline_at) {
+      const deadlineMs = new Date(row.leave_deadline_at).getTime();
+      const graceExpired = Number.isFinite(deadlineMs) && deadlineMs <= Date.now();
+      const isPatient = String(row.patient_user_id) === uid;
+      const doctorPk = await isDoctorApprovedUser(uid);
+      const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
+      if (graceExpired && (isPatient || isDoctorOwn || admin)) {
+        const [updatedAfterGrace] = await sql`
+          update medibondhu_appointments
+          set
+            status = 'completed',
+            talk_ended_at = coalesce(talk_ended_at, now()),
+            leave_deadline_at = null,
+            left_user_id = null,
+            updated_at = now()
+          where id = ${apptId}::uuid
+          returning *
+        `;
+        return res.json({ data: updatedAfterGrace });
+      }
     }
 
     /** Doctor updates */
@@ -761,6 +887,14 @@ router.patch(
             when ${st} = 'completed' then coalesce(talk_ended_at, now())
             else talk_ended_at
           end,
+          leave_deadline_at = case
+            when ${st} in ('completed', 'rejected') then null
+            else leave_deadline_at
+          end,
+          left_user_id = case
+            when ${st} in ('completed', 'rejected') then null
+            else left_user_id
+          end,
           updated_at = now()
         where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
         returning *
@@ -777,6 +911,14 @@ router.patch(
         update medibondhu_appointments
         set
           status = ${st},
+          leave_deadline_at = case
+            when ${st} in ('completed', 'rejected') then null
+            else leave_deadline_at
+          end,
+          left_user_id = case
+            when ${st} in ('completed', 'rejected') then null
+            else left_user_id
+          end,
           updated_at = now()
         where id = ${apptId}::uuid and doctor_id = ${doctorPk}::uuid
         returning *
@@ -931,6 +1073,7 @@ router.patch(
       patch.profile_photo_url = b.profile_photo_url == null ? null : String(b.profile_photo_url).slice(0, 2048);
     }
     if (b.about !== undefined) patch.about = b.about == null ? null : String(b.about).slice(0, 4000);
+    if (b.is_available !== undefined) patch.is_available = Boolean(b.is_available);
     if (b.online_consultation !== undefined) patch.online_consultation = Boolean(b.online_consultation);
     if (b.chamber_consultation !== undefined) patch.chamber_consultation = Boolean(b.chamber_consultation);
     if (b.specialty_id !== undefined) {
@@ -953,7 +1096,10 @@ router.patch(
 
     if (!Object.keys(patch).length) return res.status(400).json({ error: "No fields to update" });
 
-    patch.approval_status = "pending";
+    const availabilityOnly = Object.keys(patch).every((key) =>
+      ["is_available", "online_consultation", "chamber_consultation"].includes(key)
+    );
+    if (!availabilityOnly) patch.approval_status = "pending";
     patch.updated_at = new Date().toISOString();
 
     const [upd] = await sql`
@@ -1070,8 +1216,10 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
-    const doctorPk = await isDoctorApprovedUser(uid);
-    if (!doctorPk) return res.status(403).json({ error: "Only approved doctors can view slots" });
+    const access = await resolveDoctorReadAccess(req, uid);
+    if (!access) return res.status(403).json({ error: "Only approved doctors can view slots" });
+    if (access.adminPreview) return res.json({ data: [] });
+    const doctorPk = access.doctorPk;
 
     const fromRaw = typeof req.query.from === "string" ? req.query.from.trim() : "";
     const toRaw = typeof req.query.to === "string" ? req.query.to.trim() : "";
@@ -1299,8 +1447,12 @@ router.get(
     const mode = req.query.mode === "doctor" ? "doctor" : "patient";
 
     if (mode === "doctor") {
-      const doctorPk = await isDoctorApprovedUser(uid);
-      if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+      const access = await resolveDoctorReadAccess(req, uid);
+      if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+      if (access.adminPreview) {
+        return res.json({ data: EMPTY_DOCTOR_PRESCRIPTIONS_PAGE });
+      }
+      const doctorPk = access.doctorPk;
       const rows = await sql`
         select pr.*,
           coalesce(ap.chief_complaint,'') as chief_complaint
@@ -1417,9 +1569,45 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
-    const admin = await isAdminReq(req);
-    const doctorPk = await isDoctorApprovedUser(uid);
-    if (!doctorPk && !admin) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    const access = await resolveDoctorReadAccess(req, uid);
+    if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    if (access.adminPreview) {
+      const adminDoctorUserId = String(req.query.doctor_user_id || "");
+      if (!isUuid(adminDoctorUserId)) {
+        return res.json({ data: { ...EMPTY_DOCTOR_EARNINGS_SUMMARY, history: [] } });
+      }
+      const summary = await computeDoctorEarningsSummary(adminDoctorUserId);
+      const historyLimit = Math.min(Math.max(Number(req.query.history_limit) || 30, 1), 100);
+      const historyRows = await sql`
+        select
+          a.id,
+          coalesce(pp.name, pp.email, 'Patient') as patient_name,
+          coalesce(d.consultation_fee, 0) as fee,
+          a.created_at,
+          a.updated_at as completed_at
+        from medibondhu_appointments a
+        join medibondhu_doctors d on d.id = a.doctor_id
+        left join profiles pp on pp.id = a.patient_user_id
+        where d.user_id = ${adminDoctorUserId}
+          and a.status = 'completed'
+        order by a.updated_at desc
+        limit ${historyLimit}
+      `;
+      return res.json({
+        data: {
+          ...summary,
+          history: historyRows.map((r) => ({
+            id: r.id,
+            patient_name: toTextOrNull(r.patient_name) || "Patient",
+            fee: toMoney(r.fee || 0),
+            created_at: r.created_at,
+            completed_at: r.completed_at,
+            animal_type: null,
+          })),
+        },
+      });
+    }
+    const doctorPk = access.doctorPk;
 
     const actorUserId = doctorPk ? uid : String(req.query.doctor_user_id || "");
     if (!isUuid(actorUserId)) return res.status(400).json({ error: "doctor_user_id required for admin view" });
@@ -1462,8 +1650,9 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
-    const doctorPk = await isDoctorApprovedUser(uid);
-    if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    const access = await resolveDoctorReadAccess(req, uid);
+    if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    if (access.adminPreview) return res.json({ data: [] });
     try {
       const rows = await sql`
         select

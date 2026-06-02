@@ -1,17 +1,46 @@
 const VALID_CATEGORIES = new Set([
-  "feed",
   "medicine",
   "vaccines",
   "supplements",
-  "equipment",
-  "pest_control",
+  "first_aid",
+  "health_care_items",
+  "medical_equipment",
+  "baby_care",
+  "diabetes_care",
+  "skin_personal_care",
+  "animal_medicine",
+  "pet_medicine",
+  "animal_vaccine",
+  "animal_vitamins_supplements",
+  "dewormer",
+  "wound_care",
+  "animal_first_aid",
+  "vet_equipment",
+  "animal_feed",
+  "seeds_plants_nursery",
+  "fertilizer",
+  "pesticide",
+  "rice_grains_pulses",
+  "vegetables_fruits",
+  "bags_packaging_storage",
+  "organic_products",
+  "farm_accessories_grooming",
+  "pet_food",
+  "pet_medicine_health",
+  "pet_care_grooming",
+  "pet_accessories",
+  "pet_cage_carrier",
+  "pet_bowl_feeder",
+  "pet_toys",
+  "pet_litter_cleaning",
   "livestock",
-  "eggs",
   "meat",
-  "milk",
-  "produce",
-  "grooming",
-  "packaging",
+  "milk_dairy",
+  "eggs",
+  "fish_fishery",
+  "farm_machines",
+  "farm_tools_equipment",
+  "water_irrigation",
 ]);
 
 const ALLOWED_FIELDS = new Set([
@@ -24,10 +53,14 @@ const ALLOWED_FIELDS = new Set([
   "stock",
   "image",
   "free_delivery",
+  "delivery_charge_dhaka",
+  "delivery_charge_outside",
   "is_flash_sale",
   "flash_sale_end",
   "wholesale_price",
   "wholesale_min_qty",
+  "wholesale_rule",
+  "wholesale_min_order_bdt",
   "location",
   "seller_name",
   "is_verified_seller",
@@ -56,11 +89,20 @@ function bool(v) {
 function normalizeCategory(value) {
   const key = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
   const aliases = {
-    "pest control": "pest_control",
-    dairy: "milk",
-    organic: "produce",
-    "poultry feed": "feed",
-    "cattle feed": "feed",
+    feed: "animal_feed",
+    poultry_feed: "animal_feed",
+    cattle_feed: "animal_feed",
+    milk: "milk_dairy",
+    dairy: "milk_dairy",
+    produce: "vegetables_fruits",
+    organic: "organic_products",
+    pest_control: "pesticide",
+    equipment: "farm_tools_equipment",
+    grooming: "farm_accessories_grooming",
+    packaging: "bags_packaging_storage",
+    first_aid: "first_aid",
+    health_care: "health_care_items",
+    personal_care: "skin_personal_care",
   };
   return aliases[key] || key;
 }
@@ -167,6 +209,30 @@ export function validateProductPayload(body, opts = {}) {
     out.free_delivery = fd == null ? false : fd;
   }
 
+  if (!partial || "delivery_charge_dhaka" in src) {
+    if (merged.delivery_charge_dhaka == null || merged.delivery_charge_dhaka === "") {
+      out.delivery_charge_dhaka = null;
+    } else {
+      const charge = num(merged.delivery_charge_dhaka);
+      if (charge == null || Number.isNaN(charge) || charge < 0 || !Number.isInteger(charge)) {
+        throw badRequest("delivery_charge_dhaka must be a non-negative integer");
+      }
+      out.delivery_charge_dhaka = charge;
+    }
+  }
+
+  if (!partial || "delivery_charge_outside" in src) {
+    if (merged.delivery_charge_outside == null || merged.delivery_charge_outside === "") {
+      out.delivery_charge_outside = null;
+    } else {
+      const charge = num(merged.delivery_charge_outside);
+      if (charge == null || Number.isNaN(charge) || charge < 0 || !Number.isInteger(charge)) {
+        throw badRequest("delivery_charge_outside must be a non-negative integer");
+      }
+      out.delivery_charge_outside = charge;
+    }
+  }
+
   if (!partial || "is_flash_sale" in src) {
     const fs = bool(merged.is_flash_sale);
     out.is_flash_sale = fs == null ? false : fs;
@@ -182,31 +248,66 @@ export function validateProductPayload(body, opts = {}) {
     }
   }
 
-  if (!partial || "wholesale_price" in src || "wholesale_min_qty" in src) {
+  if (!partial || "wholesale_price" in src || "wholesale_min_qty" in src || "wholesale_rule" in src || "wholesale_min_order_bdt" in src) {
     const wp = merged.wholesale_price == null || merged.wholesale_price === ""
       ? null
       : num(merged.wholesale_price);
     const wq = merged.wholesale_min_qty == null || merged.wholesale_min_qty === ""
       ? null
       : num(merged.wholesale_min_qty);
+    const wv = merged.wholesale_min_order_bdt == null || merged.wholesale_min_order_bdt === ""
+      ? null
+      : num(merged.wholesale_min_order_bdt);
+    const rawRule = merged.wholesale_rule == null || merged.wholesale_rule === ""
+      ? "quantity"
+      : String(merged.wholesale_rule).trim();
+    const validRules = new Set(["quantity", "order_value", "quantity_and_value"]);
+    const rule = validRules.has(rawRule) ? rawRule : "quantity";
+
     const hasWp = wp != null && !Number.isNaN(wp);
     const hasWq = wq != null && !Number.isNaN(wq);
-    if (hasWp !== hasWq) {
-      throw badRequest("Wholesale price and minimum quantity must both be set");
-    }
-    if (hasWp) {
-      if (wp <= 0 || wq <= 0 || !Number.isInteger(wq)) {
-        throw badRequest("Invalid wholesale pricing");
-      }
+    const hasWv = wv != null && !Number.isNaN(wv);
+
+    if (!hasWp) {
+      out.wholesale_price = null;
+      out.wholesale_min_qty = null;
+      out.wholesale_min_order_bdt = null;
+      out.wholesale_rule = null;
+    } else {
+      if (wp <= 0) throw badRequest("Invalid wholesale pricing");
       const salePrice = num(out.price ?? merged.price);
       if (salePrice != null && wp >= salePrice) {
         throw badRequest("Wholesale price must be less than retail price");
       }
+
+      const effectiveRule = hasWq && hasWv
+        ? "quantity_and_value"
+        : hasWv
+          ? "order_value"
+          : hasWq
+            ? "quantity"
+            : rule;
+
+      if (effectiveRule === "quantity" || effectiveRule === "quantity_and_value") {
+        if (!hasWq || wq <= 0 || !Number.isInteger(wq)) {
+          throw badRequest("Wholesale minimum quantity is required");
+        }
+        out.wholesale_min_qty = wq;
+      } else {
+        out.wholesale_min_qty = null;
+      }
+
+      if (effectiveRule === "order_value" || effectiveRule === "quantity_and_value") {
+        if (!hasWv || wv <= 0) {
+          throw badRequest("Wholesale minimum order value is required");
+        }
+        out.wholesale_min_order_bdt = wv;
+      } else {
+        out.wholesale_min_order_bdt = null;
+      }
+
       out.wholesale_price = wp;
-      out.wholesale_min_qty = wq;
-    } else {
-      out.wholesale_price = null;
-      out.wholesale_min_qty = null;
+      out.wholesale_rule = effectiveRule;
     }
   }
 

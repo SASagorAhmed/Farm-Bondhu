@@ -4,6 +4,24 @@ import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
 import { requireAdmin } from "../../middleware/requireAdmin.js";
+import { validateOrderInsert, validateOrderCartInput } from "../../lib/orderValidate.js";
+import {
+  notifyMarketplaceOrderCreated,
+  notifyMarketplaceOrderStatusChange,
+} from "../../services/marketplaceOrderNotify.js";
+import { assertBuyerCanPurchase, ModerationError } from "../../services/adminMarketplaceModeration.js";
+import {
+  buildOrderQuote,
+  placeMarketplaceOrder,
+  restockOrderIfNeeded,
+  OrderPricingError,
+} from "../../services/marketplaceOrderPricing.js";
+import { listOrderReviewStatus, ReviewError } from "../../services/marketplaceReviews.js";
+import { invalidateMarketplaceProductCache } from "../../lib/marketplaceProductCache.js";
+
+function logNotifyError(err) {
+  console.error("[orders] marketplace notify failed:", err?.message || err);
+}
 
 const router = Router();
 const chain = [requireDatabase, requireUser];
@@ -26,43 +44,111 @@ router.get(
   })
 );
 
-const insertKeys = [
-  "buyer_name",
-  "seller_id",
-  "seller_name",
-  "items",
-  "total",
-  "shipping_fee",
-  "delivery_address",
-  "payment_method",
-  "payment_status",
-  "timeline",
-  "estimated_delivery",
-  "status",
-  "date",
-  "return_reason",
-  "return_note",
-  "tracking_id",
-];
+router.post(
+  "/preview",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const validated = validateOrderCartInput(req.body || {});
+    if (!validated.ok) {
+      res.status(400).json({ error: validated.error });
+      return;
+    }
+
+    try {
+      await assertBuyerCanPurchase(req.userId);
+    } catch (error) {
+      if (error instanceof ModerationError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+
+    try {
+      const quote = await buildOrderQuote(
+        req.userId,
+        validated.sellerId,
+        validated.items,
+        validated.deliveryAddress,
+      );
+      if (!quote.ok) {
+        res.status(400).json({ error: quote.errors.join("; "), data: quote });
+        return;
+      }
+      res.json({ data: quote });
+    } catch (error) {
+      if (error instanceof OrderPricingError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  })
+);
 
 router.post(
   "/",
   ...chain,
   asyncHandler(async (req, res) => {
-    const b = req.body || {};
-    const row = { buyer_id: req.userId };
-    for (const k of insertKeys) {
-      if (b[k] !== undefined) row[k] = b[k];
+    const body = req.body || {};
+    const cartValidated = validateOrderCartInput(body);
+
+    if (cartValidated.ok) {
+      try {
+        await assertBuyerCanPurchase(req.userId);
+      } catch (error) {
+        if (error instanceof ModerationError) {
+          res.status(error.status).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+
+      try {
+        const { order } = await placeMarketplaceOrder(req.userId, {
+          seller_id: cartValidated.sellerId,
+          items: cartValidated.items,
+          delivery_address: cartValidated.deliveryAddress ?? body.delivery_address,
+          payment_method: cartValidated.paymentMethod ?? body.payment_method,
+          buyer_name: cartValidated.buyerName ?? body.buyer_name,
+          seller_name: cartValidated.sellerName ?? body.seller_name,
+          estimated_delivery_note: cartValidated.estimatedDeliveryNote ?? body.estimated_delivery_note,
+        });
+        const productIds = (Array.isArray(order.items) ? order.items : [])
+          .map((item) => item?.productId || item?.product_id)
+          .filter(Boolean);
+        invalidateMarketplaceProductCache(String(order.seller_id || cartValidated.sellerId), productIds);
+        void notifyMarketplaceOrderCreated(order).catch(logNotifyError);
+        res.status(201).json({ data: order });
+        return;
+      } catch (error) {
+        if (error instanceof OrderPricingError) {
+          res.status(error.status).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
     }
-    if (!row.seller_id) {
-      res.status(400).json({ error: "seller_id is required" });
+
+    const validated = validateOrderInsert(body);
+    if (!validated.ok) {
+      res.status(400).json({ error: validated.error });
       return;
     }
-    const [created] = await sql`
-      insert into orders ${sql(row)}
-      returning *
-    `;
-    res.status(201).json({ data: created });
+
+    try {
+      await assertBuyerCanPurchase(req.userId);
+    } catch (error) {
+      if (error instanceof ModerationError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+
+    res.status(400).json({
+      error: cartValidated.error || "Order items must include productId, qty, and priceTier",
+    });
   })
 );
 
@@ -77,6 +163,7 @@ const updateKeys = [
   "payment_status",
   "timeline",
   "estimated_delivery",
+  "estimated_delivery_note",
   "status",
   "date",
   "return_reason",
@@ -98,7 +185,7 @@ router.patch(
       return;
     }
     const [existing] = await sql`
-      select buyer_id, seller_id from orders where id = ${req.params.id} limit 1
+      select * from orders where id = ${req.params.id} limit 1
     `;
     if (!existing) {
       res.status(404).json({ error: "Not found" });
@@ -118,6 +205,24 @@ router.patch(
     const [updated] = await sql`
       update orders set ${sql(patch)} where id = ${req.params.id} returning *
     `;
+
+    const prevStatus = String(existing.status || "");
+    const nextStatus = String(updated.status || "");
+    if (prevStatus !== nextStatus && ["cancelled", "returned", "refunded"].includes(nextStatus)) {
+      try {
+        const restored = await restockOrderIfNeeded(updated);
+        if (restored) {
+          const productIds = (Array.isArray(updated.items) ? updated.items : [])
+            .map((item) => item?.productId || item?.product_id)
+            .filter(Boolean);
+          invalidateMarketplaceProductCache(String(updated.seller_id || ""), productIds);
+        }
+      } catch (err) {
+        console.error("[orders] restock failed:", err?.message || err);
+      }
+    }
+
+    void notifyMarketplaceOrderStatusChange(existing, updated).catch(logNotifyError);
     res.json({ data: updated });
   })
 );
@@ -133,6 +238,23 @@ router.get(
       select * from orders order by created_at desc limit 500
     `;
     res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/:orderId/review-status",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await listOrderReviewStatus(req.params.orderId, req.userId);
+      res.json({ data });
+    } catch (error) {
+      if (error instanceof ReviewError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   })
 );
 

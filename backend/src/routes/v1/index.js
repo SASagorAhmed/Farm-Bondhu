@@ -2,6 +2,7 @@ import { Router } from "express";
 import metaRoutes from "./meta.js";
 import authRoutes from "./auth.js";
 import meRoutes from "./me.js";
+import meAddressesRoutes from "./meAddresses.js";
 import farmsRoutes from "./farms.js";
 import animalsRoutes from "./animals.js";
 import shedsRoutes from "./sheds.js";
@@ -21,12 +22,15 @@ import communityRoutes from "./community.js";
 import cowEstimationRoutes from "./cowEstimation.js";
 import cowDirectionAssistRoutes from "./cowDirectionAssist.js";
 import cowDetectionFeedbackRoutes from "./cowDetectionFeedback.js";
+import adminEmailAuditRoutes from "./adminEmailAudit.js";
+import adminModerationReportsRoutes from "./adminModerationReports.js";
 
 const router = Router();
 
 router.use("/", metaRoutes);
 router.use("/auth", authRoutes);
 router.use("/me", meRoutes);
+router.use("/me/addresses", meAddressesRoutes);
 router.use("/farms", farmsRoutes);
 router.use("/animals", animalsRoutes);
 router.use("/sheds", shedsRoutes);
@@ -46,5 +50,7 @@ router.use("/community", communityRoutes);
 router.use("/cow-estimations", cowEstimationRoutes);
 router.use("/cow-estimations", cowDirectionAssistRoutes);
 router.use("/cow-estimations", cowDetectionFeedbackRoutes);
+router.use("/admin", adminEmailAuditRoutes);
+router.use("/admin", adminModerationReportsRoutes);
 
 export default router;

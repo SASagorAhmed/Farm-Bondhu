@@ -12,7 +12,22 @@ router.get(
   ...chain,
   asyncHandler(async (req, res) => {
     const rows = await sql`
-      select * from notifications where user_id = ${req.userId} order by created_at desc
+      select
+        id,
+        user_id,
+        title,
+        message,
+        type,
+        context,
+        priority,
+        coalesce(action_url, link) as action_url,
+        link,
+        broadcast_id,
+        read,
+        created_at
+      from notifications
+      where user_id = ${req.userId}
+      order by created_at desc
     `;
     res.json({ data: rows });
   })

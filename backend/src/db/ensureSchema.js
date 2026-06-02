@@ -4,6 +4,11 @@
  * Disable with AUTO_CREATE_SCHEMA=false (e.g. production where migrations own DDL).
  */
 
+import {
+  ensureOfficialFarmBondhuShop,
+  getOfficialFarmBondhuSellerId,
+} from "../services/officialFarmBondhuShop.js";
+
 /** @param {import("postgres").Sql} sql */
 async function runOptional(sql, label, query) {
   try {
@@ -34,6 +39,137 @@ async function addColumns(sql, table, defs) {
       `ALTER TABLE public.${table} ADD COLUMN IF NOT EXISTS ${def}`
     );
   }
+}
+
+const SUPPORT_PRODUCT_NAME = "Customer Support";
+const SUPPORT_PRODUCT_SELLER_NAME = "FarmBondhu Support";
+
+/** @param {import("postgres").Sql} sql */
+async function repairMisclassifiedSupportConversations(sql) {
+  try {
+    const repaired = await sql`
+      update conversations c
+      set
+        conversation_kind = 'marketplace',
+        support_topic = null,
+        support_status = null,
+        updated_at = now()
+      where coalesce(c.conversation_kind, 'marketplace') = 'platform_support'
+        and (
+          c.support_topic is null
+          or c.support_topic not in ('help', 'complaint')
+          or not exists (
+            select 1 from products p
+            where p.id = c.product_id
+              and p.name = ${SUPPORT_PRODUCT_NAME}
+              and p.seller_name = ${SUPPORT_PRODUCT_SELLER_NAME}
+          )
+        )
+      returning c.id
+    `;
+    if (repaired.length > 0) {
+      console.log(
+        `[ensureSchema] repaired ${repaired.length} misclassified platform_support conversation(s) → marketplace`
+      );
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[ensureSchema] repair misclassified support conversations: ${msg}`);
+  }
+}
+
+const SUPPORT_SHOP_LABEL = "FarmBondhu Support";
+const OFFICIAL_SHOP_NAME = "FarmBondhu";
+
+/** @param {import("postgres").Sql} sql */
+async function repairSupportShopNameOverwrite(sql) {
+  try {
+    const repaired = await sql`
+      update shops s
+      set
+        shop_name = resolved.correct_name,
+        updated_at = now()
+      from (
+        select
+          s2.user_id,
+          coalesce(
+            nullif(trim(latest_ar.request_shop_name), ''),
+            case
+              when exists (
+                select 1 from products p
+                where p.seller_id = s2.user_id
+                  and p.seller_name = ${OFFICIAL_SHOP_NAME}
+                  and p.name <> ${SUPPORT_PRODUCT_NAME}
+              ) then ${OFFICIAL_SHOP_NAME}
+            end,
+            (
+              select p2.seller_name
+              from products p2
+              where p2.seller_id = s2.user_id
+                and nullif(trim(p2.seller_name), '') is not null
+                and trim(p2.seller_name) <> ${SUPPORT_SHOP_LABEL}
+              group by p2.seller_name
+              order by count(*) desc
+              limit 1
+            )
+          ) as correct_name
+        from shops s2
+        left join lateral (
+          select trim(coalesce(ar.details->>'shopName', ar.payload->>'shopName', '')) as request_shop_name
+          from approval_requests ar
+          where ar.user_id = s2.user_id
+            and ar.request_type = 'shop_access'
+            and ar.status = 'approved'
+          order by ar.updated_at desc
+          limit 1
+        ) latest_ar on true
+        where s2.shop_name = ${SUPPORT_SHOP_LABEL}
+      ) resolved
+      where s.user_id = resolved.user_id
+        and resolved.correct_name is not null
+        and trim(resolved.correct_name) <> ''
+      returning s.user_id
+    `;
+    if (repaired.length > 0) {
+      console.log(
+        `[ensureSchema] restored ${repaired.length} shop name(s) overwritten by platform support setup`
+      );
+    }
+    const officialSellerId = await getOfficialFarmBondhuSellerId();
+    if (officialSellerId) {
+      await ensureOfficialFarmBondhuShop(officialSellerId);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[ensureSchema] repair support shop name overwrite: ${msg}`);
+  }
+}
+
+/** @param {import("postgres").Sql} sql */
+async function migrateOrdersDeliveryAddress(sql) {
+  const cols = await sql`
+    select column_name, data_type
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'orders'
+      and column_name = 'delivery_address'
+  `;
+  const col = cols[0];
+  if (!col || col.data_type === "jsonb") return;
+
+  await runOptional(
+    sql,
+    "orders delivery_address jsonb",
+    `ALTER TABLE public.orders
+     ALTER COLUMN delivery_address TYPE jsonb
+     USING (
+       CASE
+         WHEN delivery_address IS NULL OR btrim(delivery_address) = '' THEN NULL
+         WHEN delivery_address ~ '^\\s*\\{' THEN delivery_address::jsonb
+         ELSE jsonb_build_object('address', delivery_address)
+       END
+     )`
+  );
 }
 
 /** @param {import("postgres").Sql} sql */
@@ -267,6 +403,21 @@ export async function ensureSchema(sql) {
       created_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.email_audit_log (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      email_type text NOT NULL,
+      category text NOT NULL,
+      recipient_email text NOT NULL,
+      subject text NOT NULL,
+      status text NOT NULL,
+      error_message text,
+      body_preview text,
+      sensitive_fields jsonb DEFAULT '{}'::jsonb,
+      metadata jsonb DEFAULT '{}'::jsonb,
+      provider text
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.orders (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       buyer_id uuid NOT NULL,
@@ -276,7 +427,7 @@ export async function ensureSchema(sql) {
       items jsonb NOT NULL DEFAULT '[]'::jsonb,
       total numeric NOT NULL DEFAULT 0,
       shipping_fee numeric DEFAULT 0,
-      delivery_address text,
+      delivery_address jsonb,
       payment_method text,
       payment_status text,
       timeline jsonb DEFAULT '[]'::jsonb,
@@ -286,6 +437,7 @@ export async function ensureSchema(sql) {
       return_reason text,
       return_note text,
       tracking_id text,
+      stock_restored boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -314,6 +466,48 @@ export async function ensureSchema(sql) {
       logo_url text,
       banner_url text,
       rating numeric,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.seller_lane_grants (
+      user_id uuid NOT NULL,
+      lane text NOT NULL,
+      status text NOT NULL DEFAULT 'pending',
+      license_number text,
+      license_file_url text,
+      review_notes text,
+      reviewed_by uuid,
+      reviewed_at timestamptz,
+      request_id uuid,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, lane)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.marketplace_banners (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      image_url text NOT NULL,
+      alt_text text,
+      link_url text,
+      sort_order integer NOT NULL DEFAULT 0,
+      is_active boolean NOT NULL DEFAULT true,
+      display_seconds integer NOT NULL DEFAULT 5,
+      starts_at timestamptz,
+      ends_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.marketing_design_drafts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      title text NOT NULL DEFAULT 'Untitled',
+      preset_key text,
+      width integer NOT NULL,
+      height integer NOT NULL,
+      canvas_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+      thumbnail_data text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -403,7 +597,10 @@ export async function ensureSchema(sql) {
       buyer_id uuid NOT NULL,
       seller_id uuid NOT NULL,
       product_id uuid NOT NULL,
+      last_message text,
       last_message_at timestamptz,
+      last_sender_id uuid,
+      last_sender_role text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -412,10 +609,94 @@ export async function ensureSchema(sql) {
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       conversation_id uuid NOT NULL,
       sender_id uuid NOT NULL,
+      sender_role text NOT NULL DEFAULT 'buyer',
+      message_type text NOT NULL DEFAULT 'text',
+      text_body text,
+      shared_product_id uuid,
       body text,
       attachment_url text,
       "read" boolean NOT NULL DEFAULT false,
+      buyer_delivered_at timestamptz,
+      buyer_read_at timestamptz,
+      seller_delivered_at timestamptz,
+      seller_read_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.chat_message_translations (
+      message_id uuid NOT NULL REFERENCES public.chat_messages(id) ON DELETE CASCADE,
+      target_lang text NOT NULL,
+      translated_text text NOT NULL,
+      source_lang text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (message_id, target_lang)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.chat_contact_violations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      conversation_id uuid,
+      reason text NOT NULL DEFAULT 'contact_guard',
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.marketplace_conversation_reports (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id uuid NOT NULL,
+      reported_by uuid NOT NULL,
+      reporter_role text NOT NULL,
+      reason text NOT NULL,
+      details text,
+      status text NOT NULL DEFAULT 'pending',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.marketplace_product_reviews (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      order_id uuid NOT NULL,
+      product_id uuid NOT NULL,
+      buyer_id uuid NOT NULL,
+      seller_id uuid NOT NULL,
+      rating smallint NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment text,
+      photo_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      deleted_at timestamptz,
+      deleted_by uuid,
+      UNIQUE (order_id, product_id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.marketplace_product_comments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      product_id uuid NOT NULL,
+      user_id uuid NOT NULL,
+      body text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      deleted_at timestamptz,
+      deleted_by uuid
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.user_addresses (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+      full_name text NOT NULL,
+      phone text NOT NULL,
+      alt_phone text,
+      country text NOT NULL DEFAULT 'Bangladesh',
+      division text NOT NULL,
+      district text NOT NULL,
+      upazila text NOT NULL,
+      area text,
+      full_address text NOT NULL,
+      landmark text,
+      post_code text,
+      address_type text NOT NULL DEFAULT 'home',
+      is_default boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
     `CREATE TABLE IF NOT EXISTS public.approval_requests (
@@ -440,6 +721,7 @@ export async function ensureSchema(sql) {
       bio text,
       verified boolean NOT NULL DEFAULT false,
       consultation_fee numeric,
+      last_seen_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -453,6 +735,7 @@ export async function ensureSchema(sql) {
       district text,
       address text,
       specialization text,
+      degree text,
       experience_years integer,
       consultation_fee numeric,
       profile_image_url text,
@@ -537,6 +820,24 @@ export async function ensureSchema(sql) {
     `CREATE TABLE IF NOT EXISTS public.medibondhu_doctor_withdrawals (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       doctor_user_id uuid NOT NULL,
+      request_amount numeric NOT NULL,
+      gross_earnings numeric NOT NULL DEFAULT 0,
+      platform_fee numeric NOT NULL DEFAULT 0,
+      net_earnings numeric NOT NULL DEFAULT 0,
+      available_balance numeric NOT NULL DEFAULT 0,
+      status text NOT NULL DEFAULT 'pending',
+      note text,
+      review_note text,
+      reviewed_by uuid,
+      reviewed_at timestamptz,
+      paid_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.seller_withdrawals (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      seller_user_id uuid NOT NULL,
       request_amount numeric NOT NULL,
       gross_earnings numeric NOT NULL DEFAULT 0,
       platform_fee numeric NOT NULL DEFAULT 0,
@@ -712,7 +1013,10 @@ export async function ensureSchema(sql) {
     "phone text",
     "location text",
     "avatar_url text",
+    "status text NOT NULL DEFAULT 'active'",
     "farmer_open_medibondhu boolean NOT NULL DEFAULT true",
+    "signup_module text",
+    "chat_notification_sound_id text",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -722,6 +1026,9 @@ export async function ensureSchema(sql) {
     "message text",
     "type text",
     "link text",
+    "context text",
+    "priority text NOT NULL DEFAULT 'normal'",
+    "action_url text",
     "broadcast_id uuid",
     `"read" boolean NOT NULL DEFAULT false`,
     "created_at timestamptz NOT NULL DEFAULT now()",
@@ -736,6 +1043,8 @@ export async function ensureSchema(sql) {
   await addColumns(sql, "medibondhu_appointments", [
     "talk_started_at timestamptz",
     "talk_ended_at timestamptz",
+    "leave_deadline_at timestamptz",
+    "left_user_id uuid",
   ]);
 
   await addColumns(sql, "community_posts", [
@@ -774,12 +1083,22 @@ export async function ensureSchema(sql) {
     "items jsonb NOT NULL DEFAULT '[]'::jsonb",
     "timeline jsonb DEFAULT '[]'::jsonb",
     "estimated_delivery timestamptz",
+    "estimated_delivery_note text",
     "date date",
     "return_reason text",
     "return_note text",
     "tracking_id text",
+    "stock_restored boolean NOT NULL DEFAULT false",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
+  await migrateOrdersDeliveryAddress(sql);
+
+  await addColumns(sql, "marketplace_banners", [
+    "display_seconds integer NOT NULL DEFAULT 5",
+    "starts_at timestamptz",
+    "ends_at timestamptz",
   ]);
 
   await addColumns(sql, "products", [
@@ -792,10 +1111,28 @@ export async function ensureSchema(sql) {
     "unit text",
     "review_count integer",
     "free_delivery boolean DEFAULT false",
+    "delivery_charge_dhaka integer",
+    "delivery_charge_outside integer",
     "is_flash_sale boolean DEFAULT false",
     "flash_sale_end timestamptz",
+    "flash_sale_request_status text",
+    "flash_sale_requested_at timestamptz",
+    "flash_sale_requested_original_price numeric",
+    "flash_sale_request_notes text",
+    "flash_sale_reviewed_at timestamptz",
+    "flash_sale_reviewed_by uuid",
+    "flash_sale_review_notes text",
     "wholesale_price numeric",
     "wholesale_min_qty integer",
+    "wholesale_rule text DEFAULT 'quantity'",
+    "wholesale_min_order_bdt numeric",
+    "listing_status text NOT NULL DEFAULT 'pending_review'",
+    "listing_review_notes text",
+    "listing_reviewed_by uuid",
+    "listing_reviewed_at timestamptz",
+    "listing_submitted_at timestamptz",
+    "shop_pin_order integer",
+    "shop_sort_order integer NOT NULL DEFAULT 0",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -863,6 +1200,115 @@ export async function ensureSchema(sql) {
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
 
+  await addColumns(sql, "shops", [
+    "location text",
+    "status text DEFAULT 'approved'",
+    "total_products integer DEFAULT 0",
+    "total_sales numeric DEFAULT 0",
+    "is_verified boolean DEFAULT false",
+    "verified_at timestamptz",
+    "verified_by uuid",
+    "created_date timestamptz DEFAULT now()",
+  ]);
+
+  await addColumns(sql, "conversations", [
+    "last_message text",
+    "last_message_at timestamptz",
+    "last_sender_id uuid",
+    "last_sender_role text",
+    "updated_at timestamptz NOT NULL DEFAULT now()",
+    "conversation_kind text NOT NULL DEFAULT 'marketplace'",
+    "support_topic text",
+    "support_status text DEFAULT 'open'",
+  ]);
+
+  await repairMisclassifiedSupportConversations(sql);
+  await repairSupportShopNameOverwrite(sql);
+
+  await runOptional(
+    sql,
+    "marketplace_conversation_reports conversation_id index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_conversation_reports_conversation_id
+     ON public.marketplace_conversation_reports (conversation_id)`
+  );
+  await runOptional(
+    sql,
+    "marketplace_conversation_reports status index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_conversation_reports_status_created
+     ON public.marketplace_conversation_reports (status, created_at DESC)`
+  );
+  await runOptional(
+    sql,
+    "marketplace_product_reviews product index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_product_reviews_product_created
+     ON public.marketplace_product_reviews (product_id, created_at DESC)
+     WHERE deleted_at IS NULL`
+  );
+  await runOptional(
+    sql,
+    "marketplace_product_reviews buyer index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_product_reviews_buyer
+     ON public.marketplace_product_reviews (buyer_id, created_at DESC)`
+  );
+  await runOptional(
+    sql,
+    "marketplace_product_comments product index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_product_comments_product_created
+     ON public.marketplace_product_comments (product_id, created_at DESC)
+     WHERE deleted_at IS NULL`
+  );
+
+  await addColumns(sql, "marketplace_product_reviews", [
+    "seller_reply text",
+    "seller_reply_at timestamptz",
+    "seller_reply_updated_at timestamptz",
+  ]);
+  await addColumns(sql, "marketplace_product_comments", [
+    "parent_id uuid",
+  ]);
+  await runOptional(
+    sql,
+    "marketplace_product_comments parent fk",
+    `DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'marketplace_product_comments_parent_id_fkey'
+      ) THEN
+        ALTER TABLE public.marketplace_product_comments
+          ADD CONSTRAINT marketplace_product_comments_parent_id_fkey
+          FOREIGN KEY (parent_id) REFERENCES public.marketplace_product_comments(id) ON DELETE CASCADE;
+      END IF;
+    END $$;`
+  );
+  await runOptional(
+    sql,
+    "marketplace_product_comments parent index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_product_comments_product_parent_created
+     ON public.marketplace_product_comments (product_id, parent_id, created_at DESC)
+     WHERE deleted_at IS NULL`
+  );
+  await runOptional(
+    sql,
+    "marketplace_product_reviews seller index",
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_product_reviews_seller_created
+     ON public.marketplace_product_reviews (seller_id, created_at DESC)
+     WHERE deleted_at IS NULL`
+  );
+
+  await addColumns(sql, "chat_messages", [
+    "sender_role text NOT NULL DEFAULT 'buyer'",
+    "message_type text NOT NULL DEFAULT 'text'",
+    "text_body text",
+    "shared_product_id uuid",
+    "body text",
+    "attachment_url text",
+    "\"read\" boolean NOT NULL DEFAULT false",
+    "buyer_delivered_at timestamptz",
+    "buyer_read_at timestamptz",
+    "seller_delivered_at timestamptz",
+    "seller_read_at timestamptz",
+    "created_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
   await addColumns(sql, "vets", [
     "user_id uuid",
     "full_name text",
@@ -885,6 +1331,7 @@ export async function ensureSchema(sql) {
     "rejection_reason text",
     "verified_by uuid",
     "verified_at timestamptz",
+    "last_seen_at timestamptz",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -897,6 +1344,7 @@ export async function ensureSchema(sql) {
     "district text",
     "address text",
     "specialization text",
+    "degree text",
     "experience_years integer",
     "consultation_fee numeric",
     "profile_image_url text",
@@ -933,7 +1381,7 @@ export async function ensureSchema(sql) {
     sql,
     "backfill vet_profiles from vets",
     `INSERT INTO public.vet_profiles (
-       id, user_id, full_name, phone, email, district, address, specialization,
+       id, user_id, full_name, phone, email, district, address, specialization, degree,
        experience_years, consultation_fee, profile_image_url, verification_document_url,
        verification_status, rejection_reason, verified_by, verified_at, created_at, updated_at
      )
@@ -946,6 +1394,7 @@ export async function ensureSchema(sql) {
        COALESCE(NULLIF(TRIM(v.district), ''), NULLIF(TRIM(v.location), '')),
        COALESCE(NULLIF(TRIM(v.address), ''), NULLIF(TRIM(v.location), '')),
        COALESCE(NULLIF(TRIM(v.specialization), ''), 'General Veterinary'),
+       COALESCE(NULLIF(TRIM(v.degree), ''), 'Veterinary Professional'),
        COALESCE(v.experience_years, v.experience, 0),
        COALESCE(v.consultation_fee, v.fee, 500),
        COALESCE(NULLIF(TRIM(v.profile_image_url), ''), NULLIF(TRIM(v.avatar), '')),
@@ -965,6 +1414,7 @@ export async function ensureSchema(sql) {
        district = COALESCE(EXCLUDED.district, vet_profiles.district),
        address = COALESCE(EXCLUDED.address, vet_profiles.address),
        specialization = COALESCE(EXCLUDED.specialization, vet_profiles.specialization),
+       degree = COALESCE(EXCLUDED.degree, vet_profiles.degree),
        experience_years = COALESCE(EXCLUDED.experience_years, vet_profiles.experience_years),
        consultation_fee = COALESCE(EXCLUDED.consultation_fee, vet_profiles.consultation_fee),
        profile_image_url = COALESCE(EXCLUDED.profile_image_url, vet_profiles.profile_image_url),
@@ -987,6 +1437,7 @@ export async function ensureSchema(sql) {
        district = COALESCE(NULLIF(TRIM(vp.district), ''), NULLIF(TRIM(p.location), ''), 'Bangladesh'),
        address = COALESCE(NULLIF(TRIM(vp.address), ''), NULLIF(TRIM(p.location), ''), 'Bangladesh'),
        specialization = COALESCE(NULLIF(TRIM(vp.specialization), ''), 'General Veterinary'),
+       degree = COALESCE(NULLIF(TRIM(vp.degree), ''), 'Veterinary Professional'),
        experience_years = COALESCE(vp.experience_years, 0),
        consultation_fee = COALESCE(vp.consultation_fee, 500),
        verification_status = COALESCE(NULLIF(TRIM(vp.verification_status), ''), 'pending'),
@@ -1016,7 +1467,7 @@ export async function ensureSchema(sql) {
        available = COALESCE(v.available, true),
        avatar = COALESCE(v.avatar, ''),
        profile_image_url = COALESCE(v.profile_image_url, v.avatar, ''),
-       degree = COALESCE(NULLIF(TRIM(v.degree), ''), 'DVM'),
+       degree = COALESCE(NULLIF(TRIM(v.degree), ''), 'Veterinary Professional'),
        verification_status = COALESCE(NULLIF(TRIM(v.verification_status), ''), 'pending'),
        updated_at = now()
      FROM public.profiles p
@@ -1040,7 +1491,7 @@ export async function ensureSchema(sql) {
        COALESCE(NULLIF(TRIM(p.location), ''), 'Bangladesh'),
        true,
        '',
-       'DVM',
+       'Veterinary Professional',
        now(),
        now()
      FROM public.profiles p
@@ -1066,6 +1517,8 @@ export async function ensureSchema(sql) {
     "farmer_user_id uuid",
     "farmer_name text",
     "vet_name text",
+    "vet_degree text",
+    "vet_address text",
     "animal_type text",
     "breed text",
     "animal_gender text",
@@ -1199,6 +1652,39 @@ export async function ensureSchema(sql) {
      CHECK (request_amount > 0)`
   );
 
+  await addColumns(sql, "seller_withdrawals", [
+    "seller_user_id uuid NOT NULL",
+    "request_amount numeric NOT NULL",
+    "gross_earnings numeric NOT NULL DEFAULT 0",
+    "platform_fee numeric NOT NULL DEFAULT 0",
+    "net_earnings numeric NOT NULL DEFAULT 0",
+    "available_balance numeric NOT NULL DEFAULT 0",
+    "status text NOT NULL DEFAULT 'pending'",
+    "note text",
+    "review_note text",
+    "reviewed_by uuid",
+    "reviewed_at timestamptz",
+    "paid_at timestamptz",
+    "created_at timestamptz NOT NULL DEFAULT now()",
+    "updated_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
+  await runOptional(
+    sql,
+    "seller_withdrawals status check",
+    `ALTER TABLE public.seller_withdrawals
+     ADD CONSTRAINT seller_withdrawals_status_check
+     CHECK (status IN ('pending', 'approved', 'rejected', 'paid'))`
+  );
+
+  await runOptional(
+    sql,
+    "seller_withdrawals request_amount check",
+    `ALTER TABLE public.seller_withdrawals
+     ADD CONSTRAINT seller_withdrawals_request_amount_check
+     CHECK (request_amount > 0)`
+  );
+
   await addColumns(sql, "vet_availability", [
     "user_id uuid NOT NULL",
     "day_of_week integer",
@@ -1249,16 +1735,19 @@ export async function ensureSchema(sql) {
       ('farmer', 'can_book_vet'),
       ('farmer', 'can_book_human'),
       ('farmer', 'can_buy'),
+      ('farmer', 'can_access_community'),
       ('buyer', 'can_buy'),
-      ('buyer', 'can_book_human'),
-      ('buyer', 'can_bulk_buy'),
+      ('buyer', 'can_access_community'),
       ('vendor', 'can_sell'),
       ('vendor', 'can_manage_orders'),
       ('vendor', 'can_manage_store'),
       ('vendor', 'can_buy'),
+      ('vendor', 'can_access_community'),
       ('doctor', 'can_practice_human'),
+      ('doctor', 'can_access_community'),
       ('vet', 'can_consult_as_vet'),
       ('vet', 'can_book_vet'),
+      ('vet', 'can_access_community'),
       ('admin', 'can_manage_platform'),
       ('admin', 'can_approve'),
       ('admin', 'can_reject'),
@@ -1268,6 +1757,66 @@ export async function ensureSchema(sql) {
     ON CONFLICT DO NOTHING
   `;
   await runOptional(sql, "seed role_permissions", seedPerms);
+
+  await runOptional(
+    sql,
+    "vendor sell caps granted via seller lane approval only",
+    `DELETE FROM public.role_permissions
+     WHERE role = 'vendor' AND permission_code IN ('can_sell', 'can_manage_store')`,
+  );
+
+  await runOptional(
+    sql,
+    "backfill existing products listing_status approved",
+    `UPDATE public.products SET listing_status = 'approved'
+     WHERE listing_submitted_at IS NULL`,
+  );
+
+  await runOptional(
+    sql,
+    "backfill seller_lane_grants for existing sellers",
+    `INSERT INTO public.seller_lane_grants (user_id, lane, status, created_at, updated_at)
+     SELECT DISTINCT s.user_id, l.lane, 'approved', now(), now()
+     FROM (
+       SELECT user_id FROM public.user_capabilities
+       WHERE capability_code = 'can_sell' AND is_enabled = true
+       UNION
+       SELECT user_id FROM public.user_roles WHERE role = 'vendor'
+       UNION
+       SELECT seller_id AS user_id FROM public.products
+     ) s
+     CROSS JOIN (
+       VALUES
+         ('medibondhu'), ('vetbondhu'), ('farm'), ('pet'), ('livestock_dairy'), ('farm_machinery')
+     ) AS l(lane)
+     ON CONFLICT (user_id, lane) DO NOTHING`,
+  );
+
+  await runOptional(
+    sql,
+    "ensure can_sell capability for lane-approved sellers",
+    `INSERT INTO public.user_capabilities (user_id, capability_code, is_enabled, created_at)
+     SELECT DISTINCT user_id, 'can_sell', true, now()
+     FROM public.seller_lane_grants WHERE status = 'approved'
+     ON CONFLICT (user_id, capability_code) DO UPDATE SET is_enabled = true`,
+  );
+
+  await runOptional(
+    sql,
+    "ensure can_manage_store for lane-approved sellers",
+    `INSERT INTO public.user_capabilities (user_id, capability_code, is_enabled, created_at)
+     SELECT DISTINCT user_id, 'can_manage_store', true, now()
+     FROM public.seller_lane_grants WHERE status = 'approved'
+     ON CONFLICT (user_id, capability_code) DO UPDATE SET is_enabled = true`,
+  );
+
+  await runOptional(
+    sql,
+    "buyer role_permissions marketplace only",
+    `DELETE FROM public.role_permissions
+     WHERE role = 'buyer'
+       AND permission_code IN ('can_book_human', 'can_bulk_buy')`
+  );
 
   await runOptional(
     sql,
@@ -1288,6 +1837,8 @@ export async function ensureSchema(sql) {
   const idx = [
     `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON public.user_roles (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications (user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_email_audit_log_created_at ON public.email_audit_log (created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_email_audit_log_type ON public.email_audit_log (email_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_farms_user_id ON public.farms (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_animals_user_id ON public.animals (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_production_records_user_date ON public.production_records (user_id, date DESC)`,
@@ -1302,6 +1853,10 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_orders_buyer ON public.orders (buyer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_seller ON public.orders (seller_id)`,
     `CREATE INDEX IF NOT EXISTS idx_products_seller ON public.products (seller_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_design_drafts_user ON public.marketing_design_drafts (user_id, updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_products_listing_status ON public.products (listing_status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_seller_lane_grants_status ON public.seller_lane_grants (status, lane)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_addresses_user ON public.user_addresses (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_vets_user_id ON public.vets (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_vets_available ON public.vets (available, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_patient ON public.consultation_bookings (patient_mock_id, created_at DESC)`,
@@ -1319,6 +1874,8 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_status ON public.vet_withdrawals (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctor_withdrawals_doctor ON public.medibondhu_doctor_withdrawals (doctor_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctor_withdrawals_status ON public.medibondhu_doctor_withdrawals (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_seller_withdrawals_seller ON public.seller_withdrawals (seller_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_seller_withdrawals_status ON public.seller_withdrawals (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_specialties_active ON public.medibondhu_specialties (is_active, sort_order)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_specialty ON public.medibondhu_doctors (specialty_id, approval_status)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_doctors_user ON public.medibondhu_doctors (user_id)`,
@@ -1346,6 +1903,143 @@ export async function ensureSchema(sql) {
     sql,
     "medi reset doctor_time_slots.booked",
     `UPDATE medibondhu_doctor_time_slots SET booked = false WHERE booked = true`,
+  );
+
+  /** Backfill shops from approved shop_access requests (shop name was only in approval_requests). */
+  await runOptional(
+    sql,
+    "shops backfill from approved shop_access",
+    `INSERT INTO shops (user_id, shop_name, description, updated_at)
+     SELECT DISTINCT ON (ar.user_id)
+       ar.user_id,
+       trim(coalesce(ar.details->>'shopName', ar.payload->>'shopName', '')),
+       nullif(trim(coalesce(ar.details->>'description', ar.payload->>'description', '')), ''),
+       now()
+     FROM approval_requests ar
+     WHERE ar.request_type = 'shop_access'
+       AND ar.status = 'approved'
+       AND trim(coalesce(ar.details->>'shopName', ar.payload->>'shopName', '')) <> ''
+       AND NOT EXISTS (SELECT 1 FROM shops s WHERE s.user_id = ar.user_id)
+     ORDER BY ar.user_id, ar.updated_at DESC
+     ON CONFLICT (user_id) DO NOTHING`,
+  );
+
+  await runOptional(
+    sql,
+    "backfill profiles.signup_module for care-only vetbondhu users",
+    `UPDATE public.profiles p
+     SET signup_module = 'vetbondhu', updated_at = now()
+     WHERE p.signup_module IS NULL
+       AND EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_book_vet' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_manage_farm' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         JOIN public.role_permissions rp ON rp.role = ur.role
+         WHERE ur.user_id = p.id AND rp.permission_code = 'can_manage_farm'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         WHERE ur.user_id = p.id AND ur.role = 'vet'
+       )`,
+  );
+
+  await runOptional(
+    sql,
+    "backfill profiles.signup_module for care-only medibondhu users",
+    `UPDATE public.profiles p
+     SET signup_module = 'medibondhu', updated_at = now()
+     WHERE p.signup_module IS NULL
+       AND EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_book_human' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_manage_farm' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         JOIN public.role_permissions rp ON rp.role = ur.role
+         WHERE ur.user_id = p.id AND rp.permission_code = 'can_manage_farm'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         WHERE ur.user_id = p.id AND ur.role IN ('doctor', 'vet')
+       )`,
+  );
+
+  await runOptional(
+    sql,
+    "repair profiles.signup_module for farmers mislabeled as care-only patients",
+    `UPDATE public.profiles p
+     SET signup_module = 'farm', updated_at = now()
+     WHERE p.signup_module IN ('medibondhu', 'vetbondhu')
+       AND EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         WHERE ur.user_id = p.id AND ur.role = 'farmer'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id
+           AND uc.capability_code = 'can_manage_farm'
+           AND uc.is_enabled = false
+       )`,
+  );
+
+  await runOptional(
+    sql,
+    "re-enable learning for vetbondhu signup users",
+    `INSERT INTO public.user_capabilities (user_id, capability_code, is_enabled, created_at)
+     SELECT p.id, 'can_access_learning', true, now()
+     FROM public.profiles p
+     WHERE p.signup_module = 'vetbondhu'
+     ON CONFLICT (user_id, capability_code) DO UPDATE SET is_enabled = true`,
+  );
+
+  await runOptional(
+    sql,
+    "re-enable learning for care-only can_book_vet users",
+    `INSERT INTO public.user_capabilities (user_id, capability_code, is_enabled, created_at)
+     SELECT p.id, 'can_access_learning', true, now()
+     FROM public.profiles p
+     WHERE EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_book_vet' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_capabilities uc
+         WHERE uc.user_id = p.id AND uc.capability_code = 'can_manage_farm' AND uc.is_enabled = true
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.user_roles ur
+         WHERE ur.user_id = p.id AND ur.role = 'vet'
+       )
+     ON CONFLICT (user_id, capability_code) DO UPDATE SET is_enabled = true`,
+  );
+
+  await runOptional(
+    sql,
+    "repair vetbondhu module caps on existing accounts",
+    `INSERT INTO public.user_capabilities (user_id, capability_code, is_enabled, created_at)
+     SELECT p.id, v.capability_code, v.is_enabled, now()
+     FROM public.profiles p
+     CROSS JOIN (
+       VALUES
+         ('can_book_vet', true),
+         ('can_access_learning', true),
+         ('can_book_human', false),
+         ('can_manage_farm', false),
+         ('can_manage_animals', false),
+         ('can_buy', false)
+     ) AS v(capability_code, is_enabled)
+     WHERE p.signup_module = 'vetbondhu'
+     ON CONFLICT (user_id, capability_code) DO UPDATE SET is_enabled = excluded.is_enabled`,
   );
 
   console.log("[ensureSchema] public tables and indexes checked");

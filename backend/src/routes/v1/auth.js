@@ -7,6 +7,9 @@ import sql from "../../db.js";
 import {
   ensureProfileAndRoleAfterAuth,
   extractUserFromSession,
+  normalizeSignupCarePath,
+  resolveSignupModuleFromMeta,
+  signupModuleConfig,
 } from "../../services/ensureAppUser.js";
 import { encryptPassword, registrationSecretConfigError } from "../../services/registrationCrypto.js";
 import {
@@ -45,7 +48,7 @@ router.post(
     }
     const em = normalizeEmail(email);
     const [row] = await sql`
-      select p.id, p.email, c.password_hash
+      select p.id, p.email, p.status, c.password_hash
       from profiles p
       inner join auth_credentials c on c.user_id = p.id
       where lower(trim(p.email)) = ${em}
@@ -58,6 +61,14 @@ router.post(
     const match = await bcrypt.compare(String(password), row.password_hash);
     if (!match) {
       res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+    if (row.status === "suspended") {
+      res.status(403).json({ error: "Your account has been suspended. Contact support for assistance." });
+      return;
+    }
+    if (row.status === "deleted") {
+      res.status(403).json({ error: "This account is no longer active." });
       return;
     }
 
@@ -330,12 +341,39 @@ router.post(
     const phone = meta.phone != null && meta.phone !== "" ? String(meta.phone) : null;
     const location = meta.location != null && meta.location !== "" ? String(meta.location) : null;
     const roleSet = new Set(["farmer", "buyer", "vendor", "vet", "doctor", "admin"]);
-    const pr = roleSet.has(primary_role) ? primary_role : "farmer";
+    const signupModule = resolveSignupModuleFromMeta(meta);
+    const moduleConfig = signupModuleConfig(signupModule);
+    const carePath = normalizeSignupCarePath(meta.signup_care_path);
+    const pr = moduleConfig
+      ? moduleConfig.primaryRole
+      : carePath
+        ? "farmer"
+        : roleSet.has(primary_role)
+          ? primary_role
+          : "farmer";
+    const farmerOpenMedibondhu = moduleConfig
+      ? moduleConfig.farmerOpenMedibondhu
+      : carePath === "medibondhu"
+        ? true
+        : carePath === "vetbondhu"
+          ? false
+          : pr !== "buyer";
 
     try {
       await sql`
-        insert into profiles (id, email, name, primary_role, phone, location, created_at, updated_at)
-        values (${userId}, ${em}, ${name}, ${pr}, ${phone}, ${location}, now(), now())
+        insert into profiles (id, email, name, primary_role, phone, location, farmer_open_medibondhu, signup_module, created_at, updated_at)
+        values (
+          ${userId},
+          ${em},
+          ${name},
+          ${pr},
+          ${phone},
+          ${location},
+          ${farmerOpenMedibondhu},
+          ${signupModule},
+          now(),
+          now()
+        )
       `;
       await sql`
         insert into auth_credentials (user_id, password_hash, updated_at)
@@ -344,6 +382,9 @@ router.post(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[auth] create local user failed:", msg);
+      if (/signup_module/i.test(msg)) {
+        console.error("[auth] profiles.signup_module column may be missing — restart the API so ensureSchema runs.");
+      }
       await sql`delete from profiles where id = ${userId}`;
       res.status(500).json({ error: "Could not create account." });
       return;
