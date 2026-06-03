@@ -147,6 +147,8 @@ FarmBondhu/
 
 - [Project overview](aboutproject.md)
 - [Customers guide](docs/customers.md)
+- [Database ER documentation](docs/database/database_schema.md)
+- [Database ER PDF](docs/database/database_schema.pdf)
 
 ### Customer and module guides
 
