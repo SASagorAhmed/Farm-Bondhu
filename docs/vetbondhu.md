@@ -233,12 +233,33 @@ After the VetBondhu consultation:
 
 ## Admin Operations
 
-VetBondhu admin operations are managed separately from MediBondhu:
+VetBondhu admin overview, access controls, and payouts stay in the VetBondhu admin module and use VetBondhu veterinary data only.
 
-- `/admin/vetbondhu-overview` shows VetBondhu overview stats, all vets, currently available vets, recent bookings, active sessions, and vet withdrawals.
-- The `Available Now` stat opens the currently online vet list and should use VetBondhu heartbeat/online-window behavior.
-- VetBondhu payout/withdrawal review uses VetBondhu veterinary withdrawal data only.
-- VetBondhu access controls must not affect MediBondhu doctors, MediBondhu patients, or global account state.
+| Admin path | Purpose |
+| --- | --- |
+| `/admin/vetbondhu-overview` | VetBondhu overview, all vets, available-now vets, recent bookings, active sessions, and vet withdrawals |
+| `/admin/vetbondhu-access` | VetBondhu-only access controls for vets and VetBondhu users |
+
+The VetBondhu overview uses VetBondhu green/emerald branding. The `Available Now` stat opens the currently online vet list, based on the VetBondhu heartbeat/online window, not just a static availability flag.
+
+### VetBondhu overview
+
+The overview page should show:
+
+- `Total Vets`
+- `Available Now`
+- `Total Bookings`
+- `Active Sessions`
+- `Pending Withdrawals`
+- `All Vets`, `Available Now`, `Recent Bookings`, `Withdrawals`, and details/review sections when available
+
+### Access controls
+
+VetBondhu access controls are scoped to VetBondhu users and vets. Freeze, suspend, delete-access, and restore actions must not affect MediBondhu doctors, MediBondhu patients, or unrelated global account access.
+
+### Payouts
+
+VetBondhu payout and withdrawal review uses VetBondhu veterinary withdrawal data only. It must not use MediBondhu doctor withdrawal records, MediBondhu appointment data, or MediBondhu query keys.
 
 ---
 
