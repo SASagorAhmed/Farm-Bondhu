@@ -18,6 +18,11 @@ import {
   resolveSignupModuleFromQuery,
   type SignupModule,
 } from "@/lib/signupModules";
+import {
+  parseVetBondhuSpecializations,
+  serializeVetBondhuSpecializations,
+  VETBONDHU_SPECIALIZATION_DEFINITIONS,
+} from "@/lib/vetbondhuSpecializations";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -53,10 +58,27 @@ export default function Signup() {
   const moduleDef = getSignupModule(signupModule);
   const isVet = signupModule === "vet";
   const isDoctor = signupModule === "doctor";
+  const selectedVetSpecializations = parseVetBondhuSpecializations(specialization);
+
+  const toggleVetSpecialization = (label: string) => {
+    const hasLabel = selectedVetSpecializations.includes(label);
+    const next = hasLabel
+      ? selectedVetSpecializations.filter((item) => item !== label)
+      : [...selectedVetSpecializations, label];
+    setSpecialization(serializeVetBondhuSpecializations(next));
+  };
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!signupModule) return;
+    if (isVet && selectedVetSpecializations.length === 0) {
+      toast({
+        title: "Specialization required",
+        description: "Select at least one VetBondhu specialization category.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (isDoctor) {
       if (!doctorQualification.trim() || !doctorMedicalReg.trim()) {
         toast({
@@ -321,14 +343,33 @@ export default function Signup() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="specialization">Specialization</Label>
-                      <Input
-                        id="specialization"
-                        placeholder="Poultry, Dairy, General Veterinary etc."
-                        value={specialization}
-                        onChange={(e) => setSpecialization(e.target.value)}
-                        required
-                      />
+                      <Label>Specialization</Label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {VETBONDHU_SPECIALIZATION_DEFINITIONS.map((option) => {
+                          const selected = selectedVetSpecializations.includes(option.label);
+                          return (
+                            <button
+                              key={option.label}
+                              type="button"
+                              onClick={() => toggleVetSpecialization(option.label)}
+                              className="rounded-xl border px-3 py-2 text-left transition-colors"
+                              style={
+                                selected
+                                  ? { backgroundColor: accentColor, borderColor: accentColor, color: "white" }
+                                  : accentColor
+                                    ? { borderColor: `${accentColor}40`, color: accentColor }
+                                    : undefined
+                              }
+                            >
+                              <span className="block text-xs font-semibold">{option.label}</span>
+                              <span className={selected ? "block text-[11px] text-white/80" : "block text-[11px] text-muted-foreground"}>
+                                {option.description}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Select one or more categories for your VetBondhu profile.</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">

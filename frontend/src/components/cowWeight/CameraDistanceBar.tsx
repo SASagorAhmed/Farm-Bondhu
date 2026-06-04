@@ -11,6 +11,7 @@ import type { CameraDistanceSource } from "@/lib/cowWeight/types";
 interface CameraDistanceBarProps {
   cameraDistanceCm?: number | null;
   distanceSource?: CameraDistanceSource | null;
+  sourceSummaryLabel?: string | null;
   groundDistanceDetected?: boolean;
   loading?: boolean;
 }
@@ -18,6 +19,7 @@ interface CameraDistanceBarProps {
 export default function CameraDistanceBar({
   cameraDistanceCm,
   distanceSource,
+  sourceSummaryLabel,
   groundDistanceDetected = true,
   loading,
 }: CameraDistanceBarProps) {
@@ -60,9 +62,9 @@ export default function CameraDistanceBar({
             {t("cowWeight.scan.groundDistanceFallback").replace("{cm}", String(cm))}
           </p>
         )}
-        {!loading && sourceLabel && (
+        {!loading && (sourceSummaryLabel || sourceLabel) && (
           <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
-            {sourceLabel}
+            {sourceSummaryLabel || sourceLabel}
           </Badge>
         )}
       </div>

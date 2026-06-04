@@ -1,23 +1,27 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions";
 import MediDoctorPreviewEmpty from "@/components/medibondhu/MediDoctorPreviewEmpty";
-import { FileText, Plus, ChevronRight } from "lucide-react";
+import { FileText, Plus, ChevronRight, Search, Loader2 } from "lucide-react";
 import { MediSectionTitle, MB } from "@/components/medibondhu/MediChrome";
+import { toast } from "sonner";
 
-type Rx = { id: string; chief_complaint?: string; created_at?: string; diagnosis?: string | null };
+type Rx = { id: string; prescription_code?: string | null; chief_complaint?: string; created_at?: string; diagnosis?: string | null };
 
 export default function MediDoctorPrescriptions() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { readOnly, previewEmptyHint } = useMediDoctorPreviewActions();
+  const [searchCode, setSearchCode] = useState("");
+  const [searching, setSearching] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: queryKeys().medibondhuHumanDoctorPrescriptions(user?.id),
@@ -37,6 +41,24 @@ export default function MediDoctorPrescriptions() {
     });
   }, [rows]);
 
+  const openPrescriptionByCode = async () => {
+    const code = searchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      toast.error("Enter a 6-digit prescription code");
+      return;
+    }
+    setSearching(true);
+    try {
+      const { res, body } = await mediHumanJson<{ data?: Rx; error?: string }>(`/prescriptions/search?code=${encodeURIComponent(code)}`);
+      if (!res.ok || !body.data?.id) throw new Error(String(body.error || "Prescription not found"));
+      navigate(`/medibondhu/prescription/${body.data.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Prescription not found");
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -54,6 +76,30 @@ export default function MediDoctorPrescriptions() {
           <Plus className="h-4 w-4" /> New prescription
         </Button>
       </header>
+
+      <Card className="rounded-xl border-border">
+        <CardContent className="p-4 flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Search MediBondhu prescription by 6-digit code</p>
+            <p className="text-xs text-muted-foreground">Find only prescriptions authored in your MediBondhu doctor workspace.</p>
+          </div>
+          <div className="flex gap-2 sm:w-[320px]">
+            <Input
+              value={searchCode}
+              onChange={(event) => setSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void openPrescriptionByCode();
+              }}
+              placeholder="123456"
+              className="font-mono tracking-widest"
+              maxLength={6}
+            />
+            <Button type="button" className="text-white" style={{ backgroundColor: MB }} disabled={searching || readOnly} onClick={() => void openPrescriptionByCode()}>
+              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <MediSectionTitle eyebrow="Newest first" title={`${sorted.length} in list`} />
 
@@ -87,7 +133,9 @@ export default function MediDoctorPrescriptions() {
                   </p>
                   {r.diagnosis && <p className="font-medium text-foreground line-clamp-2">{r.diagnosis}</p>}
                   {r.chief_complaint && !r.diagnosis && <p className="text-sm text-muted-foreground line-clamp-2">{r.chief_complaint}</p>}
-                  <p className="text-[11px] font-mono text-muted-foreground truncate">ID {r.id}</p>
+                  <p className="text-[11px] font-mono text-muted-foreground truncate">
+                    Code {r.prescription_code || r.id.replace(/-/g, "").slice(-6).toUpperCase()} · ID {r.id}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={(e) => { e.stopPropagation(); navigate(`/medibondhu/prescription/${r.id}`); }}>

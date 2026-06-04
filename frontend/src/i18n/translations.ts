@@ -574,11 +574,16 @@ const translations: Record<string, Record<Language, string>> = {
     bn: "ফ্রেমে গরু খুব ছোট",
   },
   "cowWeight.scan.orientationLabel": { en: "Head side (AI)", bn: "মাথার দিক (AI)" },
+  "cowWeight.scan.headDirectionRequired": { en: "Select head direction", bn: "মাথার দিক নির্বাচন করুন" },
   "cowWeight.scan.headLeft": { en: "Head left", bn: "মাথা বামে" },
   "cowWeight.scan.headRight": { en: "Head right", bn: "মাথা ডানে" },
   "cowWeight.scan.headSideHint": {
     en: "AI picks head left or right from the body outline. Tap the correct option if it is wrong.",
     bn: "AI দেহের আউটলাইন থেকে মাথা বামে বা ডানে বেছে নেয়। ভুল হলে সঠিক অপশন ট্যাপ করুন।",
+  },
+  "cowWeight.scan.headDirectionRequiredHint": {
+    en: "AI could not confirm the head side. Choose one to continue; measurements will not change.",
+    bn: "AI মাথার দিক নিশ্চিত করতে পারেনি। এগোতে একটি বেছে নিন; মাপ বদলাবে না।",
   },
   "cowWeight.scan.headOnPhotoLeft": { en: "Head on photo left", bn: "মাথা ছবির বামে" },
   "cowWeight.scan.headOnPhotoRight": { en: "Head on photo right", bn: "মাথা ছবির ডানে" },

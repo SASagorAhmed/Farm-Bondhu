@@ -19,6 +19,8 @@ interface Props {
   pinnedIds: Set<string>;
   onPin: (product: MarketplaceProduct) => void;
   onUnpin: (product: MarketplaceProduct) => void;
+  onEditProduct?: (product: MarketplaceProduct) => void;
+  onDeleteProduct?: (product: MarketplaceProduct) => void;
   onOpen: (product: MarketplaceProduct) => void;
   onAddToCart: (product: MarketplaceProduct) => void;
   onBuyNow: (product: MarketplaceProduct) => void;
@@ -35,6 +37,8 @@ function ProductGrid({
   pinnedIds,
   onPin,
   onUnpin,
+  onEditProduct,
+  onDeleteProduct,
   onOpen,
   onAddToCart,
   onBuyNow,
@@ -45,6 +49,8 @@ function ProductGrid({
   pinnedIds: Set<string>;
   onPin: (product: MarketplaceProduct) => void;
   onUnpin: (product: MarketplaceProduct) => void;
+  onEditProduct?: (product: MarketplaceProduct) => void;
+  onDeleteProduct?: (product: MarketplaceProduct) => void;
   onOpen: (product: MarketplaceProduct) => void;
   onAddToCart: (product: MarketplaceProduct) => void;
   onBuyNow: (product: MarketplaceProduct) => void;
@@ -60,6 +66,8 @@ function ProductGrid({
           pinDisabled={pinDisabled && !pinnedIds.has(p.id)}
           onPin={() => onPin(p)}
           onUnpin={() => onUnpin(p)}
+          onEditProduct={onEditProduct ? () => onEditProduct(p) : undefined}
+          onDeleteProduct={onDeleteProduct ? () => onDeleteProduct(p) : undefined}
           onOpen={() => onOpen(p)}
           onAddToCart={() => onAddToCart(p)}
           onBuyNow={() => onBuyNow(p)}
@@ -80,6 +88,8 @@ function LaneSectionBody({
     pinnedIds: Set<string>;
     onPin: (product: MarketplaceProduct) => void;
     onUnpin: (product: MarketplaceProduct) => void;
+    onEditProduct?: (product: MarketplaceProduct) => void;
+    onDeleteProduct?: (product: MarketplaceProduct) => void;
     onOpen: (product: MarketplaceProduct) => void;
     onAddToCart: (product: MarketplaceProduct) => void;
     onBuyNow: (product: MarketplaceProduct) => void;
@@ -102,6 +112,8 @@ export default function SellerLaneSections({
   pinnedIds,
   onPin,
   onUnpin,
+  onEditProduct,
+  onDeleteProduct,
   onOpen,
   onAddToCart,
   onBuyNow,
@@ -134,6 +146,8 @@ export default function SellerLaneSections({
     pinnedIds,
     onPin,
     onUnpin,
+    onEditProduct,
+    onDeleteProduct,
     onOpen,
     onAddToCart,
     onBuyNow,

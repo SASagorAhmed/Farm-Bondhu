@@ -14,6 +14,11 @@ import { ICON_COLORS, iconBg } from "@/lib/iconColors";
 import RoleChangeRequest from "@/components/profile/RoleChangeRequest";
 import UserAddressesSection from "@/components/address/UserAddressesSection";
 import { fetchUserAddresses } from "@/lib/userAddressesApi";
+import {
+  parseVetBondhuSpecializations,
+  serializeVetBondhuSpecializations,
+  VETBONDHU_SPECIALIZATION_DEFINITIONS,
+} from "@/lib/vetbondhuSpecializations";
 
 type VetProfile = {
   id?: string;
@@ -171,6 +176,16 @@ export default function VetProfilePage() {
   }, [form]);
 
   const canSubmit = missingFields.length === 0 && !loading && !uploadingProfileImage && !uploadingDocument;
+  const selectedSpecializations = parseVetBondhuSpecializations(form.specialization);
+
+  const toggleSpecialization = (option: string) => {
+    setForm((prev) => {
+      const current = parseVetBondhuSpecializations(prev.specialization);
+      const hasOption = current.includes(option);
+      const next = hasOption ? current.filter((item) => item !== option) : [...current, option];
+      return { ...prev, specialization: serializeVetBondhuSpecializations(next) };
+    });
+  };
 
   const uploadFile = async (file: File, purpose: "profile_image" | "verification_document") => {
     const token = readSession()?.access_token;
@@ -396,8 +411,38 @@ export default function VetProfilePage() {
                 disabled={!vetEditing}
                 value={form.specialization}
                 onChange={(e) => setForm((p) => ({ ...p, specialization: e.target.value }))}
-                placeholder="Poultry, Dairy, Goat, General Veterinary"
+                placeholder="Animal & Veterinary, Farming & Agricultural, Pet Care"
               />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {VETBONDHU_SPECIALIZATION_DEFINITIONS.map((option) => {
+                  const selected = selectedSpecializations.includes(option.label);
+                  return (
+                    <Button
+                      key={option.label}
+                      type="button"
+                      variant="outline"
+                      disabled={!vetEditing}
+                      className="h-auto justify-start rounded-xl px-3 py-2 text-left"
+                      style={
+                        selected
+                          ? { backgroundColor: ICON_COLORS.vet, borderColor: ICON_COLORS.vet, color: "white" }
+                          : { borderColor: `${ICON_COLORS.vet}40`, color: ICON_COLORS.vet }
+                      }
+                      onClick={() => toggleSpecialization(option.label)}
+                    >
+                      <span className="space-y-0.5">
+                        <span className="block text-xs font-semibold">{option.label}</span>
+                        <span className={selected ? "block text-[11px] text-white/80" : "block text-[11px] text-muted-foreground"}>
+                          {option.description}
+                        </span>
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select one or more focus areas so patients can find the right consultation, including pets like dogs, cats, and birds.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

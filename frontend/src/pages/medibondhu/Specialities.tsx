@@ -51,7 +51,7 @@ export default function Specialities() {
     <div className="space-y-8">
       <MediHero
         title="Talk to a doctor, on your schedule"
-        subtitle="Search by name or specialty, compare fees and experience, then book an appointment slot. Human healthcare on MediBondhu — separate from animal VetBondhu."
+        subtitle="Find verified doctors by name or specialty, review consultation details, and book an appointment at a time that works for you."
       >
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <div className="relative flex-1">

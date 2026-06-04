@@ -103,7 +103,8 @@ const ADMIN_MODULES: AdminModule[] = [
     defaultPath: "/admin/vet-approvals",
     navItems: [
       { title: "Vet Approvals", url: "/admin/vet-approvals", icon: Stethoscope, iconColor: ICON_COLORS.stethoscope },
-      { title: "Vet Payouts", url: "/admin/medibondhu-overview", icon: Stethoscope, iconColor: ICON_COLORS.vetbondhu },
+      { title: "Access controls", url: "/admin/vetbondhu-access", icon: Shield, iconColor: ICON_COLORS.vetbondhu },
+      { title: "Vet Payouts", url: "/admin/vetbondhu-overview", icon: Stethoscope, iconColor: ICON_COLORS.vetbondhu },
     ],
   },
   {
@@ -115,6 +116,8 @@ const ADMIN_MODULES: AdminModule[] = [
     defaultPath: "/admin/medibondhu-human",
     navItems: [
       { title: "MediBondhu Human", url: "/admin/medibondhu-human", icon: Stethoscope, iconColor: ICON_COLORS.medibondhu },
+      { title: "Access controls", url: "/admin/medibondhu-access", icon: Shield, iconColor: ICON_COLORS.medibondhu },
+      { title: "Doctor payouts", url: "/admin/medibondhu-payouts", icon: Banknote, iconColor: ICON_COLORS.medibondhu },
       { title: "Preview doctor portal", url: "/medibondhu/doctor/dashboard", icon: ClipboardList, iconColor: ICON_COLORS.medibondhu },
     ],
   },

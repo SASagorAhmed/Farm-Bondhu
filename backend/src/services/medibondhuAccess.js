@@ -67,6 +67,39 @@ export async function requestHasAnyRole(req, roles) {
 
 /**
  * @param {string} userId
+ * @param {"doctor" | "patient"} subjectType
+ */
+export async function getMediBondhuRestriction(userId, subjectType) {
+  const [row] = await sql`
+    select * from medibondhu_user_restrictions
+    where user_id = ${userId}
+      and subject_type = ${subjectType}
+    limit 1
+  `;
+  const status = String(row?.status || "active").toLowerCase();
+  return row && status !== "active" ? row : null;
+}
+
+/**
+ * @param {string} userId
+ * @param {"doctor" | "patient"} subjectType
+ */
+export async function assertMediBondhuAccessAllowed(userId, subjectType) {
+  const restricted = await getMediBondhuRestriction(userId, subjectType);
+  if (!restricted) return;
+  const err = new Error("MediBondhu access denied. Please contact FarmBondhu support.");
+  err.status = 403;
+  err.code = "MEDIBONDHU_ACCESS_DENIED";
+  err.medibondhuRestriction = {
+    status: restricted.status,
+    subject_type: restricted.subject_type,
+    reason: restricted.reason || null,
+  };
+  throw err;
+}
+
+/**
+ * @param {string} userId
  */
 export async function assertVetAccess(userId) {
   const [hasRole, vetProfile] = await Promise.all([

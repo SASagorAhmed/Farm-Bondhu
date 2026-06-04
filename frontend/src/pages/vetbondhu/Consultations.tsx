@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { API_BASE, readSession } from "@/api/client";
 import { withApiTiming } from "@/lib/perfMetrics";
 import { useAuth } from "@/contexts/AuthContext";
-import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video } from "lucide-react";
+import { CalendarCheck, Clock, CheckCircle, XCircle, Stethoscope, Plus, Video, Star } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +14,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/vetbondhuConsultationRealtime";
 import { ICON_COLORS } from "@/lib/iconColors";
+import VetBondhuReviewDialog from "@/components/vetbondhu/VetBondhuReviewDialog";
+import { fetchVetBondhuPendingReviews, type VetBondhuPendingReview } from "@/lib/vetbondhuReviewsApi";
 
 const VB = ICON_COLORS.vetbondhu;
 const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
@@ -23,18 +25,30 @@ type JoinableBooking = {
   leave_deadline_at?: string | null;
   left_user_id?: string | null;
 };
+type ConsultationBooking = JoinableBooking & {
+  vet_name?: string | null;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
+  animal_type?: string | null;
+  symptoms?: string | null;
+};
+type ConsultationsQueryData = {
+  consultations: ConsultationBooking[];
+  totalSpent: number;
+  page?: { hasMore?: boolean; nextOffset?: number | null };
+};
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "cancelled") return <Badge className="bg-destructive/15 text-destructive flex items-center gap-1"><XCircle className="h-3.5 w-3.5" />{status}</Badge>;
   return <Badge className="flex items-center gap-1" style={{ backgroundColor: `${VB}20`, color: VB }}><Clock className="h-3.5 w-3.5" />{status}</Badge>;
 }
 
-function bookingDisplayStatus(booking: any): string {
+function bookingDisplayStatus(booking: JoinableBooking): string {
   if (booking?.status === "in_progress" && booking?.leave_deadline_at) return "ending";
   return String(booking?.status || "pending");
 }
 
-function canRejoinNow(booking: any, currentUserId?: string) {
+function canRejoinNow(booking: JoinableBooking, currentUserId?: string) {
   if (booking?.status !== "in_progress") return false;
   const leftUserId = String(booking?.left_user_id || "");
   const hasLeaveDeadline = Boolean(booking?.leave_deadline_at);
@@ -67,9 +81,10 @@ export default function Consultations() {
 
   const [offset, setOffset] = useState(0);
   const [rejoiningId, setRejoiningId] = useState<string | null>(null);
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<ConsultationBooking[]>([]);
   const [page, setPage] = useState<{ hasMore: boolean; nextOffset: number | null }>({ hasMore: false, nextOffset: null });
-  const { data } = useQuery({
+  const [reviewTarget, setReviewTarget] = useState<ConsultationBooking | null>(null);
+  const { data } = useQuery<ConsultationsQueryData>({
     queryKey: ["vetbondhu-consultations", user?.id, offset],
     enabled: Boolean(user?.id),
     staleTime: 20 * 1000,
@@ -87,7 +102,7 @@ export default function Consultations() {
       );
       if (!res.ok || res.status === 304) {
         const prev = queryClient.getQueryData<{
-          consultations?: any[];
+          consultations?: ConsultationBooking[];
           totalSpent?: number;
           page?: { hasMore?: boolean; nextOffset?: number | null };
         }>(["vetbondhu-consultations", user.id, offset]);
@@ -102,13 +117,13 @@ export default function Consultations() {
       }
       const body = (await res.json().catch(() => ({}))) as {
         data?: {
-          consultations?: any[];
+          consultations?: ConsultationBooking[];
           totalSpent?: number;
           page?: { hasMore?: boolean; nextOffset?: number | null };
         };
       };
       return {
-        consultations: (body.data?.consultations || []) as any[],
+        consultations: (body.data?.consultations || []) as ConsultationBooking[],
         totalSpent: Number(body.data?.totalSpent || 0),
         page: {
           hasMore: Boolean(body.data?.page?.hasMore),
@@ -117,12 +132,18 @@ export default function Consultations() {
       };
     },
   });
+  const pendingReviewsQuery = useQuery({
+    queryKey: ["vetbondhu-pending-reviews", user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: 20 * 1000,
+    queryFn: fetchVetBondhuPendingReviews,
+  });
   useEffect(() => {
     if (!data) return;
     setRows((prev) => {
       if (offset === 0) return data.consultations || [];
       const seen = new Set(prev.map((r) => r.id));
-      const incoming = (data.consultations || []).filter((r: any) => !seen.has(r.id));
+      const incoming = (data.consultations || []).filter((r) => !seen.has(r.id));
       return [...prev, ...incoming];
     });
     setPage(data.page || { hasMore: false, nextOffset: null });
@@ -153,7 +174,7 @@ export default function Consultations() {
       onEvent: (eventType, row) => {
         queryClient.setQueriesData(
           { queryKey: ["vetbondhu-consultations", user.id] },
-          (prev: any) => {
+          (prev: ConsultationsQueryData | ConsultationBooking[] | undefined) => {
             if (!prev) return prev;
             if (Array.isArray(prev)) {
               return patchBookingList(prev, eventType, row);
@@ -172,6 +193,7 @@ export default function Consultations() {
           queryKey: ["vetbondhu-consultations", user.id],
           exact: false,
         });
+        queryClient.invalidateQueries({ queryKey: ["vetbondhu-pending-reviews", user.id] });
       },
     });
     return unsubscribe;
@@ -179,6 +201,7 @@ export default function Consultations() {
 
   const scheduled = consultations.filter(c => c.status === "confirmed" || c.status === "pending").length;
   const completed = consultations.filter(c => c.status === "completed").length;
+  const reviewableBookingIds = new Set((pendingReviewsQuery.data || []).map((r: VetBondhuPendingReview) => r.booking_id));
 
   return (
     <div className="space-y-6">
@@ -244,6 +267,20 @@ export default function Consultations() {
                     {c.status === "in_progress" && !canShowJoinButton(c, user?.id) && (
                       <div className="pt-1 text-xs text-muted-foreground">Ending...</div>
                     )}
+                    {c.status === "completed" && reviewableBookingIds.has(c.id) && (
+                      <div className="pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setReviewTarget(c)}
+                          className="gap-1"
+                          style={{ borderColor: `${VB}55`, color: VB }}
+                        >
+                          <Star className="h-4 w-4" />
+                          Review doctor
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -265,6 +302,22 @@ export default function Consultations() {
         )}
         {consultations.length === 0 && <p className="text-center text-muted-foreground py-12">No consultations yet</p>}
       </div>
+      {reviewTarget && (
+        <VetBondhuReviewDialog
+          open={Boolean(reviewTarget)}
+          onOpenChange={(open) => {
+            if (!open) setReviewTarget(null);
+          }}
+          bookingId={reviewTarget.id}
+          vetName={reviewTarget.vet_name}
+          animalType={reviewTarget.animal_type}
+          onSubmitted={() => {
+            setReviewTarget(null);
+            queryClient.invalidateQueries({ queryKey: ["vetbondhu-pending-reviews", user?.id] });
+            queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations", user?.id], exact: false });
+          }}
+        />
+      )}
     </div>
   );
 }

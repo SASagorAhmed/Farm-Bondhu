@@ -1,4 +1,4 @@
-export const DEFAULT_BOOKABLE_ANIMAL_TYPES = ["chicken", "duck", "cow", "goat", "sheep"] as const;
+export const DEFAULT_BOOKABLE_ANIMAL_TYPES = ["chicken", "duck", "cow", "goat", "sheep", "dog", "cat", "bird"] as const;
 
 export const ALL_ANIMAL_TYPES = [
   ...DEFAULT_BOOKABLE_ANIMAL_TYPES,
@@ -6,23 +6,25 @@ export const ALL_ANIMAL_TYPES = [
   "pigeon",
   "buffalo",
   "horse",
-  "dog",
-  "cat",
   "other",
 ] as const;
 
 const EXPANDED_ALIAS_MAP: Record<string, string[]> = {
   poultry: ["chicken", "duck", "turkey", "pigeon"],
-  birds: ["chicken", "duck", "turkey", "pigeon"],
-  avian: ["chicken", "duck", "turkey", "pigeon"],
+  bird: ["bird"],
+  birds: ["chicken", "duck", "turkey", "pigeon", "bird"],
+  avian: ["chicken", "duck", "turkey", "pigeon", "bird"],
   cattle: ["cow"],
   dairy: ["cow"],
   "goat-sheep": ["goat", "sheep"],
   goatsheep: ["goat", "sheep"],
   smallruminants: ["goat", "sheep"],
+  pet: ["dog", "cat", "bird"],
+  pets: ["dog", "cat", "bird"],
+  "pet-care": ["dog", "cat", "bird"],
   general: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon"],
   emergency: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon"],
-  all: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon"],
+  all: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon", "buffalo", "horse"],
 };
 
 export const SPECIALITY_ANIMAL_MAP: Record<string, string[]> = {
@@ -30,6 +32,9 @@ export const SPECIALITY_ANIMAL_MAP: Record<string, string[]> = {
   cattle: ["cow"],
   dairy: ["cow"],
   "goat-sheep": ["goat", "sheep"],
+  pet: ["dog", "cat", "bird"],
+  pets: ["dog", "cat", "bird"],
+  "pet-care": ["dog", "cat", "bird"],
   general: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon"],
   emergency: [...DEFAULT_BOOKABLE_ANIMAL_TYPES, "turkey", "pigeon"],
 };

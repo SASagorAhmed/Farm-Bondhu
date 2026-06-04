@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { API_BASE, vetbondhuApi, readSession, subscribeVetbondhuVetInboxNewBooking, subscribeVetInboxNewBooking } from "@/api/client";
-import { CalendarCheck, MessageSquare, Users, DollarSign, Clock, AlertCircle, CheckCircle } from "lucide-react";
+import { CalendarCheck, MessageSquare, Users, DollarSign, Clock, AlertCircle, CheckCircle, Search, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import StatCard from "@/components/dashboard/StatCard";
 import { ICON_COLORS } from "@/lib/iconColors";
@@ -14,17 +15,45 @@ import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 import { withApiTiming } from "@/lib/perfMetrics";
 
+type VetDashboardBooking = {
+  id: string;
+  patient_name?: string | null;
+  animal_type?: string | null;
+  symptoms?: string | null;
+  consultation_method?: string | null;
+  booking_type?: string | null;
+  status?: string | null;
+  leave_deadline_at?: string | null;
+  left_user_id?: string | null;
+  [key: string]: unknown;
+};
+
+type VetDashboardData = {
+  pendingBookings: VetDashboardBooking[];
+  todayBookings: VetDashboardBooking[];
+};
+
+type VetConsultationsCache =
+  | VetDashboardBooking[]
+  | {
+      consultations?: VetDashboardBooking[];
+      [key: string]: unknown;
+    };
+
 export default function VetDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [accepting, setAccepting] = useState<string | null>(null);
+  const [prescriptionSearchCode, setPrescriptionSearchCode] = useState("");
+  const [searchingPrescription, setSearchingPrescription] = useState(false);
   const [vetParticipantIds, setVetParticipantIds] = useState<string[]>([]);
   const queryClient = useQueryClient();
   const dashboardQueryKey = queryKeys().vetBookingsDashboard(user?.id);
   const consultationsQueryKey = queryKeys().vetConsultations(user?.id);
 
-  const patchAcceptedBooking = (row: any) => ({
+  const patchAcceptedBooking = (row: Partial<VetDashboardBooking> | null | undefined): VetDashboardBooking => ({
     ...(row || {}),
+    id: String(row?.id || ""),
     status: "in_progress",
     leave_deadline_at: null,
     left_user_id: null,
@@ -39,7 +68,7 @@ export default function VetDashboard() {
     refetchOnMount: true,
     refetchInterval: (q) => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
-      const data = q.state.data as { pendingBookings?: any[]; todayBookings?: any[] } | undefined;
+      const data = q.state.data as Partial<VetDashboardData> | undefined;
       const pendingCount = Array.isArray(data?.pendingBookings) ? data.pendingBookings.length : 0;
       return pendingCount > 0 ? 1000 : 2000;
     },
@@ -52,11 +81,11 @@ export default function VetDashboard() {
         })
       );
       if (!res.ok || res.status === 304) {
-        const prev = queryClient.getQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(dashboardQueryKey);
+        const prev = queryClient.getQueryData<VetDashboardData>(dashboardQueryKey);
         return prev || { pendingBookings: [], todayBookings: [] };
       }
       const body = (await res.json().catch(() => ({}))) as {
-        data?: { pendingBookings?: any[]; todayBookings?: any[] };
+        data?: Partial<VetDashboardData>;
       };
       return {
         pendingBookings: body.data?.pendingBookings || [],
@@ -100,16 +129,16 @@ export default function VetDashboard() {
       userId: user.id,
       participantIds: vetParticipantIds,
       onEvent: (eventType, row) => {
-        queryClient.setQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(
+        queryClient.setQueryData<VetDashboardData>(
           dashboardQueryKey,
           (prev) => {
             const current = prev || { pendingBookings: [], todayBookings: [] };
             const nextPending = patchBookingList(current.pendingBookings || [], eventType, row).filter(
-              (b) => b.status === "pending" || b.status === "confirmed"
-            );
+              (b): b is VetDashboardBooking => b.status === "pending" || b.status === "confirmed"
+            ) as VetDashboardBooking[];
             const nextToday = patchBookingList(current.todayBookings || [], eventType, row).filter(
-              (b) => b.status === "in_progress" || b.status === "completed"
-            );
+              (b): b is VetDashboardBooking => b.status === "in_progress" || b.status === "completed"
+            ) as VetDashboardBooking[];
             return { pendingBookings: nextPending, todayBookings: nextToday };
           }
         );
@@ -155,25 +184,25 @@ export default function VetDashboard() {
     }
 
     toast({ title: "Consultation accepted!", description: "Joining the room now..." });
-    queryClient.setQueryData<{ pendingBookings: any[]; todayBookings: any[] }>(
+    queryClient.setQueryData<VetDashboardData>(
       dashboardQueryKey,
       (prev) => {
         const current = prev || { pendingBookings: [], todayBookings: [] };
-        const acceptedFromPending = (current.pendingBookings || []).find((b: any) => b.id === bookingId);
-        const nextPending = (current.pendingBookings || []).filter((b: any) => b.id !== bookingId);
-        const alreadyToday = (current.todayBookings || []).some((b: any) => b.id === bookingId);
+        const acceptedFromPending = (current.pendingBookings || []).find((b) => b.id === bookingId);
+        const nextPending = (current.pendingBookings || []).filter((b) => b.id !== bookingId);
+        const alreadyToday = (current.todayBookings || []).some((b) => b.id === bookingId);
         const acceptedRow = acceptedFromPending
           ? patchAcceptedBooking(acceptedFromPending)
           : patchAcceptedBooking({ id: bookingId });
         const nextToday = alreadyToday
-          ? (current.todayBookings || []).map((b: any) => (b.id === bookingId ? patchAcceptedBooking(b) : b))
+          ? (current.todayBookings || []).map((b) => (b.id === bookingId ? patchAcceptedBooking(b) : b))
           : [acceptedRow, ...(current.todayBookings || [])];
         return { pendingBookings: nextPending, todayBookings: nextToday };
       }
     );
     queryClient.setQueriesData(
       { queryKey: consultationsQueryKey },
-      (prev: any) => {
+      (prev: VetConsultationsCache | undefined) => {
         if (!prev) return prev;
         if (Array.isArray(prev)) {
           return prev.map((b) => (b?.id === bookingId ? patchAcceptedBooking(b) : b));
@@ -181,13 +210,37 @@ export default function VetDashboard() {
         const prevConsultations = Array.isArray(prev.consultations) ? prev.consultations : [];
         return {
           ...prev,
-          consultations: prevConsultations.map((b: any) => (b?.id === bookingId ? patchAcceptedBooking(b) : b)),
+          consultations: prevConsultations.map((b) => (b?.id === bookingId ? patchAcceptedBooking(b) : b)),
         };
       }
     );
     queryClient.invalidateQueries({ queryKey: dashboardQueryKey });
     queryClient.invalidateQueries({ queryKey: consultationsQueryKey });
     navigate(`/vet/room/${bookingId}`);
+  };
+
+  const openPrescriptionByCode = async () => {
+    const code = prescriptionSearchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      toast({ title: "Enter a 6-digit prescription code", variant: "destructive" });
+      return;
+    }
+    const token = readSession()?.access_token;
+    setSearchingPrescription(true);
+    try {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/prescriptions/search?code=${encodeURIComponent(code)}`, {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = (await res.json().catch(() => ({}))) as { data?: { id?: string }; error?: string };
+      if (!res.ok || !body.data?.id) throw new Error(body.error || "Prescription not found");
+      navigate(`/vet/prescriptions/${body.data.id}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Prescription not found";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setSearchingPrescription(false);
+    }
   };
 
   return (
@@ -205,6 +258,30 @@ export default function VetDashboard() {
         <StatCard title="Total Patients" value="—" icon={<Users className="h-5 w-5" />} iconColor={ICON_COLORS.profile} />
         <StatCard title="Earnings (Month)" value="—" icon={<DollarSign className="h-5 w-5" />} iconColor={ICON_COLORS.dollar} />
       </div>
+
+      <Card className="border-border">
+        <CardContent className="p-4 flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Search VetBondhu prescription</p>
+            <p className="text-xs text-muted-foreground">Enter the 6-digit prescription code to open the record.</p>
+          </div>
+          <div className="flex gap-2 md:w-[320px]">
+            <Input
+              value={prescriptionSearchCode}
+              onChange={(event) => setPrescriptionSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void openPrescriptionByCode();
+              }}
+              placeholder="123456"
+              className="font-mono tracking-widest"
+              maxLength={6}
+            />
+            <Button type="button" className="text-white" style={{ backgroundColor: ICON_COLORS.vetbondhu }} disabled={searchingPrescription} onClick={() => void openPrescriptionByCode()}>
+              {searchingPrescription ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Pending Requests - Real Data */}

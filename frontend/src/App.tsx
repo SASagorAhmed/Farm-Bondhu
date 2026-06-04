@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { MarketplaceChatFocusProvider } from "@/contexts/MarketplaceChatFocusContext";
 import MarketplaceChatAlertsHost from "@/components/marketplace/MarketplaceChatAlertsHost";
+import GlobalNotificationAlertsHost from "@/components/layout/GlobalNotificationAlertsHost";
 import { CartProvider } from "@/contexts/CartContext";
 import { OrderProvider } from "@/contexts/OrderContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -100,6 +101,7 @@ import VetBondhuBookConsultation from "./pages/vetbondhu/BookConsultation";
 import VetBondhuWaitingRoom from "./pages/vetbondhu/WaitingRoom";
 import VetBondhuConsultationRoom from "./pages/vetbondhu/ConsultationRoom";
 import VetBondhuPrescriptions from "./pages/vetbondhu/Prescriptions";
+import VetBondhuAccessDenied from "./pages/vetbondhu/VetBondhuAccessDenied";
 
 // Learning
 import LearningCenter from "./pages/learning/LearningCenter";
@@ -142,7 +144,9 @@ import ApprovalQueue from "./pages/admin/ApprovalQueue";
 import AdminBroadcast from "./pages/admin/AdminBroadcast";
 import AdminTeam from "./pages/admin/AdminTeam";
 import AdminLearning from "./pages/admin/AdminLearning";
-import AdminMediBondhu from "./pages/admin/AdminMediBondhu";
+import AdminVetBondhuOverview from "./pages/admin/AdminMediBondhu";
+import AdminVetBondhuAccess from "./pages/admin/AdminVetBondhuAccess";
+import AdminMediBondhuAccess from "./pages/admin/AdminMediBondhuAccess";
 import AdminFarms from "./pages/admin/AdminFarms";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminOrderDetail from "./pages/admin/AdminOrderDetail";
@@ -158,6 +162,7 @@ import AdminMarketplaceReviews from "./pages/admin/AdminMarketplaceReviews";
 import AdminCommunity from "./pages/admin/AdminCommunity";
 import VetApprovals from "./pages/admin/VetApprovals";
 import AdminMediBondhuHuman from "./pages/admin/AdminMediBondhuHuman";
+import AdminMediBondhuPayouts from "./pages/admin/AdminMediBondhuPayouts";
 import AdminCowDetectionExport from "./pages/admin/AdminCowDetectionExport";
 import AdminModuleHub from "./pages/admin/AdminModuleHub";
 import AdminEmailAudit from "./pages/admin/AdminEmailAudit";
@@ -328,6 +333,7 @@ const App = () => (
         <AuthProvider>
           <MarketplaceChatFocusProvider>
           <MarketplaceChatAlertsHost />
+          <GlobalNotificationAlertsHost />
           <RouteIntentPrefetch />
           <CartProvider>
             <OrderProvider>
@@ -582,6 +588,7 @@ const App = () => (
                 </Route>
 
                 {/* ============ VETBONDHU (isolated animal-care consult surface) ============ */}
+                <Route path="/vetbondhu/access-denied" element={<VetBondhuAccessDenied />} />
                 <Route
                   path="/vetbondhu"
                   element={
@@ -665,8 +672,12 @@ const App = () => (
                   <Route path="marketplace" element={<AdminMarketplace />} />
                   <Route path="reports" element={<Reports />} />
                   <Route path="learning" element={<AdminLearning />} />
-                  <Route path="medibondhu-overview" element={<AdminMediBondhu />} />
+                  <Route path="vetbondhu-overview" element={<AdminVetBondhuOverview />} />
+                  <Route path="medibondhu-overview" element={<Navigate to="/admin/vetbondhu-overview" replace />} />
+                  <Route path="vetbondhu-access" element={<AdminVetBondhuAccess />} />
+                  <Route path="medibondhu-access" element={<AdminMediBondhuAccess />} />
                   <Route path="medibondhu-human" element={<AdminMediBondhuHuman />} />
+                  <Route path="medibondhu-payouts" element={<AdminMediBondhuPayouts />} />
                   <Route path="farms" element={<AdminFarms />} />
                   <Route path="orders/:orderId" element={<AdminOrderDetail />} />
                   <Route path="orders" element={<AdminOrders />} />

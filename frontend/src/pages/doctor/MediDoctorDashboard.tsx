@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import { acceptMediOnlineVisit, mediHumanJson } from "@/lib/medibondhuHuman";
 import { subscribeMediHumanAppointments } from "@/lib/medibondhuAppointmentRealtime";
 import { subscribeMediDoctorInboxNewAppointment } from "@/api/client";
@@ -13,7 +14,7 @@ import { useMediDoctorPreviewActions } from "@/hooks/useMediDoctorPreviewActions
 import MediDoctorPreviewEmpty from "@/components/medibondhu/MediDoctorPreviewEmpty";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UserRound, Calendar, ClipboardList, FilePlus2, Video } from "lucide-react";
+import { UserRound, Calendar, ClipboardList, FilePlus2, Video, Search, Loader2 } from "lucide-react";
 import { MediSectionTitle, MediStatusBadge, MB } from "@/components/medibondhu/MediChrome";
 import { queryKeys } from "@/lib/queryClient";
 
@@ -26,6 +27,8 @@ type Appt = {
   patient_email?: string | null;
   chief_complaint?: string | null;
   slot_start?: string | null;
+  prescription_id?: string | null;
+  prescription_status?: string | null;
 };
 
 export default function MediDoctorDashboard() {
@@ -35,8 +38,10 @@ export default function MediDoctorDashboard() {
   const navigate = useNavigate();
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [doctorPk, setDoctorPk] = useState<string | null>(null);
+  const [prescriptionSearchCode, setPrescriptionSearchCode] = useState("");
+  const [searchingPrescription, setSearchingPrescription] = useState(false);
   const pageSize = 20;
-  const feedKey = ["medibondhu-human-doctor-feed", user?.id] as const;
+  const feedKey = useMemo(() => ["medibondhu-human-doctor-feed", user?.id] as const, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,10 +59,10 @@ export default function MediDoctorDashboard() {
     };
   }, [user?.id]);
 
-  const invalidateFeed = () => {
+  const invalidateFeed = useCallback(() => {
     void qc.invalidateQueries({ queryKey: feedKey });
     void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0) });
-  };
+  }, [feedKey, qc, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -71,7 +76,7 @@ export default function MediDoctorDashboard() {
       unsubBroadcast();
       unsubPg();
     };
-  }, [doctorPk, user?.id]);
+  }, [doctorPk, invalidateFeed, user?.id]);
 
   const q = useInfiniteQuery({
     queryKey: feedKey,
@@ -104,7 +109,7 @@ export default function MediDoctorDashboard() {
     },
   });
 
-  const rows = q.data?.pages.flatMap((p) => p.appointments || []) || [];
+  const rows = useMemo(() => q.data?.pages.flatMap((p) => p.appointments || []) || [], [q.data?.pages]);
 
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => {
@@ -132,6 +137,24 @@ export default function MediDoctorDashboard() {
     onError: (e: Error) => toast.error(e.message || "Failed"),
   });
 
+  const openPrescriptionByCode = async () => {
+    const code = prescriptionSearchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      toast.error("Enter a 6-digit prescription code");
+      return;
+    }
+    setSearchingPrescription(true);
+    try {
+      const { res, body } = await mediHumanJson<{ data?: { id?: string }; error?: string }>(`/prescriptions/search?code=${encodeURIComponent(code)}`);
+      if (!res.ok || !body.data?.id) throw new Error(String(body.error || "Prescription not found"));
+      navigate(`/medibondhu/prescription/${body.data.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Prescription not found");
+    } finally {
+      setSearchingPrescription(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -146,8 +169,7 @@ export default function MediDoctorDashboard() {
             Inbox
           </h1>
           <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-relaxed">
-            Human-health appointments only. This inbox is isolated from VetBondhu animal consultations. Resolve visits, then issue prescriptions when
-            appropriate.
+            Manage MediBondhu patient appointments, complete visits, and issue prescriptions when appropriate.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -186,6 +208,30 @@ export default function MediDoctorDashboard() {
         </Card>
       </div>
 
+      <Card className="rounded-xl border-border">
+        <CardContent className="p-4 flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Search MediBondhu prescription</p>
+            <p className="text-xs text-muted-foreground">Enter the 6-digit prescription code to open the record.</p>
+          </div>
+          <div className="flex gap-2 md:w-[320px]">
+            <Input
+              value={prescriptionSearchCode}
+              onChange={(event) => setPrescriptionSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void openPrescriptionByCode();
+              }}
+              placeholder="123456"
+              className="font-mono tracking-widest"
+              maxLength={6}
+            />
+            <Button type="button" className="text-white" style={{ backgroundColor: MB }} disabled={readOnly || searchingPrescription} onClick={() => void openPrescriptionByCode()}>
+              {searchingPrescription ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <MediSectionTitle eyebrow="Sorted by schedule" title="Appointments" />
 
       {q.isLoading && (
@@ -210,6 +256,8 @@ export default function MediDoctorDashboard() {
           {sortedRows.map((a) => {
             const terminal = ["completed", "cancelled", "rejected"].includes(String(a.status || "").toLowerCase());
             const patientKey = a.patient_user_id ? String(a.patient_user_id) : "";
+            const hasIssuedPrescription =
+              Boolean(a.prescription_id) && String(a.prescription_status || "").toLowerCase() === "issued";
             return (
               <Card key={a.id} className="rounded-xl overflow-hidden border-border hover:shadow-md transition-shadow">
                 <div className="h-1 w-full shrink-0" style={{ backgroundColor: MB }} />
@@ -274,13 +322,27 @@ export default function MediDoctorDashboard() {
                         Join video consultation
                       </Button>
                     )}
-                    <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={readOnly || terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "completed" })}>
-                      Mark complete
-                    </Button>
-                    <Button type="button" variant="destructive" size="sm" className="rounded-lg" disabled={readOnly || terminal || act.isPending} onClick={() => act.mutate({ id: a.id, status: "rejected" })}>
-                      Reject visit
-                    </Button>
-                    {patientKey && (
+                    {!terminal && (
+                      <>
+                        <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={readOnly || act.isPending} onClick={() => act.mutate({ id: a.id, status: "completed" })}>
+                          Mark complete
+                        </Button>
+                        <Button type="button" variant="destructive" size="sm" className="rounded-lg" disabled={readOnly || act.isPending} onClick={() => act.mutate({ id: a.id, status: "rejected" })}>
+                          Reject visit
+                        </Button>
+                      </>
+                    )}
+                    {hasIssuedPrescription ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg sm:ml-auto"
+                        onClick={() => navigate(`/medibondhu/prescription/${a.prescription_id}`)}
+                      >
+                        Issued
+                      </Button>
+                    ) : patientKey && (
                       <Button
                         type="button"
                         size="sm"

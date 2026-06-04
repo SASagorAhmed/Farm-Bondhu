@@ -7,6 +7,7 @@ export type FlashSaleRequestStatus = "pending" | "approved" | "rejected" | null;
 export type MarketplaceProduct = Product & {
   shopName?: string;
   is_verified_seller?: boolean;
+  listing_status?: string | null;
   is_flash_sale?: boolean;
   flash_sale_end?: string;
   flash_sale_request_status?: FlashSaleRequestStatus;
@@ -14,6 +15,10 @@ export type MarketplaceProduct = Product & {
   flash_sale_requested_original_price?: number;
   flash_sale_request_notes?: string;
   flash_sale_review_notes?: string;
+  wholesale_price?: number | null;
+  wholesale_rule?: string | null;
+  wholesale_min_qty?: number | null;
+  wholesale_min_order_bdt?: number | null;
   created_at?: string;
   shop_pin_order?: number | null;
   shop_sort_order?: number;
@@ -58,6 +63,7 @@ export function dbToProduct(row: Record<string, unknown>): MarketplaceProduct {
     deliveryChargeOutside:
       row.delivery_charge_outside != null ? Number(row.delivery_charge_outside) : null,
     is_verified_seller: Boolean(row.is_verified_seller),
+    listing_status: row.listing_status != null ? String(row.listing_status) : undefined,
     is_flash_sale: Boolean(row.is_flash_sale),
     flash_sale_end: row.flash_sale_end ? String(row.flash_sale_end) : undefined,
     flash_sale_request_status: row.flash_sale_request_status
@@ -76,6 +82,12 @@ export function dbToProduct(row: Record<string, unknown>): MarketplaceProduct {
     flash_sale_review_notes: row.flash_sale_review_notes
       ? String(row.flash_sale_review_notes)
       : undefined,
+    wholesale_price: row.wholesale_price != null ? Number(row.wholesale_price) : null,
+    wholesale_rule: row.wholesale_rule != null ? String(row.wholesale_rule) : null,
+    wholesale_min_qty:
+      row.wholesale_min_qty != null ? Number(row.wholesale_min_qty) : null,
+    wholesale_min_order_bdt:
+      row.wholesale_min_order_bdt != null ? Number(row.wholesale_min_order_bdt) : null,
     created_at: row.created_at ? String(row.created_at) : undefined,
     shop_pin_order: row.shop_pin_order != null ? Number(row.shop_pin_order) : null,
     shop_sort_order: row.shop_sort_order != null ? Number(row.shop_sort_order) : 0,

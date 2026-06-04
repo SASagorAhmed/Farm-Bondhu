@@ -31,6 +31,13 @@ app.use(
       callback(config.nodeEnv === "development" ? null : new Error("Not allowed by CORS"), config.nodeEnv === "development");
     },
     credentials: true,
+    exposedHeaders: [
+      "X-FarmBondhu-AI-Provider",
+      "X-FarmBondhu-AI-Model",
+      "X-FarmBondhu-AI-Status",
+      "X-FarmBondhu-AI-Fallback",
+      "X-FarmBondhu-AI-Failed-Models",
+    ],
   })
 );
 app.use(morgan(config.nodeEnv === "production" ? "combined" : "dev"));

@@ -7,7 +7,7 @@ FarmBondhu is a multi-module agriculture platform focused on livestock and farm 
 Core goals:
 - Help farmers run day-to-day farm operations (animals, feed, health, production, finances, sales).
 - Provide a marketplace for buying/selling farm products.
-- Provide online veterinary services through MediBondhu.
+- Provide online veterinary services through VetBondhu and human healthcare services through MediBondhu.
 - Provide community knowledge sharing and Q&A.
 - Provide AI assistance through a farm chatbot.
 - Provide role-based access for farmer, buyer, vendor, vet, and admin users.
@@ -196,7 +196,8 @@ Routing is centralized in `frontend/src/App.tsx` and guarded through `ProtectedR
 - Marketplace controls
 - Reports
 - Learning controls
-- MediBondhu overview
+- VetBondhu overview, access controls, and payout review
+- MediBondhu human operations, access controls, and doctor payout review
 - Farms/orders/community admin views
 
 ---
@@ -257,7 +258,7 @@ Key domain routers:
 - Live consultation messages and read-only chat history after completion.
 - Human prescription creation and retrieval.
 - Doctor earnings and withdrawal tracking.
-- Admin review of doctor verification, withdrawals, and operations.
+- Admin review of doctor verification, hospitals, specialties, access restrictions, withdrawals, and operations.
 
 ## 7.4 Community
 - Community posts and engagement.
@@ -288,7 +289,7 @@ Important table groups:
 - Farm records: `production_records`, `financial_records`, `health_records`, `mortality_records`, `sale_records`, `feed_records`, `feed_inventory`
 - Marketplace: `products`, `orders`, `shops`, `conversations`, `chat_messages`, `approval_requests`
 - VetBondhu veterinary: `vets`, `vet_profiles`, `vet_availability`, `consultation_bookings`, `consultation_messages`, `prescriptions`, `prescription_items`, `e_prescriptions`, `vet_withdrawals`
-- MediBondhu human care: `medibondhu_doctors`, `medibondhu_doctor_time_slots`, `medibondhu_appointments`, `medibondhu_appointment_messages`, `medibondhu_prescriptions`, `medibondhu_prescription_items`, `medibondhu_doctor_withdrawals`
+- MediBondhu human care: `medibondhu_doctors`, `medibondhu_doctor_time_slots`, `medibondhu_appointments`, `medibondhu_appointment_messages`, `medibondhu_prescriptions`, `medibondhu_prescription_items`, `medibondhu_doctor_withdrawals`, `medibondhu_user_restrictions`
 - Community: `community_posts`, `community_comments`, `community_answers`, `community_reactions`, `community_saves`
 - Platform support: `notifications`, `admin_team`
 
@@ -375,10 +376,10 @@ Current deployment pattern:
 
 ### Admin Journey
 1. Manage users/roles/capabilities.
-2. Handle approvals and vet verification.
+2. Handle doctor/vet approvals and module-specific access controls.
 3. Monitor marketplace, farms, orders, and community.
 4. Broadcast announcements.
-5. Oversee platform-wide MediBondhu and withdrawal flow.
+5. Oversee VetBondhu and MediBondhu overview, payout, and withdrawal flows separately.
 
 ---
 
@@ -634,7 +635,7 @@ Operational security notes:
 - `dashboard` - overview bundle + farm record CRUD endpoints.
 - `marketplace` - products, chat bootstrap, seller/admin inbox bootstrap, related flows.
 - `orders` - buyer/seller order operations.
-- `medibondhu` - vet profiles, consultations, room/bootstrap, prescriptions, earnings/withdrawals/admin controls.
+- `medibondhu` - human doctor profiles, consultations, room/bootstrap, prescriptions, earnings/withdrawals/admin controls.
 - `community` - bundled post detail and engagement support.
 - `notifications` - listing/unread/mark-read patterns.
 - `ai` - authenticated streaming farm chatbot endpoint.
@@ -684,7 +685,7 @@ Backend startup connectivity block reports service status for:
 - Auth: login, refresh, protected route check.
 - Dashboard: bundle endpoint timings and data loads.
 - Marketplace: product listing + chat bootstrap.
-- MediBondhu: vet directory, booking, room token path.
+- MediBondhu: doctor directory, booking, room token path, admin access, and payout overview.
 - AI: farm chat request/stream.
 - Email: registration OTP and password reset OTP flows.
 
@@ -761,7 +762,7 @@ General rule:
 - user-scoped records are filtered by authenticated `user_id`.
 - farm-scoped operations verify farm ownership before mutation.
 - admin routes require elevated role/capability checks.
-- vet-facing flows apply vet ownership or approved access checks in MediBondhu services.
+- vet-facing and doctor-facing flows apply module-specific ownership, approval, and access checks.
 
 ---
 

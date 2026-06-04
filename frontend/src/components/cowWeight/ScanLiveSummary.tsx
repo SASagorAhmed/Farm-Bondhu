@@ -2,11 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import CowWeightGreenbondhuAlert from "@/components/cowWeight/CowWeightGreenbondhuAlert";
 import { cowWeightLiveWeightValue } from "@/components/cowWeight/cowWeightCalloutStyles";
 import { useLanguage } from "@/contexts/LanguageContext";
-import {
-  DETECT_MIN_EDIBLE_MEAT_KG,
-  DETECT_MIN_LIVE_WEIGHT_KG,
-  isStandoffInOptimalBand,
-} from "@/lib/cowWeight/cowWeightResearch";
+import { isStandoffInOptimalBand } from "@/lib/cowWeight/cowWeightResearch";
 import {
   COW_WEIGHT_THEME,
   cowWeightAccentStyle,
@@ -27,6 +23,10 @@ interface ScanLiveSummaryProps {
   cameraDistanceCm?: number | null;
   distanceSource?: CameraDistanceSource | null;
   groundDistanceDetected?: boolean;
+}
+
+function minimumLabel(template: string): string {
+  return template.split("{kg}")[0].replace(/[:：\s]+$/, "");
 }
 
 export default function ScanLiveSummary({
@@ -55,6 +55,8 @@ export default function ScanLiveSummary({
   const showMeat = !isPreview && showWeight;
   const weightLoading = assistLoading && step === 1 && !showWeight;
   const reserveDistanceSlot = step === 1 && !hasReference;
+  const minimumLiveWeightKg = metrics?.estimatedLiveWeightKg ?? 0;
+  const minimumEdibleMeatKg = Number((minimumLiveWeightKg * 0.55).toFixed(1));
 
   const sourceLabel =
     detected && distanceSource === "cloud"
@@ -97,9 +99,29 @@ export default function ScanLiveSummary({
       </div>
 
       {isDetectStep && (
-        <div className="space-y-1 text-xs font-semibold" style={textStyle}>
-          <p>{t("cowWeight.scan.minLiveWeight").replace("{kg}", String(DETECT_MIN_LIVE_WEIGHT_KG))}</p>
-          <p>{t("cowWeight.scan.minEdibleMeat").replace("{kg}", String(DETECT_MIN_EDIBLE_MEAT_KG))}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div
+            className="rounded-lg border bg-white/70 px-2.5 py-2 shadow-sm"
+            style={{ borderColor: COW_WEIGHT_THEME.farmBorder }}
+          >
+            <p className="text-[10px] font-medium leading-tight" style={{ color: COW_WEIGHT_THEME.farmTextMuted }}>
+              {minimumLabel(t("cowWeight.scan.minLiveWeight"))}
+            </p>
+            <p className="mt-1 text-base font-bold tabular-nums leading-none" style={cowWeightAccentStyle("farm")}>
+              {minimumLiveWeightKg} kg
+            </p>
+          </div>
+          <div
+            className="rounded-lg border bg-white/70 px-2.5 py-2 shadow-sm"
+            style={{ borderColor: COW_WEIGHT_THEME.farmBorder }}
+          >
+            <p className="text-[10px] font-medium leading-tight" style={{ color: COW_WEIGHT_THEME.farmTextMuted }}>
+              {minimumLabel(t("cowWeight.scan.minEdibleMeat"))}
+            </p>
+            <p className="mt-1 text-base font-bold tabular-nums leading-none" style={cowWeightAccentStyle("farm")}>
+              {minimumEdibleMeatKg} kg
+            </p>
+          </div>
         </div>
       )}
 

@@ -1,16 +1,18 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Copy, Eye } from "lucide-react";
+import { Copy, Eye, Plus } from "lucide-react";
 import { shopPath } from "@/lib/marketplaceShopApi";
+import { VENDOR_THEME } from "@/lib/vendorTheme";
 import { toast } from "sonner";
 
 interface Props {
   sellerId: string;
   onPreview?: () => void;
+  onAddProduct?: () => void;
   variant?: "seller" | "admin";
 }
 
-export default function SellerStorefrontToolbar({ sellerId, onPreview, variant = "seller" }: Props) {
+export default function SellerStorefrontToolbar({ sellerId, onPreview, onAddProduct, variant = "seller" }: Props) {
   const isAdmin = variant === "admin";
   const publicUrl = `${window.location.origin}${shopPath(sellerId)}`;
 
@@ -37,6 +39,17 @@ export default function SellerStorefrontToolbar({ sellerId, onPreview, variant =
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {onAddProduct && (
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1 text-white"
+              style={{ backgroundColor: VENDOR_THEME.primary }}
+              onClick={onAddProduct}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Product
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" className="gap-1" onClick={copyLink}>
             <Copy className="h-3.5 w-3.5" /> Copy link
           </Button>

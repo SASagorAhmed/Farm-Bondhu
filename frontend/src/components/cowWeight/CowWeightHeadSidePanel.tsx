@@ -37,7 +37,9 @@ export default function CowWeightHeadSidePanel({
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-bold text-slate-900">{t("cowWeight.scan.orientationLabel")}</p>
+        <p className="text-sm font-bold text-slate-900">
+          {notDetected ? t("cowWeight.scan.headDirectionRequired") : t("cowWeight.scan.orientationLabel")}
+        </p>
         {notDetected && (
           <span className="text-[10px] font-semibold uppercase tracking-wide rounded-md border border-slate-300 bg-slate-100 text-slate-700 px-2 py-0.5">
             {t("cowWeight.scan.notDetected")}
@@ -79,7 +81,9 @@ export default function CowWeightHeadSidePanel({
         })}
       </div>
 
-      <p className="text-[11px] text-slate-600 leading-snug">{t("cowWeight.scan.headSideHint")}</p>
+      <p className="text-[11px] text-slate-600 leading-snug">
+        {notDetected ? t("cowWeight.scan.headDirectionRequiredHint") : t("cowWeight.scan.headSideHint")}
+      </p>
     </div>
   );
 }

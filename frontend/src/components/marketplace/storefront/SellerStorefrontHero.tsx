@@ -12,10 +12,12 @@ import {
   Pencil,
   ShoppingBag,
 } from "lucide-react";
-import { useLanguage } from "@/contexts/LanguageContext";
 import { MARKETPLACE_THEME, marketplaceGradient } from "@/lib/marketplaceTheme";
 import type { PublicShop } from "@/lib/marketplaceShopApi";
 import { officialShopPhotoEditorNewUrl } from "@/lib/officialShopStorefrontPaths";
+
+const SHOP_COVER_REQUIREMENT = "Cover 1000x200 (5:1)";
+const SHOP_LOGO_REQUIREMENT = "Profile 512x512";
 
 interface Props {
   shop: PublicShop;
@@ -50,7 +52,6 @@ export default function SellerStorefrontHero({
     ? officialShopPhotoEditorNewUrl("shop_logo", "shop_logo", shopReturnPath)
     : "/seller/photo-editor/edit/new?preset=shop_logo&target=shop_logo&returnTo=/seller/my-shop";
   const navigate = useNavigate();
-  const { t } = useLanguage();
   const shopName = shop.shop_name?.trim() || "Marketplace Shop";
   const initial = shopName.charAt(0).toUpperCase();
   const bannerRef = useRef<HTMLInputElement>(null);
@@ -88,9 +89,10 @@ export default function SellerStorefrontHero({
                 variant="secondary"
                 className="gap-1 opacity-90"
                 onClick={() => navigate(photoCoverUrl)}
+                title="Edit cover in Photo Editor"
               >
                 <Palette className="h-4 w-4" />
-                {t("seller.photoEditor.editInPhotoEditor")}
+                Edit cover in Photo Editor
               </Button>
               <Button
                 type="button"
@@ -99,9 +101,10 @@ export default function SellerStorefrontHero({
                 className="gap-1 opacity-90"
                 disabled={uploadingBanner}
                 onClick={() => pickFile(bannerRef, onUploadBanner)}
+                title={SHOP_COVER_REQUIREMENT}
               >
                 <Camera className="h-4 w-4" />
-                {uploadingBanner ? "Uploading…" : "Change banner"}
+                {uploadingBanner ? "Uploading…" : "Upload cover"}
               </Button>
             </div>
           </>
@@ -129,7 +132,8 @@ export default function SellerStorefrontHero({
                   className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-background border shadow flex items-center justify-center hover:bg-muted"
                   disabled={uploadingLogo}
                   onClick={() => pickFile(logoRef, onUploadLogo)}
-                  aria-label="Change logo"
+                  aria-label="Upload profile photo"
+                  title={`Upload profile photo — ${SHOP_LOGO_REQUIREMENT}`}
                 >
                   <Camera className="h-4 w-4" />
                 </button>
@@ -137,8 +141,8 @@ export default function SellerStorefrontHero({
                   type="button"
                   className="absolute -bottom-1 -left-1 h-8 w-8 rounded-full bg-background border shadow flex items-center justify-center hover:bg-muted"
                   onClick={() => navigate(photoLogoUrl)}
-                  aria-label={t("seller.photoEditor.editInPhotoEditor")}
-                  title={t("seller.photoEditor.editInPhotoEditor")}
+                  aria-label="Edit profile in Photo Editor"
+                  title={`Edit profile in Photo Editor — ${SHOP_LOGO_REQUIREMENT}`}
                 >
                   <Palette className="h-3.5 w-3.5" />
                 </button>

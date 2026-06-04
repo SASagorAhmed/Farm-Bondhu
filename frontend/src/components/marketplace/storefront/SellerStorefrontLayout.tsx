@@ -40,6 +40,9 @@ export interface SellerStorefrontLayoutProps {
   showOwnerPreviewBanner?: boolean;
   variant?: "seller" | "admin";
   shopEditorPath?: string;
+  onAddProduct?: () => void;
+  onEditProduct?: (product: MarketplaceProduct) => void;
+  onDeleteProduct?: (product: MarketplaceProduct) => void;
   onNavigateProduct: (product: MarketplaceProduct) => void;
   onAddToCart: (product: MarketplaceProduct) => void;
   onBuyNow: (product: MarketplaceProduct) => void;
@@ -54,6 +57,9 @@ export default function SellerStorefrontLayout({
   showOwnerPreviewBanner = false,
   variant = "seller",
   shopEditorPath = "/seller/my-shop",
+  onAddProduct,
+  onEditProduct,
+  onDeleteProduct,
   onNavigateProduct,
   onAddToCart,
   onBuyNow,
@@ -184,7 +190,13 @@ export default function SellerStorefrontLayout({
         </div>
       )}
 
-      {editMode && <SellerStorefrontToolbar sellerId={sellerId} variant={variant} />}
+      {editMode && (
+        <SellerStorefrontToolbar
+          sellerId={sellerId}
+          variant={variant}
+          onAddProduct={onAddProduct}
+        />
+      )}
 
       <SellerStorefrontHero
         shop={shop}
@@ -226,6 +238,8 @@ export default function SellerStorefrontLayout({
           onPin={handlePin}
           onUnpin={handleUnpin}
           onMovePinned={editMode ? handleMovePinned : undefined}
+          onEditProduct={onEditProduct}
+          onDeleteProduct={onDeleteProduct}
           onOpen={onNavigateProduct}
           onAddToCart={onAddToCart}
           onBuyNow={onBuyNow}
@@ -258,6 +272,8 @@ export default function SellerStorefrontLayout({
           pinnedIds={pinnedIds}
           onPin={handlePin}
           onUnpin={handleUnpin}
+          onEditProduct={onEditProduct}
+          onDeleteProduct={onDeleteProduct}
           onOpen={onNavigateProduct}
           onAddToCart={onAddToCart}
           onBuyNow={onBuyNow}

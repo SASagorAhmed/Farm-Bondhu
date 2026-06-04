@@ -8,8 +8,12 @@ MediBondhu is the human-care module. Keep it separate from VetBondhu veterinary 
 
 - [ ] **Same appointment:** Patient and doctor both use the **same appointment id** (`/medibondhu/waiting/:id` or `/medibondhu/room/:id`).
 - [ ] **Doctor identity:** The appointment’s `doctor_id` matches the approved MediBondhu doctor profile for the doctor browser account.
+- [ ] **Doctor approval UI:** In Admin → MediBondhu Human, approved doctors show an approved state only; pending doctors show `Approve` and `Reject`.
+- [ ] **Doctor profile options:** Admin-added hospitals and specialties are visible in the doctor profile setup/select fields.
 - [ ] **Doctor availability:** In `/medibondhu/doctor/schedule`, doctor is accepting patients, the intended visit type is enabled, and at least one future schedule window exists.
 - [ ] **Available doctors:** `/medibondhu/doctors?available=true` shows only doctors with `can_book === true`.
+- [ ] **MediBondhu access:** `/admin/medibondhu-access` restrictions block only MediBondhu doctor/patient access, not VetBondhu or the whole account.
+- [ ] **MediBondhu payouts:** `/admin/medibondhu-payouts` shows Total Doctors, Available Doctors, Total Bookings, Active Sessions, Pending Withdrawals, and MediBondhu-only withdrawal actions.
 - [ ] **Zego env:** Backend has `ZEGOCLOUD_APP_ID` and `ZEGOCLOUD_SERVER_SECRET`; patient and doctor each complete the UIKit flow (see `docs/MEDIBONDHU_ZEGO_TOKEN.md`).
 
 ## During the call
@@ -26,3 +30,5 @@ MediBondhu is the human-care module. Keep it separate from VetBondhu veterinary 
 - [ ] Confirm **current** `status` on the appointment (network tab or GET) before retrying a PATCH.
 - [ ] Confirm `leave_deadline_at` and `left_user_id` when testing rejoin behavior.
 - [ ] Confirm **which user** issued the PATCH (patient vs doctor vs admin) matches the transition rules.
+- [ ] If doctor options are missing, refresh the doctor profile queries after admin hospital/specialty changes.
+- [ ] If payout overview lists are empty, confirm `/v1/medibondhu/admin/payout-overview` returns MediBondhu doctor and booking list payloads.

@@ -57,8 +57,8 @@ export const ADMIN_ROUTE_MAP: Record<string, string> = {
   "/seller/dashboard": "/admin/marketplace",
   "/seller/payouts": "/admin/marketplace/payouts",
   "/medibondhu": "/admin/medibondhu-human",
-  "/vet/dashboard": "/admin/medibondhu-overview",
-  "/vetbondhu": "/admin/medibondhu-overview",
+  "/vet/dashboard": "/admin/vetbondhu-overview",
+  "/vetbondhu": "/admin/vetbondhu-overview",
   "/orders": "/admin/orders",
   "/dashboard/farms": "/admin/farms",
   "/dashboard/animals": "/admin/farms",
@@ -132,7 +132,10 @@ function notificationChannelName(channelId: string, userId: string): string {
 export function subscribeNotificationsRealtime(
   userId: string,
   queryClient: QueryClient,
-  channelId: string
+  channelId: string,
+  options?: {
+    onInsert?: (row: NotificationRow) => void;
+  }
 ) {
   const channel = api
     .channel(notificationChannelName(channelId, userId))
@@ -142,11 +145,14 @@ export function subscribeNotificationsRealtime(
 
       if (eventType === "INSERT" && payload?.new) {
         if (!isNotificationForUser(payload.new, userId)) return;
+        let inserted = false;
         queryClient.setQueryData<NotificationRow[]>(key, (prev = []) => {
           const row = payload.new as NotificationRow;
           if (prev.some((n) => n.id === row.id)) return prev;
+          inserted = true;
           return [row, ...prev];
         });
+        if (inserted) options?.onInsert?.(payload.new as NotificationRow);
         return;
       }
       if (eventType === "UPDATE" && payload?.new) {

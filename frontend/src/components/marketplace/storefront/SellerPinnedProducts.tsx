@@ -8,6 +8,8 @@ interface Props {
   onPin: (product: MarketplaceProduct) => void;
   onUnpin: (product: MarketplaceProduct) => void;
   onMovePinned?: (product: MarketplaceProduct, direction: "left" | "right") => void;
+  onEditProduct?: (product: MarketplaceProduct) => void;
+  onDeleteProduct?: (product: MarketplaceProduct) => void;
   onOpen: (product: MarketplaceProduct) => void;
   onAddToCart: (product: MarketplaceProduct) => void;
   onBuyNow: (product: MarketplaceProduct) => void;
@@ -20,6 +22,8 @@ export default function SellerPinnedProducts({
   onPin,
   onUnpin,
   onMovePinned,
+  onEditProduct,
+  onDeleteProduct,
   onOpen,
   onAddToCart,
   onBuyNow,
@@ -53,6 +57,8 @@ export default function SellerPinnedProducts({
                 onMoveRight={onMovePinned ? () => onMovePinned(p, "right") : undefined}
                 canMoveLeft={editMode && index > 0}
                 canMoveRight={editMode && index < products.length - 1}
+                onEditProduct={onEditProduct ? () => onEditProduct(p) : undefined}
+                onDeleteProduct={onDeleteProduct ? () => onDeleteProduct(p) : undefined}
                 onOpen={() => onOpen(p)}
                 onAddToCart={() => onAddToCart(p)}
                 onBuyNow={() => onBuyNow(p)}

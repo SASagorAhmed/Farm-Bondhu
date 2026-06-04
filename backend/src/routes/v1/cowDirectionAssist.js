@@ -1,43 +1,165 @@
 import { Router } from "express";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireUser } from "../../middleware/requireUser.js";
+import {
+  providerSetting,
+  safeAiDetail,
+  shouldTryFallback,
+  uniqueAttempts,
+} from "../../services/ai/aiProviderRouter.js";
+import { openRouterVisionText } from "../../services/ai/openRouterProvider.js";
+import { geminiVisionText } from "../../services/ai/geminiProvider.js";
 
 const router = Router();
 
 const MAX_IMAGE_CHARS = 2_800_000;
+const IS_DEV = process.env.NODE_ENV !== "production";
+const COW_ASSIST_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    headSide: { type: "STRING", enum: ["left", "right", "unknown"] },
+    confidence: { type: "NUMBER" },
+    headBbox: {
+      type: "OBJECT",
+      nullable: true,
+      properties: {
+        x: { type: "NUMBER" },
+        y: { type: "NUMBER" },
+        width: { type: "NUMBER" },
+        height: { type: "NUMBER" },
+      },
+    },
+    standoffDistanceM: { type: "NUMBER", nullable: true },
+    distanceConfidence: { type: "NUMBER" },
+    reason: { type: "STRING", nullable: true },
+  },
+  required: ["headSide", "confidence"],
+};
 const SYSTEM_PROMPT = `You analyze side-view photos of cows for livestock weight estimation.
-Reply with ONLY valid JSON, no markdown:
+Reply with ONLY valid compact JSON, no markdown. Required fields are headSide and confidence. Optional fields may be null:
 {
   "headSide": "left" | "right" | "unknown",
   "confidence": 0.0-1.0,
   "headBbox": { "x": 0-1, "y": 0-1, "width": 0-1, "height": 0-1 },
-  "frontLeg": { "x": 0-1, "y": 0-1 },
-  "hindLeg": { "x": 0-1, "y": 0-1 },
-  "topChest": { "x": 0-1, "y": 0-1 },
-  "lowerChest": { "x": 0-1, "y": 0-1 },
   "standoffDistanceM": number or null,
   "distanceConfidence": 0.0-1.0,
   "reason": "one short sentence"
 }
 Definitions (photo coordinates, x increases right, y increases down):
 - headSide: which side of the image has the cow's HEAD (smaller end, neck/nose), not the tail/rump.
-- frontLeg: foreleg hoof on the HEAD side — frontLeg.x must be on the SAME side as headSide (left if headSide is left, right if headSide is right).
-- hindLeg: rear/hind hoof on the TAIL side — opposite side from frontLeg. If the rear hoof is hidden in grass, place hindLeg at the best tail-side ground contact (still return both points).
 - headBbox: tight box around neck and head only (not shoulder or mid-body); width typically under 22% of cow span.
-- topChest: withers / upper chest — smaller y value (higher on the photo) than lowerChest.
-- lowerChest: brisket — larger y value (lower on the photo) than topChest.
 - standoffDistanceM: approximate camera-to-cow distance in meters for a side-view barn photo, or null if unsure.
 If unclear, use "unknown" for headSide and confidence below 0.5.`;
 
-function parseAssistJson(text) {
-  const trimmed = String(text || "").trim();
-  const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+function tryParseJson(text) {
   try {
-    return JSON.parse(jsonMatch[0]);
+    return JSON.parse(text);
   } catch {
     return null;
   }
+}
+
+function stripJsonFence(text) {
+  return String(text || "")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function firstBalancedJsonObject(text) {
+  const raw = String(text || "");
+  const start = raw.indexOf("{");
+  if (start < 0) return "";
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+    } else if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return "";
+}
+
+function numberFieldFromText(text, field) {
+  const re = new RegExp(`"${field}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, "i");
+  const match = String(text || "").match(re);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function nullableNumberFieldFromText(text, field) {
+  if (new RegExp(`"${field}"\\s*:\\s*null`, "i").test(String(text || ""))) return null;
+  return numberFieldFromText(text, field);
+}
+
+function stringFieldFromText(text, field) {
+  const re = new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`, "i");
+  const match = String(text || "").match(re);
+  return match ? match[1] : null;
+}
+
+function salvageAssistJson(text) {
+  const rawHeadSide = String(stringFieldFromText(text, "headSide") || "").toLowerCase();
+  if (!["left", "right", "head_left", "head_right", "unknown"].includes(rawHeadSide)) return null;
+  const headSide = normalizeHeadSide(rawHeadSide);
+  const confidence = numberFieldFromText(text, "confidence");
+  if (confidence == null) return null;
+
+  return {
+    headSide,
+    confidence,
+    headBbox: null,
+    frontLeg: null,
+    hindLeg: null,
+    topChest: null,
+    lowerChest: null,
+    standoffDistanceM: nullableNumberFieldFromText(text, "standoffDistanceM"),
+    distanceConfidence: numberFieldFromText(text, "distanceConfidence") ?? 0,
+    reason: "Recovered from partial Gemini response",
+  };
+}
+
+function parseAssistJson(text) {
+  const trimmed = String(text || "").trim();
+  return (
+    tryParseJson(trimmed) ||
+    tryParseJson(stripJsonFence(trimmed)) ||
+    tryParseJson(firstBalancedJsonObject(trimmed)) ||
+    salvageAssistJson(trimmed)
+  );
+}
+
+function logAssistFailure(failures) {
+  if (!IS_DEV || !failures.length) return;
+  console.warn(
+    "[cow-direction-assist] AI failures",
+    failures.map((failure) => ({
+      provider: failure.provider,
+      model: failure.model,
+      status: failure.status,
+      detail: safeAiDetail(failure.detail, 240),
+    }))
+  );
 }
 
 function normalizeHeadSide(v) {
@@ -74,18 +196,65 @@ function normalizePoint(raw) {
   };
 }
 
+function visionAttemptOrder() {
+  const primary = providerSetting("AI_VISION_PROVIDER", "gemini");
+  const fallback = providerSetting("AI_VISION_FALLBACK_PROVIDER", "off");
+  return [primary, fallback].filter((provider, index, arr) => provider !== "off" && arr.indexOf(provider) === index);
+}
+
+function geminiVisionModels() {
+  const primary = process.env.GEMINI_VISION_MODEL?.trim() || "gemini-2.5-flash";
+  const fallbacks = String(process.env.GEMINI_VISION_FALLBACK_MODELS || "")
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+  return [primary, ...fallbacks].filter((model, index, arr) => arr.indexOf(model) === index);
+}
+
+async function runOpenRouterVision({ prompt, imageUrl }) {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  const model =
+    process.env.OPENROUTER_VISION_MODEL?.trim() ||
+    process.env.OPENROUTER_MODEL?.trim() ||
+    "google/gemma-4-31b-it:free";
+  if (!apiKey) {
+    return {
+      ok: false,
+      provider: "openrouter",
+      model,
+      status: 503,
+      detail: "OPENROUTER_API_KEY not configured",
+      retryable: false,
+    };
+  }
+  return openRouterVisionText({
+    apiKey,
+    model,
+    systemPrompt: SYSTEM_PROMPT,
+    prompt,
+    imageUrl,
+  });
+}
+
+async function runGeminiVision({ prompt, imageData, model }) {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  return geminiVisionText({
+    apiKey,
+    model,
+    systemPrompt: SYSTEM_PROMPT,
+    prompt,
+    imageData,
+    responseMimeType: "application/json",
+    responseSchema: COW_ASSIST_RESPONSE_SCHEMA,
+  });
+}
+
 router.post(
   "/assist-direction",
   requireUser,
   asyncHandler(async (req, res) => {
     if (process.env.COW_DIRECTION_ASSIST_ENABLED === "false") {
       res.status(503).json({ error: "Cow direction assist is disabled" });
-      return;
-    }
-
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    if (!apiKey) {
-      res.status(503).json({ error: "OPENROUTER_API_KEY not configured" });
       return;
     }
 
@@ -103,62 +272,81 @@ router.post(
       ? imageData
       : `data:image/jpeg;base64,${imageData}`;
 
-    const model =
-      process.env.OPENROUTER_VISION_MODEL?.trim() ||
-      process.env.OPENROUTER_MODEL?.trim() ||
-      "google/gemini-2.0-flash-001";
-
     const hintText =
       localHints && typeof localHints === "object"
         ? `Local algorithm hints: ${JSON.stringify(localHints)}`
         : "";
+    const prompt = `Analyze this side-view cow photo. Return head side, head box, and approximate camera distance in meters. ${hintText}`.trim();
 
-    const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.API_PUBLIC_URL || "http://localhost:3001",
-        "X-Title": "FarmBondhu Cow Vision Assist",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Analyze this side-view cow photo. Return head side, front/hind leg positions, top/lower chest, and approximate camera distance in meters. ${hintText}`.trim(),
-              },
-              { type: "image_url", image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-        temperature: 0.1,
-        max_tokens: 512,
-      }),
-    });
+    const failures = [];
+    let parsed = null;
+    let provider = null;
+    let model = null;
 
-    if (!upstream.ok) {
-      const t = await upstream.text();
-      res.status(upstream.status).json({ error: "AI upstream error", detail: t.slice(0, 500) });
-      return;
+    providerLoop:
+    for (const nextProvider of visionAttemptOrder()) {
+      if (nextProvider === "gemini") {
+        for (const geminiModel of geminiVisionModels()) {
+          const attempt = await runGeminiVision({ prompt, imageData, model: geminiModel });
+          if (attempt.ok) {
+            parsed = parseAssistJson(attempt.text);
+            provider = attempt.provider;
+            model = attempt.model;
+            if (parsed) break providerLoop;
+            failures.push({
+              provider: attempt.provider,
+              model: attempt.model,
+              status: 502,
+              detail: `Could not parse AI response: ${String(attempt.text || "").slice(0, 300)}`,
+            });
+            continue;
+          }
+
+          failures.push({
+            provider: attempt.provider,
+            model: attempt.model,
+            status: attempt.status,
+            detail: attempt.detail,
+          });
+          if (!attempt.retryable && !shouldTryFallback(attempt.status)) break providerLoop;
+        }
+        continue;
+      } else {
+        const attempt = await runOpenRouterVision({ prompt, imageUrl });
+        if (attempt.ok) {
+          parsed = parseAssistJson(attempt.text);
+          provider = attempt.provider;
+          model = attempt.model;
+          if (parsed) break providerLoop;
+          failures.push({
+            provider: attempt.provider,
+            model: attempt.model,
+            status: 502,
+            detail: `Could not parse AI response: ${String(attempt.text || "").slice(0, 300)}`,
+          });
+          continue;
+        }
+
+        failures.push({
+          provider: attempt.provider,
+          model: attempt.model,
+          status: attempt.status,
+          detail: attempt.detail,
+        });
+        if (!attempt.retryable && !shouldTryFallback(attempt.status)) break providerLoop;
+      }
     }
 
-    const payload = await upstream.json();
-    const content = payload?.choices?.[0]?.message?.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map((p) => p?.text || "").join("")
-          : "";
-
-    const parsed = parseAssistJson(text);
     if (!parsed) {
-      res.status(502).json({ error: "Could not parse AI response", detail: text.slice(0, 300) });
+      logAssistFailure(failures);
+      const last = failures[failures.length - 1];
+      res.status(last?.status || 503).json({
+        error: "AI upstream error",
+        detail: last?.detail || "All configured vision providers failed.",
+        failed_provider: last?.provider || "unknown",
+        failed_model: last?.model || null,
+        attempts: uniqueAttempts(failures),
+      });
       return;
     }
 
@@ -185,6 +373,7 @@ router.post(
         distanceConfidence,
         reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 200) : null,
         model,
+        provider,
       },
     });
   })
