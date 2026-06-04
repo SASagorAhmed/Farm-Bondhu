@@ -24,7 +24,15 @@ interface Booking {
   created_at: string;
   scheduled_date: string | null;
   scheduled_time: string | null;
+  prescription_id?: string | null;
+  prescription_status?: string | null;
 }
+type ConsultationsCache =
+  | Booking[]
+  | {
+      consultations?: Booking[];
+      [key: string]: unknown;
+    };
 const TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -178,7 +186,7 @@ export default function VetConsultations() {
       onEvent: (eventType, row) => {
         queryClient.setQueriesData(
           { queryKey: consultationsQueryKey },
-          (prev: any) => {
+          (prev: ConsultationsCache | undefined) => {
             if (!prev) return prev;
             if (Array.isArray(prev)) {
               return patchBookingList(prev, eventType, row) as Booking[];
@@ -322,9 +330,15 @@ export default function VetConsultations() {
                         user?.id
                       ) && <span className="text-xs text-muted-foreground">Ending...</span>}
                     {b.status === "completed" && (
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/vet/prescriptions/create?consultationId=${b.id}`)}>
-                        <FileText className="h-4 w-4 mr-1" /> Prescribe
-                      </Button>
+                      b.prescription_id && String(b.prescription_status || "").toLowerCase() === "issued" ? (
+                        <Button size="sm" variant="outline" onClick={() => navigate(`/vet/prescriptions/${b.prescription_id}`)}>
+                          <CheckCircle className="h-4 w-4 mr-1 text-emerald-600" /> Issued
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => navigate(`/vet/prescriptions/create?consultationId=${b.id}`)}>
+                          <FileText className="h-4 w-4 mr-1" /> Prescribe
+                        </Button>
+                      )
                     )}
                   </div>
                 );

@@ -65,7 +65,11 @@ export default function VetLayout() {
         const res = await fetch(`${API_BASE}/v1/vetbondhu/vet-profile/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const body = (await res.json().catch(() => ({}))) as { data?: Record<string, unknown> };
+        const body = (await res.json().catch(() => ({}))) as { data?: Record<string, unknown>; code?: string; error?: string };
+        if (res.status === 403 && (body.code === "VETBONDHU_ACCESS_DENIED" || String(body.error || "").toLowerCase().includes("vetbondhu access denied"))) {
+          navigate("/vetbondhu/access-denied", { replace: true });
+          return;
+        }
         const approved = String(body?.data?.verification_status || "").toLowerCase() === "approved";
         const complete = res.ok && (isVetProfileComplete(body.data) || approved);
         const atProfilePage = location.pathname === "/vet/profile";

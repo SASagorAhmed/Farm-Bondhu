@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import { API_BASE, api, readSession } from "@/api/client";
 import { withApiTiming } from "@/lib/perfMetrics";
 import { useAuth } from "@/contexts/AuthContext";
-import { FileText, Plus, Eye, Loader2, Send } from "lucide-react";
+import { FileText, Plus, Eye, Loader2, Send, Search } from "lucide-react";
 import { format } from "date-fns";
 import { getAnimalTypeLabel } from "@/lib/animalTypes";
 import { toast } from "@/hooks/use-toast";
@@ -21,6 +22,7 @@ interface Prescription {
   diagnosis: string | null;
   severity: string | null;
   status: string;
+  prescription_code?: string | null;
   follow_up_required: boolean;
   follow_up_date: string | null;
   created_at: string;
@@ -56,6 +58,8 @@ export default function VetPrescriptions() {
   const [issuingId, setIssuingId] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [searchCode, setSearchCode] = useState("");
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -112,6 +116,30 @@ export default function VetPrescriptions() {
     }
   };
 
+  const openPrescriptionByCode = async () => {
+    const code = searchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      toast({ title: "Enter a 6-digit prescription code", variant: "destructive" });
+      return;
+    }
+    const token = readSession()?.access_token;
+    setSearching(true);
+    try {
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/prescriptions/search?code=${encodeURIComponent(code)}`, {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = (await res.json().catch(() => ({}))) as { data?: Prescription; error?: string };
+      if (!res.ok || !body.data?.id) throw new Error(body.error || "Prescription not found");
+      navigate(`/vet/prescriptions/${body.data.id}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Prescription not found";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
@@ -123,6 +151,30 @@ export default function VetPrescriptions() {
           <Plus className="h-4 w-4 mr-1" /> New Prescription
         </Button>
       </motion.div>
+
+      <Card className="border-border">
+        <CardContent className="p-4 flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Search prescription by 6-digit code</p>
+            <p className="text-xs text-muted-foreground">Find only your VetBondhu prescriptions.</p>
+          </div>
+          <div className="flex gap-2 sm:w-[320px]">
+            <Input
+              value={searchCode}
+              onChange={(event) => setSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void openPrescriptionByCode();
+              }}
+              placeholder="123456"
+              className="font-mono tracking-widest"
+              maxLength={6}
+            />
+            <Button type="button" className="text-white" style={{ backgroundColor: VB }} disabled={searching} onClick={() => void openPrescriptionByCode()}>
+              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -166,6 +218,7 @@ export default function VetPrescriptions() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {formatDateTimeSafe(p.created_at)}
+                          {` • Code: ${p.prescription_code || p.id.replace(/-/g, "").slice(-6).toUpperCase()}`}
                           {p.follow_up_required && p.follow_up_date && ` • Follow-up: ${formatDateSafe(p.follow_up_date)}`}
                         </p>
                       </div>

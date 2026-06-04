@@ -67,6 +67,16 @@ The public doctor API decorates doctors with:
 
 `/medibondhu/doctors?available=true` filters to bookable active doctors in the frontend.
 
+## Admin controls
+
+MediBondhu admin operations stay separate from VetBondhu and global account controls:
+
+- `/admin/medibondhu-human`: doctor approval, hospitals, specialties, and appointment operations.
+- `/admin/medibondhu-access`: MediBondhu-only freeze, suspend, delete-access, and restore for doctors/patients.
+- `/admin/medibondhu-payouts`: MediBondhu doctor overview, booking lists, active sessions, and withdrawal review.
+
+Approved doctors should not continue showing `Approve` / `Reject` actions in the admin doctor list. Admin-created hospitals and specialties are selectable in doctor profile setup after the relevant query caches are invalidated.
+
 ## Common failure causes
 
 - stale UI sends status changes after terminal status
@@ -74,3 +84,5 @@ The public doctor API decorates doctors with:
 - doctor profile is not approved or does not match appointment `doctor_id`
 - no future schedule window exists
 - selected visit type is disabled for the doctor
+- MediBondhu user is frozen, suspended, or deleted in MediBondhu-specific access controls
+- stale hospital/specialty cache hides a newly added admin option

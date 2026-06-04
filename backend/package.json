@@ -7,7 +7,7 @@
   "scripts": {
     "free-port": "node scripts/free-port.js",
     "predev": "node scripts/free-port.js",
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch scripts/dev-server.js",
     "db:ensure": "node scripts/ensure-schema.js",
     "start": "node src/server.js",
     "gen-auth-secret": "node scripts/generate-auth-secret.js",

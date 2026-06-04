@@ -7,12 +7,13 @@ import sql from "../../db.js";
 import { asyncHandler } from "../../middleware/asyncHandler.js";
 import { requireDatabase } from "../../middleware/requireDatabase.js";
 import { requireUser } from "../../middleware/requireUser.js";
-import { getRequestRoleSet, requestHasAnyRole } from "../../services/medibondhuAccess.js";
+import { assertMediBondhuAccessAllowed, getRequestRoleSet, requestHasAnyRole } from "../../services/medibondhuAccess.js";
 import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
 import { uploadToCloudinary } from "../../services/cloudinaryUpload.js";
 
 const router = Router();
 const CACHE_PREFIX = "medibondhu_human";
+const PRESCRIPTION_CODE_RE = /^[A-Z0-9]{6}$/;
 
 router.use(requireDatabase);
 
@@ -44,6 +45,23 @@ function toTextOrNull(value) {
 
 function toMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizePrescriptionCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function makePrescriptionCode() {
+  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+}
+
+async function generateMediPrescriptionCode() {
+  for (let i = 0; i < 8; i += 1) {
+    const code = makePrescriptionCode();
+    const [existing] = await sql`select id from medibondhu_prescriptions where prescription_code = ${code} limit 1`;
+    if (!existing) return code;
+  }
+  throw new Error("Unable to generate prescription code");
 }
 
 /** @param {unknown} u */
@@ -88,7 +106,49 @@ async function isAdminReq(req) {
   return await requestHasAnyRole(req, ["admin"]);
 }
 
+async function assertMediRouteAccess(req, subjectType) {
+  if (await isAdminReq(req)) return;
+  await assertMediBondhuAccessAllowed(String(req.userId || ""), subjectType);
+}
+
+function normalizeMediRestrictionStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return ["active", "frozen", "suspended", "deleted"].includes(normalized) ? normalized : null;
+}
+
+async function setMediBondhuRestriction({ userId, subjectType, status, reason, actedBy }) {
+  const normalizedStatus = normalizeMediRestrictionStatus(status);
+  if (!isUuid(userId) || !["doctor", "patient"].includes(subjectType) || !normalizedStatus) {
+    const err = new Error("Invalid MediBondhu restriction request");
+    err.status = 400;
+    throw err;
+  }
+  const note = toTextOrNull(reason);
+  const [row] = await sql`
+    insert into medibondhu_user_restrictions ${sql({
+      user_id: userId,
+      subject_type: subjectType,
+      status: normalizedStatus,
+      reason: normalizedStatus === "active" ? null : note,
+      acted_by: actedBy || null,
+      acted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })}
+    on conflict (user_id, subject_type)
+    do update set
+      status = excluded.status,
+      reason = excluded.reason,
+      acted_by = excluded.acted_by,
+      acted_at = excluded.acted_at,
+      updated_at = now()
+    returning *
+  `;
+  invalidateByPrefix(`${CACHE_PREFIX}|u:${userId}|`);
+  return row;
+}
+
 async function isDoctorApprovedUser(userId) {
+  await assertMediBondhuAccessAllowed(userId, "doctor");
   const [row] = await sql`
     select id from medibondhu_doctors
     where user_id = ${userId} and approval_status = 'approved'
@@ -269,11 +329,128 @@ function decorateMediDoctorAvailability(row) {
   };
 }
 
+router.get(
+  "/access/status",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const subjectType = String(req.query.subject_type || "").toLowerCase() === "doctor" ? "doctor" : "patient";
+    try {
+      await assertMediBondhuAccessAllowed(String(req.userId || ""), subjectType);
+      res.json({ data: { allowed: true, subject_type: subjectType } });
+    } catch (err) {
+      if (err?.code === "MEDIBONDHU_ACCESS_DENIED") {
+        res.json({
+          data: {
+            allowed: false,
+            subject_type: subjectType,
+            restriction: err.medibondhuRestriction || null,
+          },
+        });
+        return;
+      }
+      throw err;
+    }
+  })
+);
+
+router.get(
+  "/admin/users",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const type = String(req.query.type || "doctor").toLowerCase() === "patient" ? "patient" : "doctor";
+    if (type === "doctor") {
+      const rows = await sql`
+        select
+          coalesce(d.user_id, d.id) as user_id,
+          coalesce(d.full_name, p.name, p.email, 'Doctor') as name,
+          coalesce(p.email, '') as email,
+          p.primary_role,
+          s.name as specialty_name,
+          d.approval_status,
+          d.is_available,
+          d.online_consultation,
+          d.chamber_consultation,
+          coalesce(uc.is_enabled, false) as can_practice_human,
+          coalesce(r.status, 'active') as restriction_status,
+          r.reason as restriction_reason,
+          r.acted_at as restriction_acted_at,
+          count(distinct a.id)::int as appointments_count
+        from medibondhu_doctors d
+        left join profiles p on p.id = d.user_id
+        left join medibondhu_specialties s on s.id = d.specialty_id
+        left join user_capabilities uc on uc.user_id = d.user_id and uc.capability_code = 'can_practice_human'
+        left join medibondhu_user_restrictions r on r.user_id = coalesce(d.user_id, d.id) and r.subject_type = 'doctor'
+        left join medibondhu_appointments a on a.doctor_id = d.id
+        group by d.id, d.user_id, d.full_name, p.name, p.email, p.primary_role, s.name, d.approval_status,
+                 d.is_available, d.online_consultation, d.chamber_consultation, uc.is_enabled, r.status, r.reason, r.acted_at
+        order by d.created_at desc
+        limit 500
+      `;
+      return res.json({ data: rows });
+    }
+
+    const rows = await sql`
+      select
+        p.id as user_id,
+        coalesce(p.name, p.email, 'MediBondhu patient') as name,
+        p.email,
+        p.primary_role,
+        p.signup_module,
+        coalesce(uc.is_enabled, false) as can_book_human,
+        coalesce(r.status, 'active') as restriction_status,
+        r.reason as restriction_reason,
+        r.acted_at as restriction_acted_at,
+        count(distinct a.id)::int as appointments_count
+      from profiles p
+      left join user_capabilities uc on uc.user_id = p.id and uc.capability_code = 'can_book_human'
+      left join medibondhu_user_restrictions r on r.user_id = p.id and r.subject_type = 'patient'
+      left join medibondhu_appointments a on a.patient_user_id = p.id
+      where p.signup_module = 'medibondhu'
+        or exists (select 1 from user_capabilities cap where cap.user_id = p.id and cap.capability_code = 'can_book_human')
+        or exists (select 1 from medibondhu_appointments ma where ma.patient_user_id = p.id)
+      group by p.id, p.name, p.email, p.primary_role, p.signup_module, uc.is_enabled, r.status, r.reason, r.acted_at
+      order by p.created_at desc
+      limit 500
+    `;
+    res.json({ data: rows });
+  })
+);
+
+router.post(
+  "/admin/users/:userId/:action",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const action = String(req.params.action || "").toLowerCase();
+    const actionToStatus = {
+      freeze: "frozen",
+      suspend: "suspended",
+      delete: "deleted",
+      restore: "active",
+    };
+    const status = actionToStatus[action];
+    if (!status) return res.status(400).json({ error: "Invalid action" });
+    const subjectType = String(req.body?.subject_type || "").toLowerCase() === "patient" ? "patient" : "doctor";
+    const reason = action === "restore" ? null : toTextOrNull(req.body?.reason);
+    if (action !== "restore" && !reason) return res.status(400).json({ error: "Reason is required" });
+    const row = await setMediBondhuRestriction({
+      userId: String(req.params.userId || ""),
+      subjectType,
+      status,
+      reason,
+      actedBy: String(req.userId || ""),
+    });
+    res.json({ data: row });
+  })
+);
+
 // ─── Public-ish (auth optional for directory) — still require logged user for MVP safety
 router.get(
   "/hospitals",
   requireUser,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    await assertMediRouteAccess(req, "patient");
     const rows = await sql`
       select id, name, address, phone from medibondhu_hospitals order by name asc limit 200
     `;
@@ -284,7 +461,8 @@ router.get(
 router.get(
   "/specialties",
   requireUser,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    await assertMediRouteAccess(req, "patient");
     const rows = await sql`
       select id, name, slug, sort_order
       from medibondhu_specialties
@@ -300,6 +478,7 @@ router.get(
   "/doctors",
   requireUser,
   asyncHandler(async (req, res) => {
+    await assertMediRouteAccess(req, "patient");
     const limit = readLimit(req.query.limit, 40);
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const specialtyId =
@@ -354,6 +533,7 @@ router.get(
   "/doctors/:id",
   requireUser,
   asyncHandler(async (req, res) => {
+    await assertMediRouteAccess(req, "patient");
     const id = String(req.params.id || "");
     if (!isUuid(id)) return res.status(400).json({ error: "Invalid doctor id" });
     const [row] = await sql`
@@ -397,6 +577,7 @@ router.get(
   "/doctors/:id/slots",
   requireUser,
   asyncHandler(async (req, res) => {
+    await assertMediRouteAccess(req, "patient");
     const doctorId = String(req.params.id || "");
     const dateRaw = typeof req.query.date === "string" ? req.query.date.trim() : "";
     if (!isUuid(doctorId)) return res.status(400).json({ error: "Invalid doctor id" });
@@ -420,6 +601,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "patient");
     const { doctor_id, slot_id, consultation_type, chief_complaint } = req.body || {};
     if (!isUuid(doctor_id) || !isUuid(slot_id)) return res.status(400).json({ error: "doctor_id and slot_id required" });
 
@@ -468,7 +650,7 @@ router.post(
             specialty_id: slot.specialty_id,
             consultation_type: ctype,
             status: initialStatus,
-            payment_status: "unpaid",
+            payment_status: "paid",
             chief_complaint: complain,
         updated_at: new Date().toISOString(),
       })}
@@ -514,6 +696,7 @@ router.get(
     const lim = readLimit(req.query.limit, 50, 100);
 
     if (view === "doctor") {
+      await assertMediRouteAccess(req, "doctor");
       const access = await resolveDoctorReadAccess(req, uid);
       if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
       if (access.adminPreview) {
@@ -534,11 +717,20 @@ router.get(
             coalesce(d.full_name,'') as doctor_display_name,
             ts.slot_date,
             ts.slot_start,
-            ts.slot_end
+            ts.slot_end,
+            rx.id as prescription_id,
+            rx.status as prescription_status
           from medibondhu_appointments a
           join profiles p on p.id = a.patient_user_id
           join medibondhu_doctors d on d.id = a.doctor_id
           left join medibondhu_doctor_time_slots ts on ts.id = a.slot_id
+          left join lateral (
+            select pr.id, pr.status
+            from medibondhu_prescriptions pr
+            where pr.appointment_id = a.id
+            order by pr.created_at desc
+            limit 1
+          ) rx on true
           where a.doctor_id = ${doctorPk}::uuid
           order by coalesce(ts.slot_start, a.created_at) desc
           limit ${lim + 1} offset ${offset}
@@ -552,6 +744,7 @@ router.get(
       return res.json({ data: payload });
     }
 
+    await assertMediRouteAccess(req, "patient");
     const cacheKeyPatient = makeCacheKey(CACHE_PREFIX, {
       userId: uid,
       parts: ["appt-patient", String(offset), String(lim)],
@@ -616,6 +809,8 @@ router.get(
     const isDoctor = Boolean(doctorPk && String(row.doctor_id) === doctorPk);
     const admin = await isAdminReq(req);
     if (!isPatient && !isDoctor && !admin) return res.status(403).json({ error: "Forbidden" });
+    if (isPatient) await assertMediRouteAccess(req, "patient");
+    if (isDoctor) await assertMediRouteAccess(req, "doctor");
 
     const ctype = String(row.consultation_type || "").toLowerCase();
     if (ctype !== "online") {
@@ -693,6 +888,8 @@ router.post(
     const isDoctor = Boolean(doctorPk && String(row.doctor_id) === doctorPk);
     const admin = await isAdminReq(req);
     if (!isPatient && !isDoctor && !admin) return res.status(403).json({ error: "Forbidden" });
+    if (isPatient) await assertMediRouteAccess(req, "patient");
+    if (isDoctor) await assertMediRouteAccess(req, "doctor");
 
     if (terminalMediAppointmentStatus(row.status)) {
       return res.status(409).json({ error: "This appointment is closed" });
@@ -742,6 +939,8 @@ router.get(
     const isDoc = doctorPk && String(row.doctor_id) === doctorPk;
     const admin = await isAdminReq(req);
     if (!isPatient && !isDoc && !admin) return res.status(403).json({ error: "Forbidden" });
+    if (isPatient) await assertMediRouteAccess(req, "patient");
+    if (isDoc) await assertMediRouteAccess(req, "doctor");
 
     res.json({ data: row });
   })
@@ -771,6 +970,8 @@ router.patch(
       const doctorPk = await isDoctorApprovedUser(uid);
       const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
       if (!isPatient && !isDoctorOwn && !admin) return res.status(403).json({ error: "Forbidden" });
+      if (isPatient) await assertMediRouteAccess(req, "patient");
+      if (isDoctorOwn) await assertMediRouteAccess(req, "doctor");
 
       await sql.begin(async (tx) => {
         await tx`
@@ -798,6 +999,8 @@ router.patch(
       const doctorPk = await isDoctorApprovedUser(uid);
       const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
       if (!isPatient && !isDoctorOwn && !admin) return res.status(403).json({ error: "Forbidden" });
+      if (isPatient) await assertMediRouteAccess(req, "patient");
+      if (isDoctorOwn) await assertMediRouteAccess(req, "doctor");
       if (terminalMediAppointmentStatus(row.status)) {
         return res.status(409).json({ error: "This appointment is closed" });
       }
@@ -833,6 +1036,8 @@ router.patch(
       const isPatient = String(row.patient_user_id) === uid;
       const doctorPk = await isDoctorApprovedUser(uid);
       const isDoctorOwn = doctorPk && String(row.doctor_id) === doctorPk;
+      if (isPatient) await assertMediRouteAccess(req, "patient");
+      if (isDoctorOwn) await assertMediRouteAccess(req, "doctor");
       if (graceExpired && (isPatient || isDoctorOwn || admin)) {
         const [updatedAfterGrace] = await sql`
           update medibondhu_appointments
@@ -856,6 +1061,7 @@ router.patch(
 
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk || String(row.doctor_id) !== doctorPk) return res.status(403).json({ error: "Forbidden" });
+    await assertMediRouteAccess(req, "doctor");
 
     const consultationType = String(row.consultation_type || "").toLowerCase();
     const prevStatus = String(row.status || "").toLowerCase();
@@ -940,6 +1146,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const [d] = await sql`
       select d.*,
         s.name as specialty_name,
@@ -958,6 +1165,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const b = req.body || {};
     if (!(await doctorMayApplyMediProfile(req))) {
       return res.status(403).json({ error: "Not allowed to submit doctor profile" });
@@ -1051,6 +1259,7 @@ router.patch(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     if (!(await doctorMayApplyMediProfile(req))) {
       return res.status(403).json({ error: "Not allowed to update doctor profile" });
     }
@@ -1116,6 +1325,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     if (!(await doctorMayApplyMediProfile(req))) {
       return res.status(403).json({ error: "Not allowed to upload verification documents" });
     }
@@ -1216,6 +1426,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const access = await resolveDoctorReadAccess(req, uid);
     if (!access) return res.status(403).json({ error: "Only approved doctors can view slots" });
     if (access.adminPreview) return res.json({ data: [] });
@@ -1331,6 +1542,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk) return res.status(403).json({ error: "Only approved doctors can add slots" });
 
@@ -1397,6 +1609,7 @@ router.delete(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const sid = String(req.params.id || "");
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk || !isUuid(sid)) return res.status(400).json({ error: "Invalid" });
@@ -1447,6 +1660,7 @@ router.get(
     const mode = req.query.mode === "doctor" ? "doctor" : "patient";
 
     if (mode === "doctor") {
+      await assertMediRouteAccess(req, "doctor");
       const access = await resolveDoctorReadAccess(req, uid);
       if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
       if (access.adminPreview) {
@@ -1465,6 +1679,7 @@ router.get(
       return res.json({ data: { prescriptions: rows, page: { hasMore: false, nextOffset: null } } });
     }
 
+    await assertMediRouteAccess(req, "patient");
     const rows = await sql`
       select pr.*,
         d.full_name as doctor_name,
@@ -1483,6 +1698,39 @@ router.get(
 );
 
 router.get(
+  "/prescriptions/search",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const uid = String(req.userId || "");
+    const code = normalizePrescriptionCode(req.query.code);
+    if (!PRESCRIPTION_CODE_RE.test(code)) {
+      return res.status(400).json({ error: "Enter a valid 6-character prescription code" });
+    }
+    const access = await resolveDoctorReadAccess(req, uid);
+    if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
+    await assertMediRouteAccess(req, "doctor");
+    if (access.adminPreview) return res.status(404).json({ error: "Prescription not found" });
+    const doctorPk = access.doctorPk;
+    const rows = await sql`
+      select pr.*,
+        coalesce(ap.chief_complaint,'') as chief_complaint
+      from medibondhu_prescriptions pr
+      left join medibondhu_appointments ap on ap.id = pr.appointment_id
+      where pr.doctor_id = ${doctorPk}::uuid
+        and (
+          upper(coalesce(pr.prescription_code, '')) = ${code}
+          or upper(right(replace(pr.id::text, '-', ''), 6)) = ${code}
+        )
+      order by pr.created_at desc
+      limit 1
+    `;
+    const prescription = rows[0] || null;
+    if (!prescription) return res.status(404).json({ error: "Prescription not found" });
+    res.json({ data: prescription });
+  })
+);
+
+router.get(
   "/prescriptions/:id",
   requireUser,
   asyncHandler(async (req, res) => {
@@ -1492,13 +1740,28 @@ router.get(
 
     const doctorPk = await isDoctorApprovedUser(uid);
     const [pr] = await sql`
-      select * from medibondhu_prescriptions where id = ${pid}::uuid limit 1
+      select pr.*,
+        d.full_name as doctor_name,
+        d.qualification as doctor_qualification,
+        d.consultation_fee as consultation_amount,
+        d.chamber_address as doctor_chamber_address,
+        s.name as specialty_name,
+        a.consultation_type as appointment_consultation_type,
+        a.payment_status as appointment_payment_status
+      from medibondhu_prescriptions pr
+      join medibondhu_doctors d on d.id = pr.doctor_id
+      left join medibondhu_specialties s on s.id = d.specialty_id
+      left join medibondhu_appointments a on a.id = pr.appointment_id
+      where pr.id = ${pid}::uuid
+      limit 1
     `;
     if (!pr) return res.status(404).json({ error: "Not found" });
     const isPatient = String(pr.patient_user_id) === uid;
     const isDoc = doctorPk && String(pr.doctor_id) === doctorPk;
     const admin = await isAdminReq(req);
     if (!isPatient && !isDoc && !admin) return res.status(403).json({ error: "Forbidden" });
+    if (isPatient) await assertMediRouteAccess(req, "patient");
+    if (isDoc) await assertMediRouteAccess(req, "doctor");
 
     const items = await sql`
       select * from medibondhu_prescription_items where prescription_id = ${pid}::uuid order by created_at asc
@@ -1512,6 +1775,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk) return res.status(403).json({ error: "Not an approved doctor" });
 
@@ -1527,6 +1791,7 @@ router.post(
     }
 
     const itemRows = Array.isArray(items) ? items.slice(0, 50) : [];
+    const prescriptionCode = await generateMediPrescriptionCode();
 
     const prRow = await sql.begin(async (tx) => {
       const ins = await tx`
@@ -1538,6 +1803,7 @@ router.post(
           advice: advice == null ? null : String(advice).slice(0, 4000),
           follow_up_date: follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date)) ? String(follow_up_date) : null,
           status: "issued",
+          prescription_code: prescriptionCode,
       updated_at: new Date().toISOString(),
         })}
       returning *
@@ -1569,6 +1835,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const access = await resolveDoctorReadAccess(req, uid);
     if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
     if (access.adminPreview) {
@@ -1650,6 +1917,7 @@ router.get(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const access = await resolveDoctorReadAccess(req, uid);
     if (!access) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
     if (access.adminPreview) return res.json({ data: [] });
@@ -1692,6 +1960,7 @@ router.post(
   requireUser,
   asyncHandler(async (req, res) => {
     const uid = String(req.userId || "");
+    await assertMediRouteAccess(req, "doctor");
     const doctorPk = await isDoctorApprovedUser(uid);
     if (!doctorPk) return res.status(403).json({ error: "Not an approved MediBondhu doctor" });
     const requestAmount = Number(req.body?.request_amount);
@@ -1728,6 +1997,105 @@ router.post(
       returning *
     `;
     res.status(201).json({ data: created });
+  })
+);
+
+router.get(
+  "/admin/payout-overview",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await isAdminReq(req))) return res.status(403).json({ error: "Admin access required" });
+    const hasWithdrawals = await hasMediDoctorWithdrawalsTable();
+    const [
+      doctorRows,
+      bookingCountRows,
+      activeBookingCountRows,
+      pendingWithdrawalCountRows,
+      recentBookingRows,
+    ] = await Promise.all([
+      sql`
+        select
+          d.id,
+          d.user_id,
+          coalesce(d.full_name, p.name, p.email, 'Doctor') as name,
+          p.email,
+          s.name as specialty_name,
+          coalesce(p.location, d.chamber_address, h.address, 'Bangladesh') as location,
+          d.experience_years,
+          d.consultation_fee,
+          d.rating_avg,
+          d.rating_count,
+          d.approval_status,
+          d.is_available,
+          d.online_consultation,
+          d.chamber_consultation,
+          exists (
+            select 1
+            from medibondhu_doctor_time_slots ts
+            where ts.doctor_id = d.id
+              and ts.slot_end > now()
+          ) as has_open_slots
+        from medibondhu_doctors d
+        left join profiles p on p.id = d.user_id
+        left join medibondhu_specialties s on s.id = d.specialty_id
+        left join medibondhu_hospitals h on h.id = d.hospital_id
+        order by d.created_at desc
+        limit 500
+      `,
+      sql`select count(*)::int as count from medibondhu_appointments`,
+      sql`
+        select count(*)::int as count
+        from medibondhu_appointments
+        where status in ('pending', 'confirmed', 'in_progress')
+      `,
+      hasWithdrawals
+        ? sql`select count(*)::int as count from medibondhu_doctor_withdrawals where status = 'pending'`
+        : Promise.resolve([{ count: 0 }]),
+      sql`
+        select
+          a.id,
+          coalesce(pp.name, pp.email, 'Patient') as patient_name,
+          coalesce(d.full_name, dp.name, dp.email, 'Doctor') as doctor_name,
+          a.consultation_type,
+          coalesce(d.consultation_fee, 0) as fee,
+          a.status,
+          a.created_at
+        from medibondhu_appointments a
+        join medibondhu_doctors d on d.id = a.doctor_id
+        left join profiles pp on pp.id = a.patient_user_id
+        left join profiles dp on dp.id = d.user_id
+        order by a.created_at desc
+        limit 100
+      `,
+    ]);
+
+    const doctors = doctorRows.map((row) => {
+      const available = Boolean(row.is_available && (row.online_consultation || row.chamber_consultation) && row.has_open_slots);
+      return {
+        ...row,
+        fee: toMoney(row.consultation_fee || 0),
+        rating: Number.isFinite(Number(row.rating_avg)) ? Number(row.rating_avg) : 0,
+        available,
+        status_label: available ? "Available" : "Offline",
+      };
+    });
+    const availableDoctors = doctors.filter((doctor) => doctor.available);
+
+    res.json({
+      data: {
+        total_doctors: doctors.length,
+        available_doctors: availableDoctors.length,
+        total_bookings: Number(bookingCountRows?.[0]?.count || 0),
+        active_sessions: Number(activeBookingCountRows?.[0]?.count || 0),
+        pending_withdrawals: Number(pendingWithdrawalCountRows?.[0]?.count || 0),
+        all_doctors: doctors,
+        available_doctors_list: availableDoctors,
+        recent_bookings: recentBookingRows.map((row) => ({
+          ...row,
+          fee: toMoney(row.fee || 0),
+        })),
+      },
+    });
   })
 );
 

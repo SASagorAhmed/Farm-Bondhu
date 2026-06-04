@@ -30,7 +30,7 @@ const DESTINATIONS = [
   { value: "/admin/approvals", label: "Admin Approvals" },
   { value: "/admin/marketplace", label: "Admin Marketplace" },
   { value: "/admin/learning", label: "Admin Learning" },
-  { value: "/admin/medibondhu-overview", label: "Admin Vet payouts" },
+  { value: "/admin/vetbondhu-overview", label: "Admin VetBondhu payouts" },
   { value: "/admin/medibondhu-human", label: "Admin MediBondhu Human" },
   { value: "/admin/farms", label: "Admin Farms" },
   { value: "/admin/orders", label: "Admin Orders" },
@@ -52,6 +52,10 @@ type Broadcast = {
   recipient_count: number;
   created_at: string;
 };
+
+type ProfileIdRow = { id: string };
+type UserRoleRow = { user_id: string };
+type UserRoleName = "buyer" | "farmer" | "vendor" | "vet";
 
 export default function AdminBroadcast() {
   const { user } = useAuth();
@@ -109,13 +113,13 @@ export default function AdminBroadcast() {
         if (!email.trim()) { toast.error("Email is required"); setSending(false); return; }
         const { data } = await api.from("profiles").select("id").eq("email", email.trim());
         if (!data || data.length === 0) { toast.error("User not found"); setSending(false); return; }
-        userIds = data.map((u: any) => u.id);
+        userIds = (data as ProfileIdRow[]).map((u) => u.id);
       } else if (target === "all") {
         const { data } = await api.from("profiles").select("id");
-        userIds = (data || []).map((u: any) => u.id);
+        userIds = ((data || []) as ProfileIdRow[]).map((u) => u.id);
       } else {
-        const { data } = await api.from("user_roles").select("user_id").eq("role", target as any);
-        userIds = [...new Set((data || []).map((r: any) => r.user_id))];
+        const { data } = await api.from("user_roles").select("user_id").eq("role", target as UserRoleName);
+        userIds = [...new Set(((data || []) as UserRoleRow[]).map((r) => r.user_id))];
       }
 
       if (userIds.length === 0) { toast.error("No users found for this target"); setSending(false); return; }
@@ -131,11 +135,11 @@ export default function AdminBroadcast() {
         target_email: target === "email" ? email.trim() : null,
         action_url: actionUrl,
         recipient_count: userIds.length,
-      } as any).select().single();
+      }).select().single();
 
       if (bErr || !broadcastRow) { toast.error("Failed to create broadcast: " + (bErr?.message || "Unknown error")); setSending(false); return; }
 
-      const broadcastId = (broadcastRow as any).id;
+      const broadcastId = (broadcastRow as Broadcast).id;
 
       const notifications = userIds.map(uid => ({
         user_id: uid,
@@ -150,15 +154,15 @@ export default function AdminBroadcast() {
 
       for (let i = 0; i < notifications.length; i += 100) {
         const batch = notifications.slice(i, i + 100);
-        const { error } = await api.from("notifications").insert(batch as any);
+        const { error } = await api.from("notifications").insert(batch);
         if (error) { toast.error("Failed to send: " + error.message); setSending(false); return; }
       }
 
       toast.success(`Notification sent to ${userIds.length} user(s)`);
       setTitle(""); setMessage(""); setEmail(""); setDestination("none"); setCustomUrl("");
       fetchBroadcasts();
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to send notification");
     }
     setSending(false);
   };
@@ -174,9 +178,9 @@ export default function AdminBroadcast() {
     if (!editBroadcast || !editTitle.trim() || !editMessage.trim()) return;
     setSaving(true);
     // Update broadcast record
-    await api.from("broadcasts").update({ title: editTitle.trim(), message: editMessage.trim() } as any).eq("id", editBroadcast.id);
+    await api.from("broadcasts").update({ title: editTitle.trim(), message: editMessage.trim() }).eq("id", editBroadcast.id);
     // Update all linked notifications
-    await (api.from("notifications").update({ title: editTitle.trim(), message: editMessage.trim() }) as any).eq("broadcast_id", editBroadcast.id);
+    await api.from("notifications").update({ title: editTitle.trim(), message: editMessage.trim() }).eq("broadcast_id", editBroadcast.id);
     toast.success("Broadcast updated");
     setEditOpen(false);
     setSaving(false);
@@ -187,7 +191,7 @@ export default function AdminBroadcast() {
     if (!deleteBroadcast) return;
     setDeleting(true);
     // Delete linked notifications first (cascade should handle it, but be explicit)
-    await (api.from("notifications").delete() as any).eq("broadcast_id", deleteBroadcast.id);
+    await api.from("notifications").delete().eq("broadcast_id", deleteBroadcast.id);
     await api.from("broadcasts").delete().eq("id", deleteBroadcast.id);
     toast.success("Broadcast deleted");
     setDeleteOpen(false);

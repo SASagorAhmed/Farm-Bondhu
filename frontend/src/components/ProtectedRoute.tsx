@@ -127,6 +127,9 @@ export default function ProtectedRoute({
   }
 
   if (allowedRoles && user && !allowedRoles.some((r) => hasRole(r))) {
+    if (pathname.startsWith("/vetbondhu") || pathname.startsWith("/vet")) {
+      return <Navigate to="/vetbondhu/access-denied" replace />;
+    }
     return <Navigate to="/access-denied" replace />;
   }
 

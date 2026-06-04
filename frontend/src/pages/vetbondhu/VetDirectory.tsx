@@ -15,10 +15,39 @@ import {
   getAnimalTypeLabel,
   normalizeAnimalTypes,
 } from "@/lib/animalTypes";
+import { parseVetBondhuSpecializations } from "@/lib/vetbondhuSpecializations";
 
 import { ICON_COLORS } from "@/lib/iconColors";
 
 const VB = ICON_COLORS.vetbondhu;
+
+const SPECIALITY_LABEL_BY_ID: Record<string, string> = {
+  poultry: "Poultry",
+  cattle: "Cattle",
+  dairy: "Dairy",
+  "goat-sheep": "Goat & Sheep",
+  pet: "Pet Care",
+  general: "General",
+  emergency: "Emergency",
+};
+
+type VetBondhuVetRow = {
+  id: string;
+  name?: string | null;
+  specialization?: string | null;
+  animal_types?: unknown;
+  rating?: number | string | null;
+  experience?: number | string | null;
+  fee?: number | string | null;
+  consultation_fee?: number | string | null;
+  location?: string | null;
+  available?: boolean | null;
+  is_online?: boolean | null;
+  status_label?: string | null;
+  last_seen_at?: string | null;
+  avatar?: string | null;
+  degree?: string | null;
+};
 
 function vetIsOnline(vet: Vet) {
   return vet.is_online ?? vet.available;
@@ -42,7 +71,7 @@ export default function VetDirectory() {
       if (cancelled) return;
       if (data) {
         setVets(
-          data.map((v: any) => ({
+          (data as VetBondhuVetRow[]).map((v) => ({
             id: v.id,
             name: v.name || "Vet Doctor",
             specialization: v.specialization || "General Veterinary",
@@ -77,7 +106,9 @@ export default function VetDirectory() {
     if (availOnly && !vetIsOnline(v)) return false;
     if (specialityParam && SPECIALITY_ANIMAL_MAP[specialityParam]) {
       const animals = SPECIALITY_ANIMAL_MAP[specialityParam];
-      if (!v.animalTypes.some(a => animals.includes(a))) return false;
+      const label = SPECIALITY_LABEL_BY_ID[specialityParam];
+      const specializationLabels = parseVetBondhuSpecializations(v.specialization);
+      if (!v.animalTypes.some(a => animals.includes(a)) && !(label && specializationLabels.includes(label))) return false;
     }
     return true;
   });

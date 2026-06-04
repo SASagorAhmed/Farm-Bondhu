@@ -1,16 +1,34 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/api/client";
 import SellerStorefrontLayout from "@/components/marketplace/storefront/SellerStorefrontLayout";
+import ProductFormDialog from "@/components/marketplace/ProductFormDialog";
 import { fetchPublicShop, fetchShopProducts } from "@/lib/marketplaceShopApi";
+import { fetchSellerOnboardingMe } from "@/lib/sellerOnboardingApi";
+import type { MarketplaceLane } from "@/lib/marketplaceCategories";
+import { fromDbRow, type ProductFormValues } from "@/lib/marketplaceProductForm";
+import { type MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { invalidateMarketplaceStockQueries } from "@/lib/marketplaceStockQueries";
+import { useSellerProductUpdate } from "@/hooks/useSellerProductUpdate";
 import { usePhotoEditorShopSessionExports } from "@/features/photoEditor/hooks/usePhotoEditorShopSessionExports";
+import { VENDOR_THEME } from "@/lib/vendorTheme";
+import { toast } from "sonner";
+
+const SHOP_COVER_REQUIREMENT = "Cover 1000x200 (5:1)";
+const SHOP_LOGO_REQUIREMENT = "Profile 512x512";
 
 export default function SellerShopEditor() {
   const { user, hasCapability } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { submitProduct } = useSellerProductUpdate();
   const sellerId = user?.id || "";
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [initialForm, setInitialForm] = useState<ProductFormValues | undefined>();
 
   const { data: shop, isLoading: shopLoading } = useQuery({
     queryKey: ["my-shop", sellerId],
@@ -26,6 +44,14 @@ export default function SellerShopEditor() {
 
   const products = productResult?.products ?? [];
   const productsError = productResult?.error;
+
+  const { data: onboarding } = useQuery({
+    queryKey: ["seller-onboarding-me", user?.id],
+    enabled: Boolean(user?.id),
+    queryFn: fetchSellerOnboardingMe,
+  });
+
+  const approvedLanes = (onboarding?.approved_lanes || []) as Exclude<MarketplaceLane, "all">[];
 
   usePhotoEditorShopSessionExports(sellerId, () => {
     queryClient.invalidateQueries({ queryKey: ["my-shop", sellerId] });
@@ -43,6 +69,59 @@ export default function SellerShopEditor() {
     }
   }, [hasCapability, shopLoading, shop, navigate]);
 
+  const refreshProducts = () => {
+    invalidateMarketplaceStockQueries(queryClient, { userId: user?.id });
+    queryClient.invalidateQueries({ queryKey: ["shop-products", sellerId] });
+    void refetch();
+  };
+
+  const productToFormValues = (product: MarketplaceProduct): ProductFormValues =>
+    fromDbRow({
+      ...product,
+      original_price: product.originalPrice,
+      free_delivery: product.freeDelivery,
+      delivery_charge_dhaka: product.deliveryChargeDhaka,
+      delivery_charge_outside: product.deliveryChargeOutside,
+    });
+
+  const openCreate = () => {
+    if (!approvedLanes.length) {
+      toast.error("Complete seller category approval before adding products.");
+      return;
+    }
+    setFormMode("create");
+    setEditingId(null);
+    setInitialForm(undefined);
+    setFormOpen(true);
+  };
+
+  const openEdit = (product: MarketplaceProduct) => {
+    setFormMode("edit");
+    setEditingId(product.id);
+    setInitialForm(productToFormValues(product));
+    setFormOpen(true);
+  };
+
+  const handleSubmit = async (values: ProductFormValues) => {
+    const existing = editingId ? products.find((p) => p.id === editingId) : undefined;
+    await submitProduct(formMode, values, {
+      editingId,
+      listingStatus: existing?.listing_status,
+      onSuccess: refreshProducts,
+    });
+  };
+
+  const handleDelete = async (product: MarketplaceProduct) => {
+    if (!window.confirm(`Delete "${product.name}" from your shop?`)) return;
+    const { error } = await api.from("products").delete().eq("id", product.id);
+    if (error) {
+      toast.error(error.message || "Could not delete product");
+      return;
+    }
+    refreshProducts();
+    toast.success("Product deleted");
+  };
+
   if (shopLoading || productsLoading || !shop || !user) {
     return <p className="text-center py-16 text-muted-foreground">Loading storefront editor…</p>;
   }
@@ -54,26 +133,48 @@ export default function SellerShopEditor() {
           Could not load shop products: {productsError}
         </div>
       )}
-      <p className="text-sm text-muted-foreground mb-4 rounded-lg border border-dashed px-4 py-3 bg-muted/20">
-        Click any product to manage reviews and customer questions. Use{" "}
-        <button
-          type="button"
-          className="font-medium underline text-foreground"
-          onClick={() => navigate("/seller/reviews")}
-        >
-          Reviews
-        </button>{" "}
-        in the sidebar for your full feedback inbox.
-      </p>
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+        <p className="min-w-0 flex-1">
+          Click any product to manage reviews and customer questions. Use{" "}
+          <button
+            type="button"
+            className="font-medium underline text-foreground"
+            onClick={() => navigate("/seller/reviews")}
+          >
+            Reviews
+          </button>{" "}
+          in the sidebar for your full feedback inbox.
+        </p>
+        <div className="inline-flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background/70 px-3 py-1.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{SHOP_COVER_REQUIREMENT}</span>
+          <span className="text-muted-foreground/60">•</span>
+          <span className="font-medium text-foreground">{SHOP_LOGO_REQUIREMENT}</span>
+        </div>
+      </div>
       <SellerStorefrontLayout
         shop={shop}
         sellerId={sellerId}
         products={products}
         editMode
+        onAddProduct={openCreate}
+        onEditProduct={openEdit}
+        onDeleteProduct={handleDelete}
         onNavigateProduct={(p) => navigate(`/seller/products/${p.id}`)}
         onAddToCart={() => {}}
         onBuyNow={() => {}}
-        onProductsChange={() => refetch()}
+        onProductsChange={refreshProducts}
+      />
+      <ProductFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        mode={formMode}
+        initialValues={initialForm}
+        title={formMode === "edit" ? "Edit Product" : "Add Product"}
+        submitLabel={formMode === "edit" ? "Save Product" : "Submit Product"}
+        accentColor={VENDOR_THEME.primary}
+        allowedLanes={approvedLanes}
+        defaultPickerLane={approvedLanes[0]}
+        onSubmit={handleSubmit}
       />
     </>
   );

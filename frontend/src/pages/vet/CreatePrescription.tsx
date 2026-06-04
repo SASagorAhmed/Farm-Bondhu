@@ -24,8 +24,9 @@ const SEVERITY_LEVELS = ["mild", "moderate", "severe", "critical"];
 const MEDICINE_TYPES = ["antibiotic", "vitamin", "vaccine", "dewormer", "calcium", "tonic", "disinfectant", "pain relief", "supplement", "other"];
 const DOSAGE_UNITS = ["ml", "mg", "gram", "tablet", "sachet", "drops", "cc"];
 const FREQUENCY_OPTIONS = ["once daily", "twice daily", "three times daily", "every 6 hours", "every 8 hours", "every 12 hours", "weekly", "as needed"];
+const DOSE_PATTERN_OPTIONS = ["1+0+0", "0+1+0", "0+0+1", "1+0+1", "1+1+0", "0+1+1", "1+1+1", "1+0+0+1", "0+1+0+1", "1+1+1+1", "as needed"];
 const TIMING_OPTIONS = ["morning", "afternoon", "evening", "night", "before feed", "after feed", "with water", "mixed with feed"];
-const BANGLA_DOSE_PATTERN_OPTIONS = ["১+০+০", "০+১+০", "০+০+১", "১+০+১", "১+১+০", "০+১+১", "১+১+১", "দিনে ১ বার", "দিনে ২ বার", "দিনে ৩ বার", "১ দিন পর পর", "সপ্তাহে ১ বার", "প্রয়োজন হলে"];
+const BANGLA_DOSE_PATTERN_OPTIONS = ["১+০+০", "০+১+০", "০+০+১", "১+০+১", "১+১+০", "০+১+১", "১+১+১", "১+০+০+১", "০+১+০+১", "১+১+১+১", "দিনে ১ বার", "দিনে ২ বার", "দিনে ৩ বার", "১ দিন পর পর", "সপ্তাহে ১ বার", "প্রয়োজন হলে"];
 const BANGLA_TIMING_OPTIONS = ["সকালে", "দুপুরে", "রাতে", "খাবারের আগে", "খাবারের পরে", "প্রয়োজন হলে"];
 const ROUTE_OPTIONS = ["oral", "injection (IM)", "injection (IV)", "injection (SC)", "through water", "through feed", "topical", "nasal", "eye drop", "ear drop"];
 const VB = ICON_COLORS.vetbondhu;
@@ -129,7 +130,7 @@ const emptyMedicine = (): MedicineRow => ({
   dosage: "",
   dosage_unit: "ml",
   frequency: "once daily",
-  dose_pattern: "১+০+১",
+  dose_pattern: "1+0+1",
   timing: "morning",
   route: "oral",
   duration_days: "",
@@ -637,7 +638,7 @@ export default function CreatePrescription() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">{isBangla ? "ডোজ *" : "Dosage *"}</Label>
                     <Input placeholder={t.dosagePlaceholder} value={med.dosage} onChange={e => updateMedicine(med.id, "dosage", e.target.value)} />
@@ -652,15 +653,26 @@ export default function CreatePrescription() {
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{language === "bn" ? "ডোজ প্যাটার্ন" : "Frequency"}</Label>
+                    <Label className="text-xs">{t.frequency}</Label>
                     <Select
-                      value={language === "bn" ? med.dose_pattern : med.frequency}
-                      onValueChange={v => updateMedicine(med.id, language === "bn" ? "dose_pattern" : "frequency", v)}
+                      value={med.frequency}
+                      onValueChange={v => updateMedicine(med.id, "frequency", v)}
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {(language === "bn" ? BANGLA_DOSE_PATTERN_OPTIONS : FREQUENCY_OPTIONS).map(f => (
+                        {FREQUENCY_OPTIONS.map(f => (
                           <SelectItem key={f} value={f} className="capitalize">{isBangla ? (BN_FREQUENCY_LABELS[f] || f) : f}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{isBangla ? "ডোজ প্যাটার্ন" : "Dose Pattern"}</Label>
+                    <Select value={med.dose_pattern} onValueChange={v => updateMedicine(med.id, "dose_pattern", v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(language === "bn" ? BANGLA_DOSE_PATTERN_OPTIONS : DOSE_PATTERN_OPTIONS).map(pattern => (
+                          <SelectItem key={pattern} value={pattern}>{pattern}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

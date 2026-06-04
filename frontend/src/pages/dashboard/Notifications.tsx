@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
 
@@ -35,8 +35,6 @@ import {
   priorityColors,
 
   resolveNotificationTarget,
-
-  subscribeNotificationsRealtime,
 
   isNotificationForUser,
 
@@ -143,19 +141,6 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     staleTime: 30 * 1000,
 
   });
-
-
-
-  useEffect(() => {
-
-    if (!userId) {
-      queryClient.removeQueries({ queryKey: ["notifications"] });
-      return;
-    }
-
-    return subscribeNotificationsRealtime(userId, queryClient, "notifications-realtime");
-
-  }, [queryClient, userId]);
 
 
 

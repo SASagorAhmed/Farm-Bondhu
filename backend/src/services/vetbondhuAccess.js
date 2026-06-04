@@ -67,8 +67,42 @@ export async function requestHasAnyRole(req, roles) {
 
 /**
  * @param {string} userId
+ * @param {"vet" | "patient"} subjectType
+ */
+export async function getVetBondhuRestriction(userId, subjectType) {
+  const [row] = await sql`
+    select * from vetbondhu_user_restrictions
+    where user_id = ${userId}
+      and subject_type = ${subjectType}
+    limit 1
+  `;
+  const status = String(row?.status || "active").toLowerCase();
+  return row && status !== "active" ? row : null;
+}
+
+/**
+ * @param {string} userId
+ * @param {"vet" | "patient"} subjectType
+ */
+export async function assertVetBondhuAccessAllowed(userId, subjectType) {
+  const restricted = await getVetBondhuRestriction(userId, subjectType);
+  if (!restricted) return;
+  const err = new Error("VetBondhu access denied. Please contact FarmBondhu support.");
+  err.status = 403;
+  err.code = "VETBONDHU_ACCESS_DENIED";
+  err.vetbondhuRestriction = {
+    status: restricted.status,
+    subject_type: restricted.subject_type,
+    reason: restricted.reason || null,
+  };
+  throw err;
+}
+
+/**
+ * @param {string} userId
  */
 export async function assertVetAccess(userId) {
+  await assertVetBondhuAccessAllowed(userId, "vet");
   const [hasRole, vetProfile] = await Promise.all([
     userHasAnyRole(userId, ["vet", "admin"]),
     getVetProfileByUserId(userId),
@@ -117,6 +151,7 @@ export async function getVetProfileByUserId(userId) {
 export async function assertApprovedVetAccess(userId) {
   const isAdmin = await userHasAnyRole(userId, ["admin"]);
   if (isAdmin) return;
+  await assertVetBondhuAccessAllowed(userId, "vet");
   await assertVetAccess(userId);
   const vet = await getVetProfileByUserId(userId);
   if (!vet) {
@@ -170,6 +205,8 @@ export async function assertBookingParticipant(bookingId, userId) {
     err.status = 403;
     throw err;
   }
+  const subjectType = row.computed_vet_user_id === userId ? "vet" : "patient";
+  await assertVetBondhuAccessAllowed(userId, subjectType);
   return row;
 }
 

@@ -23,6 +23,17 @@ function text(value: unknown, fallback = "-") {
   return v || fallback;
 }
 
+function textOrNA(value: unknown) {
+  return text(value, "N/A");
+}
+
+function formatPdfDate(value: unknown, fallback = "N/A") {
+  const raw = text(value, "");
+  if (!raw) return fallback;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString();
+}
+
 function escapeHtml(input: string) {
   return input
     .replaceAll("&", "&amp;")
@@ -84,6 +95,7 @@ function mapFrequencyToDosePattern(frequencyRaw: unknown, isBangla: boolean) {
 
 /** Fixed label width so colons align across header + owner blocks (same right column width). */
 const PDF_KV_LABEL_PX = 152;
+const PDF_PAGE_HEIGHT_PX = 1123;
 
 /** Label + colon + value grid so colons align in the right column. */
 function kvRow(label: string, value: string) {
@@ -91,6 +103,16 @@ function kvRow(label: string, value: string) {
     <span style="text-align:right;font-weight:700;">${escapeHtml(label)}</span>
     <span style="text-align:center;">:</span>
     <span>${escapeHtml(value)}</span>
+  </div>`;
+}
+
+function pdfInfoBlock(label: string, value: string, danger = false) {
+  const border = danger ? "#dc2626" : VETBONDHU_PDF.border;
+  const background = danger ? "#fef2f2" : VETBONDHU_PDF.panel;
+  const color = danger ? "#991b1b" : "#1f2d38";
+  return `<div style="border:1px solid ${border};background:${background};border-radius:6px;padding:7px 9px;margin-top:6px;color:${color};">
+    <div style="font-weight:700;margin-bottom:2px;">${escapeHtml(label)}</div>
+    <div style="white-space:pre-wrap;">${escapeHtml(value)}</div>
   </div>`;
 }
 
@@ -106,14 +128,28 @@ export async function buildPrescriptionPdfBlob(
   const isBangla = language === "bn";
   const dateText = summary.created_at ? new Date(String(summary.created_at)).toLocaleDateString() : "-";
   const prescriptionId = toSixDigitPrescriptionId(text(detail?.id, "0"));
-  const followUpRaw = text(detail?.follow_up_date || detail?.follow_up_notes || detail?.follow_up_required, "");
-  const followUp = followUpRaw && followUpRaw !== "-" ? followUpRaw : "No follow-up needed";
+  const followUpRows = [
+    pdfInfoBlock(isBangla ? "ফলো-আপ প্রয়োজন" : "Follow-up required", detail?.follow_up_required ? (isBangla ? "হ্যাঁ" : "Yes") : "N/A"),
+    pdfInfoBlock(isBangla ? "তারিখ" : "Date", formatPdfDate(detail?.follow_up_date)),
+    pdfInfoBlock(isBangla ? "সতর্কতার লক্ষণ" : "Warning signs", textOrNA(detail?.warning_signs), true),
+    pdfInfoBlock(isBangla ? "ফলো-আপ নোট" : "Follow-up notes", textOrNA(detail?.follow_up_notes)),
+  ].join("");
   const diagnosis = text(detail?.diagnosis || detail?.condition, "-");
   const diagnosisDesc = text(detail?.symptoms || detail?.notes || detail?.body, "-");
   const advice = text(detail?.care_instructions || detail?.advice || detail?.notes, "-");
   const animalType = text(detail?.animal_type, "-");
+  const careInstructionRows = [
+    detail?.feeding_advice ? `${isBangla ? "খাদ্য" : "Feeding"}: ${text(detail.feeding_advice)}` : "",
+    detail?.hydration_note ? `${isBangla ? "পানি" : "Hydration"}: ${text(detail.hydration_note)}` : "",
+    detail?.isolation_advice ? `${isBangla ? "আইসোলেশন" : "Isolation"}: ${text(detail.isolation_advice)}` : "",
+    detail?.care_instructions ? `${isBangla ? "ভেট পরামর্শ / সাধারণ পরিচর্যা" : "Vet advice / General care"}: ${text(detail.care_instructions)}` : "",
+  ].filter(Boolean);
   const commonCareManual = toStringArray(detail?.common_care_instructions);
-  const commonCare = commonCareManual.length ? commonCareManual : commonCareByAnimalType(animalType);
+  const commonCare = careInstructionRows.length
+    ? careInstructionRows
+    : commonCareManual.length
+      ? commonCareManual
+      : commonCareByAnimalType(animalType);
   const safeItems = items.length ? items : [{ medicine_name: "-", dosage: "-", duration_days: "-", instructions: "-" }];
   const labels = isBangla
     ? {
@@ -124,11 +160,20 @@ export async function buildPrescriptionPdfBlob(
         ownerAnimalInfo: "মালিক / প্রাণীর তথ্য",
         ownerName: "মালিকের নাম",
         animalType: "প্রাণীর ধরন",
+        breed: "বংশ",
+        gender: "লিঙ্গ",
         age: "বয়স",
         weight: "ওজন",
+        farm: "খামার",
+        shedPen: "শেড / পেন",
+        batchId: "ব্যাচ আইডি",
+        animalId: "প্রাণী আইডি",
+        affectedCount: "আক্রান্ত সংখ্যা",
         diagnosis: "রোগ নির্ণয়",
         diseaseCondition: "রোগ / অবস্থা",
         shortDescription: "সংক্ষিপ্ত বিবরণ",
+        clinicalFindings: "ক্লিনিক্যাল পর্যবেক্ষণ",
+        severity: "তীব্রতা",
         medicines: "ঔষধ",
         vetAdvice: "ভেট পরামর্শ",
         commonCare: "সাধারণ পরিচর্যা নির্দেশনা",
@@ -145,11 +190,20 @@ export async function buildPrescriptionPdfBlob(
         ownerAnimalInfo: "Owner / Animal Info",
         ownerName: "Owner Name",
         animalType: "Animal Type",
+        breed: "Breed",
+        gender: "Gender",
         age: "Age",
         weight: "Weight",
+        farm: "Farm",
+        shedPen: "Shed / Pen",
+        batchId: "Batch ID",
+        animalId: "Animal ID",
+        affectedCount: "Affected Count",
         diagnosis: "Diagnosis",
         diseaseCondition: "Disease / Condition",
         shortDescription: "Short Description",
+        clinicalFindings: "Clinical Findings",
+        severity: "Severity",
         medicines: "Medicines",
         vetAdvice: "Vet Advice",
         commonCare: "Common Care Instructions",
@@ -164,9 +218,15 @@ export async function buildPrescriptionPdfBlob(
       const name = text(item.medicine_name || item.label, "-");
       const dose = text(item.dosage, "");
       const unit = text(item.dosage_unit, "");
+      const medicineType = text(item.medicine_type, "");
       const pattern = isBangla
         ? text(item.dose_pattern || mapFrequencyToDosePattern(item.frequency, true), "১+০+১")
         : text(item.dose_pattern || mapFrequencyToDosePattern(item.frequency, false), "twice daily");
+
+      const frequency = text(item.frequency, "");
+      const route = text(item.route, "");
+      const purpose = text(item.purpose, "");
+      const notes = text(item.notes, "");
 
       const durationRaw = text(item.duration_days || item.duration, "");
       const durationDigits = durationRaw.replace(/[^\d]/g, "");
@@ -180,13 +240,16 @@ export async function buildPrescriptionPdfBlob(
 
       const timing = text(item.timing || item.notes, isBangla ? "খাবারের পরে" : "after feed");
       const serial = isBangla ? toBanglaDigits(String(idx + 1)) : String(idx + 1);
-      const firstLine = `${serial}. ${escapeHtml(name)}${dose !== "-" ? ` ${escapeHtml(dose)}` : ""}${unit !== "-" && unit ? ` ${escapeHtml(unit)}` : ""}`;
-      const secondLine = `${escapeHtml(pattern)}, ${escapeHtml(durationText)}, ${escapeHtml(timing)}`;
+      const typeText = medicineType && medicineType !== "-" ? ` (${escapeHtml(medicineType)})` : "";
+      const firstLine = `${serial}. ${escapeHtml(name)}${typeText}${dose !== "-" ? ` ${escapeHtml(dose)}` : ""}${unit !== "-" && unit ? ` ${escapeHtml(unit)}` : ""}`;
+      const secondLine = [pattern, frequency, timing, route, durationText].filter((part) => part && part !== "-").map(escapeHtml).join(", ");
+      const thirdLine = [purpose, notes].filter((part) => part && part !== "-").map(escapeHtml).join(" | ");
 
       return `
       <div style="padding:6px 8px;border-bottom:1px solid #e7eff2;">
         <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};margin-bottom:3px;">${firstLine}</div>
         <div>${secondLine}</div>
+        ${thirdLine ? `<div style="font-size:11px;color:#5a6b74;margin-top:2px;">${thirdLine}</div>` : ""}
       </div>`;
     })
     .join("");
@@ -196,35 +259,35 @@ export async function buildPrescriptionPdfBlob(
     .join("");
 
   const ownerName = text(detail?.farmer_name || detail?.patient_name);
-  const ageVal = text(detail?.age, "optional");
-  const weightVal = text(detail?.weight, "optional");
+  const ageVal = text(detail?.animal_age || detail?.age, "optional");
+  const weightVal = text(detail?.animal_weight || detail?.weight, "optional");
   const vetName = text(detail?.vet_name || summary.vet_name);
   const vetDegree = text(detail?.vet_degree || detail?.degree || detail?.qualification, "Veterinary Professional");
   const vetAddress = text(detail?.vet_address || detail?.address || detail?.clinic_name || detail?.organization || detail?.hospital || detail?.location, "");
   /** Same width for all right-side KV blocks so colons line up vertically. */
   const pdfKvRightCol = `flex:0 0 ${PDF_KV_LABEL_PX + 10 + 140}px;width:${PDF_KV_LABEL_PX + 10 + 140}px;max-width:100%;`;
-
-  const html = `
-  <div style="width:794px;background:#ffffff;color:#1f2d38;font-family:Arial,'Noto Sans Bengali','Hind Siliguri','Kalpurush','Nikosh',sans-serif;position:relative;padding-bottom:56px;">
-    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
-      <div style="font-size:72px;color:${VETBONDHU_PDF.watermark};transform:rotate(-30deg);font-weight:700;">VetBondhu</div>
-    </div>
-    <div style="position:relative;z-index:1;">
+  const pdfHeader = `
       <div style="background:${VETBONDHU_PDF.brand};min-height:76px;padding:12px 22px;display:flex;flex-flow:row nowrap;align-items:center;justify-content:space-between;gap:16px;color:#fff;box-shadow:inset 0 -1px 0 rgba(255,255,255,0.08);">
-        <div style="display:flex;flex-flow:row nowrap;align-items:center;gap:10px;flex:0 0 auto;width:max-content;min-width:max-content;background:#ffffff;border-radius:9999px;overflow:hidden;padding:6px 18px 6px 7px;font-family:Arial,Helvetica,sans-serif;">
-          <div style="flex:0 0 auto;width:36px;height:36px;border-radius:50%;background:${VETBONDHU_PDF.brand};color:#ffffff;font-size:11px;font-weight:700;line-height:36px;text-align:center;letter-spacing:0.06em;">VB</div>
-          <div style="display:flex;align-items:center;justify-content:flex-start;height:36px;flex:0 0 auto;">
-            <span style="display:inline-block;font-size:21px;font-weight:700;line-height:1;color:${VETBONDHU_PDF.brand};letter-spacing:0.02em;white-space:nowrap;margin:0;padding:0;transform:translateY(-7px);">VetBondhu</span>
-          </div>
+        <div style="display:flex;flex-flow:row nowrap;align-items:center;justify-content:center;gap:12px;flex:0 0 auto;min-width:220px;background:#ffffff;border-radius:9999px;overflow:hidden;padding:7px 22px 7px 8px;font-family:Arial,Helvetica,sans-serif;">
+          <div style="flex:0 0 auto;width:38px;height:38px;border-radius:50%;background:${VETBONDHU_PDF.brand};color:#ffffff;font-size:11px;font-weight:700;line-height:38px;text-align:center;letter-spacing:0.06em;">VB</div>
+          <span style="display:inline-block;font-size:26px;font-weight:800;line-height:38px;color:${VETBONDHU_PDF.brand};letter-spacing:0.01em;white-space:nowrap;margin:0;padding:0;text-align:center;transform:translateY(-11px);">VetBondhu</span>
         </div>
         <div style="text-align:right;flex:1 1 auto;min-width:0;">
           <div style="font-size:22px;font-weight:700;line-height:1.15;letter-spacing:0.2px;">${labels.prescription}</div>
           <div style="font-size:11px;font-weight:400;line-height:1.35;margin-top:5px;opacity:0.95;">${labels.subtitle}</div>
         </div>
       </div>
-      <div style="height:4px;background:${VETBONDHU_PDF.accent};"></div>
+      <div style="height:4px;background:${VETBONDHU_PDF.accent};"></div>`;
 
-      <div style="padding:15px 20px 0 20px;font-size:12px;line-height:1.45;">
+  const html = `
+  <div style="width:794px;background:#ffffff;color:#1f2d38;font-family:Arial,'Noto Sans Bengali','Hind Siliguri','Kalpurush','Nikosh',sans-serif;">
+    <div style="min-height:${PDF_PAGE_HEIGHT_PX}px;background:#ffffff;position:relative;overflow:hidden;">
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+        <div style="font-size:88px;color:${VETBONDHU_PDF.watermark};transform:rotate(-30deg);font-weight:800;">VetBondhu</div>
+      </div>
+      <div style="position:relative;z-index:1;">
+        ${pdfHeader}
+        <div style="padding:15px 20px 0 20px;font-size:12px;line-height:1.45;">
         <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;">
           <div style="flex:1;min-width:0;">
             <div style="font-weight:700;">${escapeHtml(vetName)}</div>
@@ -244,10 +307,17 @@ export async function buildPrescriptionPdfBlob(
             <div style="flex:1;min-width:0;">
               ${kvRow(labels.ownerName, ownerName)}
               ${kvRow(labels.animalType, animalType)}
+              ${detail?.breed ? kvRow(labels.breed, text(detail.breed)) : ""}
+              ${detail?.animal_gender ? kvRow(labels.gender, text(detail.animal_gender)) : ""}
+              ${detail?.farm_name ? kvRow(labels.farm, text(detail.farm_name)) : ""}
             </div>
             <div style="${pdfKvRightCol}">
               ${kvRow(labels.age, ageVal)}
               ${kvRow(labels.weight, weightVal)}
+              ${detail?.shed_or_pen ? kvRow(labels.shedPen, text(detail.shed_or_pen)) : ""}
+              ${detail?.batch_id ? kvRow(labels.batchId, text(detail.batch_id)) : ""}
+              ${detail?.animal_id ? kvRow(labels.animalId, text(detail.animal_id)) : ""}
+              ${detail?.affected_count ? kvRow(labels.affectedCount, text(detail.affected_count)) : ""}
             </div>
           </div>
         </div>
@@ -260,6 +330,8 @@ export async function buildPrescriptionPdfBlob(
               <div style="margin-top:2px;">${escapeHtml(diagnosis)}</div>
               <div style="margin-top:8px;"><b>${labels.shortDescription}:</b></div>
               <div style="margin-top:2px;">${escapeHtml(diagnosisDesc)}</div>
+              ${detail?.clinical_findings ? `<div style="margin-top:8px;"><b>${labels.clinicalFindings}:</b></div><div style="margin-top:2px;">${escapeHtml(text(detail.clinical_findings))}</div>` : ""}
+              ${detail?.severity ? `<div style="margin-top:8px;"><b>${labels.severity}:</b> ${escapeHtml(text(detail.severity))}</div>` : ""}
             </div>
           </div>
           <div style="flex:1;">
@@ -281,10 +353,20 @@ export async function buildPrescriptionPdfBlob(
             ${commonCareRows}
           </ul>
         </div>
+        </div>
+      </div>
+    </div>
 
+    <div style="min-height:${PDF_PAGE_HEIGHT_PX}px;background:#ffffff;position:relative;overflow:hidden;">
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+        <div style="font-size:88px;color:${VETBONDHU_PDF.watermark};transform:rotate(-30deg);font-weight:800;">VetBondhu</div>
+      </div>
+      <div style="position:relative;z-index:1;">
+        ${pdfHeader}
+        <div style="padding:15px 20px 0 20px;font-size:12px;line-height:1.45;">
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:10px;">
           <div style="font-weight:700;color:${VETBONDHU_PDF.brandDeep};">${labels.followUp}</div>
-          <div style="margin-top:4px;">${escapeHtml(followUp)}</div>
+          ${followUpRows}
         </div>
 
         <div style="margin-top:12px;border-top:1px solid #cfdfe5;padding-top:10px;">
@@ -307,6 +389,7 @@ export async function buildPrescriptionPdfBlob(
         </div>
       </div>
     </div>
+  </div>
   </div>`;
 
   const container = document.createElement("div");

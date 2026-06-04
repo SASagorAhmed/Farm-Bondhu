@@ -231,6 +231,17 @@ After the VetBondhu consultation:
 
 ---
 
+## Admin Operations
+
+VetBondhu admin operations are managed separately from MediBondhu:
+
+- `/admin/vetbondhu-overview` shows VetBondhu overview stats, all vets, currently available vets, recent bookings, active sessions, and vet withdrawals.
+- The `Available Now` stat opens the currently online vet list and should use VetBondhu heartbeat/online-window behavior.
+- VetBondhu payout/withdrawal review uses VetBondhu veterinary withdrawal data only.
+- VetBondhu access controls must not affect MediBondhu doctors, MediBondhu patients, or global account state.
+
+---
+
 ## Safety and Responsibility
 
 VetBondhu supports remote veterinary guidance and consultation. It helps owners organize information, communicate with vets, and follow professional advice.

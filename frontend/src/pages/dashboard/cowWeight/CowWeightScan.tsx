@@ -23,7 +23,6 @@ import {
   photoOrientationI18nKey,
   reassignKeypointsForHeadSide,
   resolveStep1Keypoints,
-  proposeLinesFromKeypoints,
   syncChestKeypointsFromLines,
   syncLengthKeypointsFromLines,
 } from "@/lib/cowWeight/cowKeypoints";
@@ -447,13 +446,6 @@ export default function CowWeightScan() {
     if (!base) return;
     const kp = reassignKeypointsForHeadSide(base, side);
     setKeypointsOverride(kp);
-    setLines(
-      clampLinesToBBox(
-        proposeLinesFromKeypoints(analysis.bbox, kp),
-        analysis.bbox,
-        kp.detected?.facing ?? null
-      )
-    );
   };
 
   const onReanalyze = async () => {
@@ -536,6 +528,24 @@ export default function CowWeightScan() {
   const directionKeys = directionSummaryI18nKeys(bodyDirection);
   const orientationI18nKey = photoOrientationI18nKey(facing);
   const orientationLabel = orientationI18nKey ? t(orientationI18nKey) : null;
+  const headDirectionSourceLabel =
+    verifySource === "vision"
+      ? t("cowWeight.scan.distanceSourceCloud")
+      : verifySource === "local"
+        ? t("cowWeight.scan.distanceSourceLocal")
+        : null;
+  const distanceSourceLabel =
+    cameraDistanceSource === "cloud"
+      ? t("cowWeight.scan.distanceSourceCloud")
+      : cameraDistanceSource === "blended"
+        ? t("cowWeight.scan.distanceSourceBlended")
+        : t("cowWeight.scan.distanceSourceLocal");
+  const orientationSourceLabel =
+    headDirectionSourceLabel && distanceSourceLabel
+      ? headDirectionSourceLabel === distanceSourceLabel
+        ? headDirectionSourceLabel
+        : `${headDirectionSourceLabel} + ${distanceSourceLabel}`
+      : (headDirectionSourceLabel ?? distanceSourceLabel);
 
   const outlineSourceLabel =
     effectiveBodyOutline && effectiveBodyOutline.length >= 3
@@ -559,12 +569,14 @@ export default function CowWeightScan() {
   const step1OrientationExtra =
     step === 1 && scanKeypoints ? (
       <div className="space-y-2">
-        <CowWeightHeadSidePanel
-          value={facing}
-          onChange={onHeadSideChange}
-          notDetected={directionNotDetected}
-        />
-        {facing && (
+        {directionNotDetected && (
+          <CowWeightHeadSidePanel
+            value={facing}
+            onChange={onHeadSideChange}
+            notDetected
+          />
+        )}
+        {directionNotDetected && facing && (
           <Button
             type="button"
             variant="secondary"
@@ -765,6 +777,7 @@ export default function CowWeightScan() {
             <CameraDistanceBar
               cameraDistanceCm={cameraDistanceDisplayCm}
               distanceSource={cameraDistanceSource}
+              sourceSummaryLabel={orientationSourceLabel}
               groundDistanceDetected={groundDistanceDetected}
               loading={assistLoading && step === 1}
             />

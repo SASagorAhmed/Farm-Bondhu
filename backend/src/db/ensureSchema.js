@@ -748,6 +748,30 @@ export async function ensureSchema(sql) {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.vetbondhu_user_restrictions (
+      user_id uuid NOT NULL,
+      subject_type text NOT NULL CHECK (subject_type IN ('vet', 'patient')),
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'suspended', 'deleted')),
+      reason text,
+      acted_by uuid,
+      acted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, subject_type)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.medibondhu_user_restrictions (
+      user_id uuid NOT NULL,
+      subject_type text NOT NULL CHECK (subject_type IN ('doctor', 'patient')),
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'suspended', 'deleted')),
+      reason text,
+      acted_by uuid,
+      acted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, subject_type)
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.consultation_bookings (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       patient_mock_id uuid NOT NULL,
@@ -758,6 +782,20 @@ export async function ensureSchema(sql) {
       completed_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.vetbondhu_consultation_reviews (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      booking_id uuid NOT NULL,
+      patient_user_id uuid NOT NULL,
+      vet_user_id uuid NOT NULL,
+      vet_mock_id uuid,
+      rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      comment text,
+      deleted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (booking_id)
     )`,
 
     `CREATE TABLE IF NOT EXISTS public.consultation_messages (
@@ -774,6 +812,7 @@ export async function ensureSchema(sql) {
       vet_id uuid,
       patient_id uuid,
       status text NOT NULL DEFAULT 'draft',
+      prescription_code text,
       notes text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
@@ -978,6 +1017,7 @@ export async function ensureSchema(sql) {
       advice text,
       follow_up_date date,
       status text NOT NULL DEFAULT 'issued',
+      prescription_code text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -1045,6 +1085,10 @@ export async function ensureSchema(sql) {
     "talk_ended_at timestamptz",
     "leave_deadline_at timestamptz",
     "left_user_id uuid",
+  ]);
+
+  await addColumns(sql, "medibondhu_prescriptions", [
+    "prescription_code text",
   ]);
 
   await addColumns(sql, "community_posts", [
@@ -1162,6 +1206,18 @@ export async function ensureSchema(sql) {
     "leave_deadline_at timestamptz",
     "left_user_id uuid",
     "status text NOT NULL DEFAULT 'pending'",
+    "created_at timestamptz NOT NULL DEFAULT now()",
+    "updated_at timestamptz NOT NULL DEFAULT now()",
+  ]);
+
+  await addColumns(sql, "vetbondhu_consultation_reviews", [
+    "booking_id uuid NOT NULL",
+    "patient_user_id uuid NOT NULL",
+    "vet_user_id uuid NOT NULL",
+    "vet_mock_id uuid",
+    "rating integer NOT NULL DEFAULT 5",
+    "comment text",
+    "deleted_at timestamptz",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -1331,6 +1387,8 @@ export async function ensureSchema(sql) {
     "rejection_reason text",
     "verified_by uuid",
     "verified_at timestamptz",
+    "vetbondhu_status text NOT NULL DEFAULT 'active'",
+    "vetbondhu_deleted_at timestamptz",
     "last_seen_at timestamptz",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
@@ -1353,6 +1411,8 @@ export async function ensureSchema(sql) {
     "rejection_reason text",
     "verified_by uuid",
     "verified_at timestamptz",
+    "vetbondhu_status text NOT NULL DEFAULT 'active'",
+    "vetbondhu_deleted_at timestamptz",
     "created_at timestamptz NOT NULL DEFAULT now()",
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
@@ -1542,6 +1602,7 @@ export async function ensureSchema(sql) {
     "warning_signs text",
     "follow_up_notes text",
     "status text NOT NULL DEFAULT 'draft'",
+    "prescription_code text",
     "language text NOT NULL DEFAULT 'en'",
     "notes text",
     "created_at timestamptz NOT NULL DEFAULT now()",
@@ -1859,15 +1920,24 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_user_addresses_user ON public.user_addresses (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_vets_user_id ON public.vets (user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_vets_available ON public.vets (available, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_vetbondhu_restrictions_status ON public.vetbondhu_user_restrictions (subject_type, status, updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_vetbondhu_restrictions_user ON public.vetbondhu_user_restrictions (user_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_restrictions_status ON public.medibondhu_user_restrictions (subject_type, status, updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_medibondhu_restrictions_user ON public.medibondhu_user_restrictions (user_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_patient ON public.consultation_bookings (patient_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_vet_user ON public.consultation_bookings (vet_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_status ON public.consultation_bookings (status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_vet_status_created ON public.consultation_bookings (vet_user_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_bookings_patient_status_created ON public.consultation_bookings (patient_mock_id, status, created_at DESC)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_vetbondhu_reviews_booking_unique ON public.vetbondhu_consultation_reviews (booking_id) WHERE deleted_at IS NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_vetbondhu_reviews_patient ON public.vetbondhu_consultation_reviews (patient_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_vetbondhu_reviews_vet_user ON public.vetbondhu_consultation_reviews (vet_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_vetbondhu_reviews_vet_mock ON public.vetbondhu_consultation_reviews (vet_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_consultation_messages_booking ON public.consultation_messages (booking_id, created_at ASC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_availability_user_day ON public.vet_availability (user_id, day_of_week, start_time)`,
     `CREATE INDEX IF NOT EXISTS idx_prescriptions_vet ON public.prescriptions (vet_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_prescriptions_farmer ON public.prescriptions (farmer_user_id, created_at DESC)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_prescriptions_code_unique ON public.prescriptions (prescription_code) WHERE prescription_code IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_prescription_items_prescription ON public.prescription_items (prescription_id, created_at ASC)`,
     `CREATE INDEX IF NOT EXISTS idx_e_prescriptions_patient ON public.e_prescriptions (patient_mock_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_vet_withdrawals_vet ON public.vet_withdrawals (vet_user_id, created_at DESC)`,
@@ -1884,11 +1954,60 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_appointments_doctor ON public.medibondhu_appointments (doctor_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_prescriptions_patient ON public.medibondhu_prescriptions (patient_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_prescriptions_doctor ON public.medibondhu_prescriptions (doctor_id, created_at DESC)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_medibondhu_prescriptions_code_unique ON public.medibondhu_prescriptions (prescription_code) WHERE prescription_code IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_medibondhu_appointment_messages_appt ON public.medibondhu_appointment_messages (appointment_id, created_at ASC)`,
   ];
   for (let i = 0; i < idx.length; i++) {
     await runOptional(sql, `index ${i + 1}`, idx[i]);
   }
+
+  await runOptional(
+    sql,
+    "backfill prescriptions.prescription_code",
+    `WITH candidates AS (
+       SELECT id, upper(right(replace(id::text, '-', ''), 6)) AS code
+       FROM public.prescriptions
+       WHERE prescription_code IS NULL OR trim(prescription_code) = ''
+     ),
+     unique_candidates AS (
+       SELECT c.id, c.code
+       FROM candidates c
+       WHERE (SELECT count(*) FROM candidates d WHERE d.code = c.code) = 1
+     )
+     UPDATE public.prescriptions p
+     SET prescription_code = u.code
+     FROM unique_candidates u
+     WHERE p.id = u.id
+       AND NOT EXISTS (
+         SELECT 1 FROM public.prescriptions existing
+         WHERE existing.prescription_code = u.code
+           AND existing.id <> p.id
+       )`
+  );
+
+  await runOptional(
+    sql,
+    "backfill medibondhu_prescriptions.prescription_code",
+    `WITH candidates AS (
+       SELECT id, upper(right(replace(id::text, '-', ''), 6)) AS code
+       FROM public.medibondhu_prescriptions
+       WHERE prescription_code IS NULL OR trim(prescription_code) = ''
+     ),
+     unique_candidates AS (
+       SELECT c.id, c.code
+       FROM candidates c
+       WHERE (SELECT count(*) FROM candidates d WHERE d.code = c.code) = 1
+     )
+     UPDATE public.medibondhu_prescriptions p
+     SET prescription_code = u.code
+     FROM unique_candidates u
+     WHERE p.id = u.id
+       AND NOT EXISTS (
+         SELECT 1 FROM public.medibondhu_prescriptions existing
+         WHERE existing.prescription_code = u.code
+           AND existing.id <> p.id
+       )`
+  );
 
   /** MediBondhu slots: align `slot_date` with Bangladesh calendar derived from `slot_start` so patient booking matches `/doctors/:id/slots`. */
   await runOptional(

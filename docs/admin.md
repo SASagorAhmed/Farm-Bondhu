@@ -32,6 +32,52 @@ Co-Admin and Moderator do not see these controls; delete API calls return 403. H
 
 `/admin/profile` shows account details and Platform shortcuts only — not MediBondhu doctor verification. Doctor and vet onboarding are managed under Admin → MediBondhu and Admin → VetBondhu.
 
+## VetBondhu Admin Operations
+
+VetBondhu admin overview and payouts stay in the VetBondhu admin module and use VetBondhu veterinary data only.
+
+| Admin path | Purpose |
+|------------|---------|
+| `/admin/vetbondhu-overview` | VetBondhu overview, all vets, available-now vets, recent bookings, active sessions, and vet withdrawals |
+| `/admin/vetbondhu-access` | VetBondhu-only access controls for vets and VetBondhu users |
+
+The VetBondhu overview uses VetBondhu green/emerald branding. The `Available Now` stat opens the currently online vet list, based on the VetBondhu heartbeat/online window, not just a static availability flag.
+
+## MediBondhu Admin Operations
+
+MediBondhu admin tools are separate from VetBondhu and global account controls. They use MediBondhu cyan branding and MediBondhu-only tables, routes, query keys, and restrictions.
+
+| Admin path | Purpose |
+|------------|---------|
+| `/admin/medibondhu-human` | Doctor approval, hospitals, specialties, appointments, and MediBondhu human-service operations |
+| `/admin/medibondhu-access` | MediBondhu-only freeze, suspend, delete-access, and restore actions for doctors and patients |
+| `/admin/medibondhu-payouts` | MediBondhu doctor payout overview, doctor lists, recent bookings, withdrawal details, approve, and reject |
+
+### MediBondhu doctor approval
+
+Approved MediBondhu doctors should show an approved state in Admin → MediBondhu Human, not repeat `Approve` / `Reject` actions. Pending doctors show both actions. Rejected doctors can be approved again when the admin wants to restore the doctor.
+
+### MediBondhu hospitals and specialties
+
+Hospitals and specialties added by admin in `/admin/medibondhu-human` are doctor-facing options. After admin creates or updates these records, the related doctor/profile query caches must be invalidated so doctors can select the new hospital or specialty without waiting for stale cache expiry.
+
+### MediBondhu access controls
+
+MediBondhu access actions are scoped through MediBondhu restriction data. A frozen, suspended, or deleted MediBondhu doctor/patient is blocked inside MediBondhu only; the action must not remove VetBondhu access or globally delete the account.
+
+### MediBondhu payouts
+
+The MediBondhu payout page combines operational overview and payout review:
+
+- `Total Doctors`
+- `Available Doctors`
+- `Total Bookings`
+- `Active Sessions`
+- `Pending Withdrawals`
+- `All Doctors`, `Available Doctors`, `Recent Bookings`, `Withdrawals`, and `Details` tabs
+
+Withdrawal approval/rejection stays tied to MediBondhu doctor withdrawal records and must not use VetBondhu payout data.
+
 ## Email Audit (Platform)
 
 **Path:** `/admin/email-audit` (Platform module sidebar)

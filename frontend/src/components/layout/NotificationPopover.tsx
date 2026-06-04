@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, ChevronRight, Loader2 } from "lucide-react";
@@ -16,7 +16,6 @@ import {
   markNotificationRead,
   notificationsQueryKey,
   resolveNotificationTarget,
-  subscribeNotificationsRealtime,
   type NotificationRow,
   typeIcons,
   typeIconColors,
@@ -42,14 +41,6 @@ export default function NotificationPopover({ notificationsPath }: NotificationP
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
   });
-
-  useEffect(() => {
-    if (!userId) {
-      queryClient.removeQueries({ queryKey: ["notifications"] });
-      return;
-    }
-    return subscribeNotificationsRealtime(userId, queryClient, "notifications-popover-realtime");
-  }, [queryClient, userId]);
 
   const preview = useMemo(() => notifications.slice(0, PREVIEW_LIMIT), [notifications]);
   const unreadCount = notifications.filter((n) => !n.read).length;

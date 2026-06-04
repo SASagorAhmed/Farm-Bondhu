@@ -7,13 +7,26 @@ import {
   assertApprovedVetAccess,
   assertBookingParticipant,
   assertVetAccess,
+  assertVetBondhuAccessAllowed,
   getBookingById,
+  getVetBondhuRestriction,
   getRequestRoleSet,
   requestHasAnyRole,
   resolveVetUserId,
 } from "../../services/vetbondhuAccess.js";
 import { getOrSetCachedValue, invalidateByPrefix, makeCacheKey } from "../../services/responseCache.js";
 import { uploadToCloudinary } from "../../services/cloudinaryUpload.js";
+import {
+  notifyPatientPrescriptionIssued,
+  notifyVetBookingCreated,
+} from "../../services/vetbondhuNotifications.js";
+import {
+  createVetBondhuReview,
+  getVetBondhuReviewStatus,
+  listPendingVetBondhuReviews,
+  listVetBondhuReviewsForVet,
+  VetBondhuReviewError,
+} from "../../services/vetbondhuReviews.js";
 
 const router = Router();
 const nowMs = () => Date.now();
@@ -21,6 +34,101 @@ const VETBONDHU_CACHE_PREFIX = "vetbondhu";
 const VET_ONLINE_WINDOW_MS = 90_000;
 const VET_OFFLINE_ERROR = "Doctor is offline and unavailable right now.";
 const DEFAULT_VET_DESIGNATION = "Veterinary Professional";
+const PRESCRIPTION_CODE_RE = /^[A-Z0-9]{6}$/;
+
+function normalizePrescriptionCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function makePrescriptionCode() {
+  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+}
+
+async function generateVetPrescriptionCode() {
+  for (let i = 0; i < 8; i += 1) {
+    const code = makePrescriptionCode();
+    const [existing] = await sql`select id from prescriptions where prescription_code = ${code} limit 1`;
+    if (!existing) return code;
+  }
+  throw new Error("Unable to generate prescription code");
+}
+
+async function requireAdmin(req, res) {
+  const isAdmin = await requestHasAnyRole(req, ["admin"]);
+  if (!isAdmin) {
+    res.status(403).json({ error: "Admin access required" });
+    return false;
+  }
+  return true;
+}
+
+function normalizeVetBondhuRestrictionStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["frozen", "suspended", "deleted", "active"].includes(status) ? status : "";
+}
+
+async function setVetBondhuRestriction({ userId, subjectType, status, reason, actedBy }) {
+  const normalizedStatus = normalizeVetBondhuRestrictionStatus(status);
+  if (!isUuid(userId) || !["vet", "patient"].includes(subjectType) || !normalizedStatus) {
+    const err = new Error("Invalid VetBondhu restriction request");
+    err.status = 400;
+    throw err;
+  }
+  const note = toTextOrNull(reason);
+  const [row] = await sql`
+    insert into vetbondhu_user_restrictions ${sql({
+      user_id: userId,
+      subject_type: subjectType,
+      status: normalizedStatus,
+      reason: normalizedStatus === "active" ? null : note,
+      acted_by: actedBy,
+      acted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })}
+    on conflict (user_id, subject_type) do update set
+      status = excluded.status,
+      reason = excluded.reason,
+      acted_by = excluded.acted_by,
+      acted_at = excluded.acted_at,
+      updated_at = excluded.updated_at
+    returning *
+  `;
+
+  const capabilityCode = subjectType === "vet" ? "can_consult_as_vet" : "can_book_vet";
+  await sql`
+    insert into user_capabilities ${sql({
+      user_id: userId,
+      capability_code: capabilityCode,
+      is_enabled: normalizedStatus === "active",
+      granted_by: actedBy,
+      created_at: new Date().toISOString(),
+    })}
+    on conflict (user_id, capability_code) do update set
+      is_enabled = ${normalizedStatus === "active"},
+      granted_by = ${actedBy}
+  `;
+
+  if (subjectType === "vet") {
+    const vetPatch = {
+      vetbondhu_status: normalizedStatus,
+      vetbondhu_deleted_at: normalizedStatus === "deleted" ? new Date().toISOString() : null,
+      available: normalizedStatus === "active",
+      updated_at: new Date().toISOString(),
+    };
+    await sql`update vets set ${sql(vetPatch)} where user_id = ${userId} or id = ${userId}`;
+    await sql`
+      update vet_profiles
+      set ${sql({
+        vetbondhu_status: normalizedStatus,
+        vetbondhu_deleted_at: normalizedStatus === "deleted" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })}
+      where user_id = ${userId} or id = ${userId}
+    `;
+  }
+
+  return row;
+}
 
 router.use((req, res, next) => {
   if (req.method === "GET") return next();
@@ -504,9 +612,17 @@ router.get(
     const { value, cacheHit } = await getOrSetCachedValue(cacheKey, 1_000, async () => {
       const rows = await sql`
       select b.id, b.patient_mock_id, b.vet_user_id, b.vet_mock_id, b.patient_name, b.animal_type, b.symptoms, b.fee,
-             b.consultation_method, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.scheduled_date, b.scheduled_time
+             b.consultation_method, b.status, b.leave_deadline_at, b.left_user_id, b.created_at, b.scheduled_date, b.scheduled_time,
+             rx.id as prescription_id, rx.status as prescription_status
       from consultation_bookings b
       left join vets v on v.id = b.vet_mock_id
+      left join lateral (
+        select p.id, p.status
+        from prescriptions p
+        where p.consultation_id = b.id
+        order by p.created_at desc
+        limit 1
+      ) rx on true
       where coalesce(b.vet_user_id, v.user_id, b.vet_mock_id) = ${canonicalVetUserId}
       order by b.created_at desc
       offset ${offset}
@@ -590,6 +706,9 @@ router.get(
     const limit = readLimit(req.query.limit, 40, 120);
     const offset = readOffset(req.query.offset);
     const mode = String(req.query.mode || "auto");
+    if (!isAdmin) {
+      await assertVetBondhuAccessAllowed(uid, mode === "vet" ? "vet" : "patient");
+    }
     const cacheKey = makeCacheKey(VETBONDHU_CACHE_PREFIX, {
       userId: req.userId,
       parts: ["prescriptions-bootstrap", mode, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
@@ -598,7 +717,7 @@ router.get(
       const list =
         mode === "vet"
         ? await sql`
-            select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+            select id, prescription_code, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
                    animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
             from prescriptions
             where coalesce(vet_user_id, vet_id) = ${canonicalVetUserId}
@@ -616,7 +735,7 @@ router.get(
               limit ${limit + 1}
             `
           : await sql`
-              select id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+              select id, prescription_code, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
                      animal_type, diagnosis, severity, status, follow_up_required, follow_up_date, created_at, updated_at
               from prescriptions
               where (${isAdmin ? sql`true` : sql`(coalesce(vet_user_id, vet_id) = ${canonicalVetUserId} or farmer_user_id = ${uid})`})
@@ -650,6 +769,9 @@ router.get(
     const uid = req.userId;
     const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
     const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) {
+      await assertVetBondhuAccessAllowed(uid, view === "vet" ? "vet" : "patient");
+    }
     const cacheKey = makeCacheKey(VETBONDHU_CACHE_PREFIX, {
       userId: req.userId,
       parts: ["bookings-bootstrap", view, canonicalVetUserId, uid, limit, offset, isAdmin ? "admin" : "user"],
@@ -694,28 +816,140 @@ router.get(
 );
 
 router.get(
+  "/access/status",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (isAdmin) {
+      res.json({ data: { allowed: true, restrictions: [] } });
+      return;
+    }
+    const [vetRestriction, patientRestriction] = await Promise.all([
+      getVetBondhuRestriction(req.userId, "vet"),
+      getVetBondhuRestriction(req.userId, "patient"),
+    ]);
+    const restrictions = [vetRestriction, patientRestriction].filter(Boolean).map((row) => ({
+      subject_type: row.subject_type,
+      status: row.status,
+      reason: row.reason || null,
+      acted_at: row.acted_at || null,
+    }));
+    res.json({ data: { allowed: restrictions.length === 0, restrictions } });
+  })
+);
+
+router.get(
   "/vets",
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
     const availableOnly = String(req.query.available || "").toLowerCase() === "true";
     const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) await assertVetBondhuAccessAllowed(req.userId, "patient");
     const limit = readLimit(req.query.limit, 80, 200);
     const rows = availableOnly
       ? await sql`
           select * from vets
           where coalesce(available, true) = true
             and (${isAdmin ? sql`true` : sql`coalesce(verification_status, 'pending') = 'approved'`})
+            and (${isAdmin ? sql`true` : sql`coalesce(vetbondhu_status, 'active') = 'active' and vetbondhu_deleted_at is null`})
+            and not exists (
+              select 1 from vetbondhu_user_restrictions r
+              where r.user_id = coalesce(vets.user_id, vets.id)
+                and r.subject_type = 'vet'
+                and r.status in ('suspended', 'deleted')
+            )
           order by created_at desc
           limit ${limit}
         `
       : await sql`
           select * from vets
           where (${isAdmin ? sql`true` : sql`coalesce(verification_status, 'pending') = 'approved'`})
+            and (${isAdmin ? sql`true` : sql`coalesce(vetbondhu_status, 'active') = 'active' and vetbondhu_deleted_at is null`})
+            and not exists (
+              select 1 from vetbondhu_user_restrictions r
+              where r.user_id = coalesce(vets.user_id, vets.id)
+                and r.subject_type = 'vet'
+                and r.status in ('suspended', 'deleted')
+            )
           order by created_at desc
           limit ${limit}
         `;
     res.json({ data: rows.map(normalizeVetRow) });
+  })
+);
+
+router.get(
+  "/reviews/pending",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const rows = await listPendingVetBondhuReviews(req.userId);
+    res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/reviews/status",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const bookingId = typeof req.query.booking_id === "string" ? req.query.booking_id : "";
+    if (!isUuid(bookingId)) {
+      res.status(400).json({ error: "booking_id is required" });
+      return;
+    }
+    try {
+      const status = await getVetBondhuReviewStatus(req.userId, bookingId);
+      res.json({ data: status });
+    } catch (err) {
+      if (err instanceof VetBondhuReviewError) {
+        res.status(err.status || 400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  })
+);
+
+router.post(
+  "/reviews",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const bookingId = typeof req.body?.booking_id === "string" ? req.body.booking_id : "";
+    if (!isUuid(bookingId)) {
+      res.status(400).json({ error: "booking_id is required" });
+      return;
+    }
+    try {
+      const created = await createVetBondhuReview({
+        userId: req.userId,
+        bookingId,
+        rating: req.body?.rating,
+        comment: req.body?.comment,
+      });
+      res.status(201).json({ data: created });
+    } catch (err) {
+      if (err instanceof VetBondhuReviewError) {
+        res.status(err.status || 400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  })
+);
+
+router.get(
+  "/vets/:id/reviews",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const limit = readLimit(req.query.limit, 20, 100);
+    const offset = readOffset(req.query.offset);
+    const data = await listVetBondhuReviewsForVet(req.params.id, { limit, offset });
+    res.json({ data });
   })
 );
 
@@ -729,6 +963,18 @@ router.get(
     if (!row) {
       res.status(404).json({ error: "Vet not found" });
       return;
+    }
+    if (!isAdmin) {
+      await assertVetBondhuAccessAllowed(req.userId, "patient");
+      const restricted = await getVetBondhuRestriction(String(row.user_id || row.id), "vet");
+      if (
+        restricted ||
+        String(row.vetbondhu_status || "active").toLowerCase() !== "active" ||
+        row.vetbondhu_deleted_at
+      ) {
+        res.status(404).json({ error: "Vet not found" });
+        return;
+      }
     }
     if (!isAdmin && String(row.verification_status || "pending") !== "approved") {
       res.status(404).json({ error: "Vet not found" });
@@ -920,6 +1166,123 @@ router.get(
   })
 );
 
+router.get(
+  "/admin/users",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+    const type = String(req.query.type || "vet").toLowerCase() === "patient" ? "patient" : "vet";
+    if (type === "vet") {
+      const rows = await sql`
+        select
+          p.id as user_id,
+          coalesce(vp.full_name, v.name, p.name, p.email, 'Vet') as name,
+          coalesce(vp.email, v.email, p.email) as email,
+          p.primary_role,
+          coalesce(vp.specialization, v.specialization) as specialization,
+          coalesce(vp.verification_status, v.verification_status, 'pending') as verification_status,
+          coalesce(v.vetbondhu_status, vp.vetbondhu_status, 'active') as vetbondhu_status,
+          coalesce(v.vetbondhu_deleted_at, vp.vetbondhu_deleted_at) as vetbondhu_deleted_at,
+          coalesce(v.available, false) as available,
+          coalesce(uc.is_enabled, false) as can_consult_as_vet,
+          coalesce(r.status, 'active') as restriction_status,
+          r.reason as restriction_reason,
+          r.acted_at as restriction_acted_at,
+          count(distinct b.id)::int as bookings_count
+        from profiles p
+        left join vets v on v.user_id = p.id or v.id = p.id
+        left join vet_profiles vp on vp.user_id = p.id or vp.id = p.id
+        left join user_capabilities uc on uc.user_id = p.id and uc.capability_code = 'can_consult_as_vet'
+        left join vetbondhu_user_restrictions r on r.user_id = p.id and r.subject_type = 'vet'
+        left join consultation_bookings b on coalesce(b.vet_user_id, b.vet_mock_id) = p.id or b.vet_mock_id = v.id
+        where p.primary_role = 'vet'
+          or exists (select 1 from user_roles ur where ur.user_id = p.id and ur.role = 'vet')
+          or exists (select 1 from user_capabilities cap where cap.user_id = p.id and cap.capability_code = 'can_consult_as_vet')
+          or v.id is not null
+          or vp.id is not null
+        group by p.id, vp.full_name, v.name, p.name, p.email, vp.email, v.email, p.primary_role,
+                 vp.specialization, v.specialization, vp.verification_status, v.verification_status,
+                 v.vetbondhu_status, vp.vetbondhu_status, v.vetbondhu_deleted_at, vp.vetbondhu_deleted_at,
+                 v.available, uc.is_enabled, r.status, r.reason, r.acted_at
+        order by p.created_at desc
+        limit 500
+      `;
+      res.json({ data: rows });
+      return;
+    }
+
+    const rows = await sql`
+      select
+        p.id as user_id,
+        coalesce(p.name, p.email, 'VetBondhu patient') as name,
+        p.email,
+        p.primary_role,
+        p.signup_module,
+        coalesce(uc.is_enabled, false) as can_book_vet,
+        coalesce(r.status, 'active') as restriction_status,
+        r.reason as restriction_reason,
+        r.acted_at as restriction_acted_at,
+        count(distinct b.id)::int as bookings_count
+      from profiles p
+      left join user_capabilities uc on uc.user_id = p.id and uc.capability_code = 'can_book_vet'
+      left join vetbondhu_user_restrictions r on r.user_id = p.id and r.subject_type = 'patient'
+      left join consultation_bookings b on b.patient_mock_id = p.id
+      where p.signup_module = 'vetbondhu'
+        or exists (select 1 from user_capabilities cap where cap.user_id = p.id and cap.capability_code = 'can_book_vet')
+        or exists (select 1 from consultation_bookings cb where cb.patient_mock_id = p.id)
+      group by p.id, p.name, p.email, p.primary_role, p.signup_module, uc.is_enabled, r.status, r.reason, r.acted_at
+      order by p.created_at desc
+      limit 500
+    `;
+    res.json({ data: rows });
+  })
+);
+
+router.post(
+  "/admin/users/:userId/:action",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+    const userId = String(req.params.userId || "");
+    const action = String(req.params.action || "").toLowerCase();
+    const subjectType = String(req.body?.subject_type || req.query.subject_type || "").toLowerCase();
+    if (!isUuid(userId)) {
+      res.status(400).json({ error: "Invalid user id" });
+      return;
+    }
+    if (!["vet", "patient"].includes(subjectType)) {
+      res.status(400).json({ error: "subject_type must be vet or patient" });
+      return;
+    }
+    const statusByAction = {
+      freeze: "frozen",
+      suspend: "suspended",
+      delete: "deleted",
+      restore: "active",
+    };
+    const nextStatus = statusByAction[action];
+    if (!nextStatus) {
+      res.status(400).json({ error: "Invalid VetBondhu admin action" });
+      return;
+    }
+    const reason = toTextOrNull(req.body?.reason);
+    if (nextStatus !== "active" && !reason) {
+      res.status(400).json({ error: "Reason is required" });
+      return;
+    }
+    const restriction = await setVetBondhuRestriction({
+      userId,
+      subjectType,
+      status: nextStatus,
+      reason,
+      actedBy: req.userId,
+    });
+    res.json({ data: restriction });
+  })
+);
+
 router.post(
   "/admin/vet-profiles/:id/approve",
   requireDatabase,
@@ -1041,6 +1404,12 @@ router.get(
       return;
     }
     const vetUserRef = vet.user_id || vet.id;
+    await assertVetBondhuAccessAllowed(req.userId, "patient");
+    const restrictedVet = await getVetBondhuRestriction(String(vetUserRef), "vet");
+    if (restrictedVet) {
+      res.status(404).json({ error: "Vet not found" });
+      return;
+    }
 
     const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
     const availability = await sql`
@@ -1201,6 +1570,100 @@ router.get(
       limit 300
     `;
     res.json({ data: rows.map((r) => ({ ...r, request_amount: toMoney(r.request_amount || 0) })) });
+  })
+);
+
+router.get(
+  "/admin/overview",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
+
+    const [
+      vetRows,
+      recentBookingRows,
+      bookingCountRows,
+      activeBookingCountRows,
+      pendingWithdrawalCountRows,
+    ] = await Promise.all([
+      sql`
+        select
+          v.*,
+          p.email as account_email,
+          p.name as account_name,
+          coalesce(r.status, 'active') as restriction_status
+        from vets v
+        left join profiles p on p.id = v.user_id
+        left join vetbondhu_user_restrictions r on r.user_id = coalesce(v.user_id, v.id) and r.subject_type = 'vet'
+        where coalesce(v.verification_status, 'pending') = 'approved'
+          and coalesce(v.vetbondhu_status, 'active') <> 'deleted'
+          and v.vetbondhu_deleted_at is null
+          and coalesce(r.status, 'active') <> 'deleted'
+        order by v.created_at desc
+      `,
+      sql`
+        select
+          b.id,
+          b.patient_mock_id,
+          b.vet_id,
+          b.vet_user_id,
+          b.vet_mock_id,
+          coalesce(b.patient_name, patient_profile.name, patient_profile.email, 'Patient') as patient_name,
+          coalesce(b.vet_name, vet_profile.name, v.name, 'Vet Doctor') as vet_name,
+          b.booking_type,
+          b.consultation_method,
+          b.fee,
+          b.payment_amount,
+          b.status,
+          b.created_at
+        from consultation_bookings b
+        left join profiles patient_profile on patient_profile.id = b.patient_mock_id
+        left join vets v on v.id = b.vet_mock_id
+        left join profiles vet_profile on vet_profile.id = coalesce(b.vet_user_id, v.user_id)
+        order by b.created_at desc
+        limit 100
+      `,
+      sql`select count(*)::int as count from consultation_bookings`,
+      sql`
+        select count(*)::int as count
+        from consultation_bookings
+        where status in ('pending', 'confirmed', 'in_progress')
+      `,
+      sql`select count(*)::int as count from vet_withdrawals where status = 'pending'`,
+    ]);
+
+    const normalizedVets = vetRows.map((row) => {
+      const normalized = normalizeVetRow(row);
+      return {
+        ...normalized,
+        email: row.email || row.account_email || normalized.email || null,
+        name: normalized.name || row.account_name || "Vet Doctor",
+        restriction_status: row.restriction_status || "active",
+      };
+    });
+    const onlineVets = normalizedVets.filter(
+      (vet) =>
+        vet.is_online &&
+        String(vet.restriction_status || "active").toLowerCase() === "active" &&
+        String(vet.vetbondhu_status || "active").toLowerCase() === "active"
+    );
+
+    res.json({
+      data: {
+        total_vets: normalizedVets.length,
+        available_now: onlineVets.length,
+        total_bookings: Number(bookingCountRows?.[0]?.count || 0),
+        active_sessions: Number(activeBookingCountRows?.[0]?.count || 0),
+        pending_withdrawals: Number(pendingWithdrawalCountRows?.[0]?.count || 0),
+        all_vets: normalizedVets,
+        online_vets: onlineVets,
+        recent_bookings: recentBookingRows.map((row) => ({
+          ...row,
+          fee: toMoney(row.fee || row.payment_amount || 0),
+        })),
+      },
+    });
   })
 );
 
@@ -1455,6 +1918,7 @@ router.post(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
+    await assertVetBondhuAccessAllowed(req.userId, "patient");
     const b = req.body || {};
     const vetMockId = typeof b.vet_mock_id === "string" ? b.vet_mock_id : "";
     if (!isUuid(vetMockId)) {
@@ -1481,6 +1945,11 @@ router.post(
     const [vetRow] = await sql`select id, user_id, available, last_seen_at from vets where id = ${vetMockId} limit 1`;
     if (!vetRow) {
       res.status(400).json({ error: "Invalid vet_mock_id" });
+      return;
+    }
+    const vetRestriction = await getVetBondhuRestriction(String(vetRow.user_id || vetRow.id), "vet");
+    if (vetRestriction) {
+      res.status(403).json({ error: "This VetBondhu doctor is not available for booking." });
       return;
     }
     if (bookingType === "instant" && !isVetOnline(vetRow)) {
@@ -1520,6 +1989,7 @@ router.post(
       insert into consultation_bookings ${sql(row)}
       returning *
     `;
+    await notifyVetBookingCreated(created);
     res.status(201).json({ data: created });
   })
 );
@@ -1787,7 +2257,7 @@ router.get(
     const limit = readLimit(req.query.limit, 80, 200);
     const rows = await sql`
       select
-        id, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+        id, prescription_code, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
         animal_type, symptoms, diagnosis, severity, follow_up_required, follow_up_date,
         status, language, created_at, updated_at
       from prescriptions
@@ -1874,8 +2344,10 @@ router.post(
     }
     const vetProfile = await getVetProfileRecordByActorId(req.userId);
     const normalizedVetProfile = vetProfile ? normalizeVetRow(vetProfile) : null;
+    const prescriptionCode = await generateVetPrescriptionCode();
     const row = {
       ...b,
+      prescription_code: prescriptionCode,
       vet_user_id: req.userId,
       vet_id: b.vet_id || req.userId,
       consultation_id: consultation?.id || b.consultation_id || null,
@@ -1898,6 +2370,7 @@ router.post(
     // Keep patient-facing list populated once issued.
     if (created?.status === "issued") {
       await syncIssuedPrescriptionToEprescription(created);
+      await notifyPatientPrescriptionIssued(created);
     }
 
     res.status(201).json({ data: created });
@@ -1982,7 +2455,44 @@ router.post(
       returning *
     `;
     await syncIssuedPrescriptionToEprescription(updated);
+    await notifyPatientPrescriptionIssued(updated);
     res.json({ data: updated });
+  })
+);
+
+router.get(
+  "/prescriptions/search",
+  requireDatabase,
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const code = normalizePrescriptionCode(req.query.code);
+    if (!PRESCRIPTION_CODE_RE.test(code)) {
+      res.status(400).json({ error: "Enter a valid 6-character prescription code" });
+      return;
+    }
+    const uid = req.userId;
+    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
+    const isAdmin = await requestHasAnyRole(req, ["admin"]);
+    if (!isAdmin) await assertVetBondhuAccessAllowed(uid, "vet");
+    const rows = await sql`
+      select id, prescription_code, consultation_id, vet_user_id, farmer_user_id, farmer_name, vet_name,
+             animal_type, symptoms, diagnosis, severity, follow_up_required, follow_up_date,
+             status, language, created_at, updated_at
+      from prescriptions
+      where (${isAdmin ? sql`true` : sql`coalesce(vet_user_id, vet_id) = ${canonicalVetUserId}`})
+        and (
+          upper(coalesce(prescription_code, '')) = ${code}
+          or upper(right(replace(id::text, '-', ''), 6)) = ${code}
+        )
+      order by created_at desc
+      limit 1
+    `;
+    const prescription = rows[0] || null;
+    if (!prescription) {
+      res.status(404).json({ error: "Prescription not found" });
+      return;
+    }
+    res.json({ data: prescription });
   })
 );
 

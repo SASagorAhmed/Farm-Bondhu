@@ -8,10 +8,25 @@ import { Vet } from "@/data/mockData";
 import { Star, MapPin, GraduationCap, Calendar, ArrowLeft, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { getAnimalTypeLabel, normalizeAnimalTypes } from "@/lib/animalTypes";
+import { fetchVetBondhuVetReviews, type VetBondhuReviewSummary } from "@/lib/vetbondhuReviewsApi";
 
 import { ICON_COLORS } from "@/lib/iconColors";
 
 const VB = ICON_COLORS.vetbondhu;
+const formatReviewDate = (value?: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+};
+
+type VetProfileConsultation = {
+  id: string;
+  symptoms?: string | null;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
+  animal_type?: string | null;
+  status?: string | null;
+};
 
 function vetIsOnline(vet: Vet) {
   return vet.is_online ?? vet.available;
@@ -21,7 +36,8 @@ export default function VetProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [vet, setVet] = useState<Vet | null>(null);
-  const [consultations, setConsultations] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<VetProfileConsultation[]>([]);
+  const [reviewSummary, setReviewSummary] = useState<VetBondhuReviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,6 +72,13 @@ export default function VetProfile() {
     vetbondhuApi.from("consultation_bookings").select("*").eq("vet_mock_id", id).order("created_at", { ascending: false }).limit(5).then(({ data }) => {
       if (!cancelled && data) setConsultations(data);
     });
+    fetchVetBondhuVetReviews(id)
+      .then((summary) => {
+        if (!cancelled) setReviewSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewSummary(null);
+      });
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -66,6 +89,7 @@ export default function VetProfile() {
   if (!vet) return <div className="text-center py-12 text-muted-foreground">Vet not found</div>;
   const displayAnimalTypes = vet.animalTypes.length ? vet.animalTypes : ["general"];
   const isOnline = vetIsOnline(vet);
+  const displayedRating = reviewSummary?.reviewCount ? reviewSummary.averageRating : vet.rating;
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -81,7 +105,7 @@ export default function VetProfile() {
                 <p className="font-medium" style={{ color: VB }}>{vet.specialization}</p>
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1"><GraduationCap className="h-4 w-4" />{vet.degree}</p>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1"><Star className="h-4 w-4" style={{ fill: VB, color: VB }} />{vet.rating} Rating</span>
+                  <span className="flex items-center gap-1"><Star className="h-4 w-4" style={{ fill: VB, color: VB }} />{displayedRating} Rating</span>
                   <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{vet.location}</span>
                   <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{vet.experience} years</span>
                 </div>
@@ -91,7 +115,7 @@ export default function VetProfile() {
             <div className="grid grid-cols-3 gap-4 text-center">
               <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Consultation Fee</p><p className="text-2xl font-bold" style={{ color: VB }}>৳{vet.fee}</p></div>
               <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Experience</p><p className="text-2xl font-bold text-foreground">{vet.experience} yrs</p></div>
-              <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Rating</p><p className="text-2xl font-bold text-foreground">{vet.rating}/5</p></div>
+              <div className="p-4 rounded-lg bg-accent/50"><p className="text-sm text-muted-foreground">Rating</p><p className="text-2xl font-bold text-foreground">{displayedRating}/5</p><p className="text-xs text-muted-foreground">{reviewSummary?.reviewCount || 0} reviews</p></div>
             </div>
             <div><h3 className="font-display font-bold text-foreground mb-2">Specializes In</h3><div className="flex flex-wrap gap-2">{displayAnimalTypes.map(a => <Badge key={a} className="capitalize" style={{ backgroundColor: `${VB}20`, color: VB }}>{getAnimalTypeLabel(a)}</Badge>)}</div></div>
             <Button className="w-full text-white h-12" style={{ backgroundColor: isOnline ? VB : "hsl(var(--muted-foreground))" }} disabled={!isOnline} onClick={() => navigate(`/vetbondhu/book/${vet.id}`)}><Calendar className="h-4 w-4 mr-2" />{isOnline ? `Book Consultation — ৳${vet.fee}` : "Doctor offline"}</Button>
@@ -116,6 +140,43 @@ export default function VetProfile() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="shadow-card overflow-hidden">
+        <div className="h-1" style={{ backgroundColor: VB }} />
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-lg font-display">Patient Reviews</CardTitle>
+            <Badge variant="outline" style={{ borderColor: `${VB}40`, color: VB }}>
+              {reviewSummary?.reviewCount || 0} submitted
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {reviewSummary?.reviews.length ? (
+            reviewSummary.reviews.map((review) => (
+              <div key={review.id} className="rounded-lg border border-border bg-accent/40 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{review.patient_name || "VetBondhu patient"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[review.animal_type, formatReviewDate(review.created_at)].filter(Boolean).join(" • ")}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1 text-sm font-semibold" style={{ color: VB }}>
+                    <Star className="h-4 w-4" style={{ fill: VB, color: VB }} />
+                    {review.rating}/5
+                  </span>
+                </div>
+                {review.comment && <p className="mt-2 text-sm text-muted-foreground">{review.comment}</p>}
+              </div>
+            ))
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No submitted reviews yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,0 +1,1086 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R 15 0 R 17 0 R 19 0 R 21 0 R 23 0 R 25 0 R 27 0 R 29 0 R] /Count 13 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 2456 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+() Tj
+0 -11 Td (FARMBONDHU DATABASE ER DOCUMENTATION) Tj
+0 -11 Td (====================================) Tj
+0 -11 Td () Tj
+0 -11 Td (This document summarizes the FarmBondhu PostgreSQL database structure from) Tj
+0 -11 Td (`backend/src/db/ensureSchema.js`.) Tj
+0 -11 Td () Tj
+0 -11 Td (FarmBondhu uses one database for a multi-service SaaS ecosystem:) Tj
+0 -11 Td () Tj
+0 -11 Td (- Identity and access) Tj
+0 -11 Td (- Farm management) Tj
+0 -11 Td (- Cow weight and AI feedback) Tj
+0 -11 Td (- GreenBondhu Marketplace) Tj
+0 -11 Td (- Marketplace chat and moderation) Tj
+0 -11 Td (- Community) Tj
+0 -11 Td (- VetBondhu veterinary consultation) Tj
+0 -11 Td (- MediBondhu human healthcare) Tj
+0 -11 Td (- Admin, support, notifications, and operational audit) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (How To Read This Document) Tj
+0 -11 Td (-------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (- `PK` means primary key.) Tj
+0 -11 Td (- `FK` means a declared PostgreSQL foreign key using `REFERENCES`.) Tj
+0 -11 Td (- `Logical FK` means the column stores another table's ID and is used by the app as a) Tj
+0 -11 Td (relationship, but the schema does not always declare a PostgreSQL FK constraint.) Tj
+0 -11 Td (- `profiles.id` is the central user identity used by most modules.) Tj
+0 -11 Td (- Some domain tables use `user_id`, `buyer_id`, `seller_id`, `patient_user_id`, `doctor_user_id`,) Tj
+0 -11 Td (or `vet_user_id`; these are all user identity references to `profiles.id` unless noted otherwise.) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (1. Identity And Access) Tj
+0 -11 Td (----------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text email) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    text primary_role) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  AUTH_CREDENTIALS {) Tj
+0 -11 Td (    uuid user_id PK_FK) Tj
+0 -11 Td (    text password_hash) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  USER_ROLES {) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text role) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  ROLE_PERMISSIONS {) Tj
+0 -11 Td (    text role PK) Tj
+0 -11 Td (    text permission_code PK) Tj
+0 -11 Td (  }) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 1 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 2653 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+() Tj
+0 -11 Td (  USER_CAPABILITIES {) Tj
+0 -11 Td (    uuid user_id PK_Logical_FK) Tj
+0 -11 Td (    text capability_code PK) Tj
+0 -11 Td (    boolean is_enabled) Tj
+0 -11 Td (    uuid granted_by Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  APPROVAL_REQUESTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text request_type) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  USER_ADDRESSES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id FK) Tj
+0 -11 Td (    text full_name) Tj
+0 -11 Td (    text phone) Tj
+0 -11 Td (    text division) Tj
+0 -11 Td (    text district) Tj
+0 -11 Td (    text upazila) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--|| AUTH_CREDENTIALS : auth_credentials) Tj
+0 -11 Td (  PROFILES ||--o{ USER_ROLES : roles) Tj
+0 -11 Td (  USER_ROLES }o--o{ ROLE_PERMISSIONS : permissions) Tj
+0 -11 Td (  PROFILES ||--o{ USER_CAPABILITIES : capabilities) Tj
+0 -11 Td (  PROFILES ||--o{ USER_CAPABILITIES : granted_by) Tj
+0 -11 Td (  PROFILES ||--o{ APPROVAL_REQUESTS : requests) Tj
+0 -11 Td (  PROFILES ||--o{ USER_ADDRESSES : addresses) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Identity and access table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `profiles` | `id` | Root user table | Central identity profile |) Tj
+0 -11 Td (| `auth_credentials` | `user_id` | Declared FK to `profiles.id` | Password hash for app auth |) Tj
+0 -11 Td (| `user_roles` | unique `user_id, role` | Logical FK to `profiles.id` | User role assignment |) Tj
+0 -11 Td (| `role_permissions` | `role, permission_code` | Role lookup | Permission seed map |) Tj
+0 -11 Td (| `user_capabilities` | `user_id, capability_code` | Logical FK to `profiles.id`; `granted_by` logical FK | Fine-grained) Tj
+0 -11 Td ( access |) Tj
+0 -11 Td (| `approval_requests` | `id` | Logical FK `user_id` | Access and role request workflow |) Tj
+0 -11 Td (| `user_addresses` | `id` | Declared FK to `profiles.id` | Delivery/contact addresses |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (2. Farm Management And Cow AI) Tj
+0 -11 Td (-----------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  FARMS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 2 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 1946 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    text name) Tj
+0 -11 Td (    text location) Tj
+0 -11 Td (    text type) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  ANIMALS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid farm_id Logical_FK) Tj
+0 -11 Td (    text type) Tj
+0 -11 Td (    text tracking_mode) Tj
+0 -11 Td (    text breed) Tj
+0 -11 Td (    text health_status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  SHEDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid farm_id Logical_FK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    integer capacity) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  FEED_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid farm_id Logical_FK) Tj
+0 -11 Td (    uuid animal_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    text feed_type) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  FEED_INVENTORY {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    numeric stock) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  HEALTH_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid animal_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    text type) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PRODUCTION_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    integer eggs) Tj
+0 -11 Td (    numeric milk) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  FINANCIAL_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    text type) Tj
+0 -11 Td (    numeric amount) Tj
+0 -11 Td (  }) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 3 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 2912 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+() Tj
+0 -11 Td (  MORTALITY_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid farm_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    integer count) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  SALE_RECORDS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    date date) Tj
+0 -11 Td (    text product) Tj
+0 -11 Td (    numeric total) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COW_WEIGHT_ESTIMATIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid farm_id Logical_FK) Tj
+0 -11 Td (    uuid animal_id Logical_FK) Tj
+0 -11 Td (    numeric estimated_live_weight_kg) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COW_DETECTION_FEEDBACK {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid estimation_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--o{ FARMS : owns) Tj
+0 -11 Td (  PROFILES ||--o{ ANIMALS : owns) Tj
+0 -11 Td (  FARMS ||--o{ ANIMALS : contains) Tj
+0 -11 Td (  FARMS ||--o{ SHEDS : has) Tj
+0 -11 Td (  PROFILES ||--o{ FEED_RECORDS : logs) Tj
+0 -11 Td (  FARMS ||--o{ FEED_RECORDS : feed_records) Tj
+0 -11 Td (  ANIMALS ||--o{ FEED_RECORDS : feed_records) Tj
+0 -11 Td (  PROFILES ||--o{ FEED_INVENTORY : owns) Tj
+0 -11 Td (  PROFILES ||--o{ HEALTH_RECORDS : logs) Tj
+0 -11 Td (  ANIMALS ||--o{ HEALTH_RECORDS : health_records) Tj
+0 -11 Td (  PROFILES ||--o{ PRODUCTION_RECORDS : logs) Tj
+0 -11 Td (  PROFILES ||--o{ FINANCIAL_RECORDS : logs) Tj
+0 -11 Td (  PROFILES ||--o{ MORTALITY_RECORDS : logs) Tj
+0 -11 Td (  FARMS ||--o{ MORTALITY_RECORDS : mortality) Tj
+0 -11 Td (  PROFILES ||--o{ SALE_RECORDS : logs) Tj
+0 -11 Td (  PROFILES ||--o{ COW_WEIGHT_ESTIMATIONS : creates) Tj
+0 -11 Td (  FARMS ||--o{ COW_WEIGHT_ESTIMATIONS : estimates) Tj
+0 -11 Td (  ANIMALS ||--o{ COW_WEIGHT_ESTIMATIONS : estimates) Tj
+0 -11 Td (  COW_WEIGHT_ESTIMATIONS ||--o{ COW_DETECTION_FEEDBACK : feedback) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Farm and AI table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `farms` | `id` | Logical FK `user_id` | Farm/workspace records |) Tj
+0 -11 Td (| `animals` | `id` | Logical FK `user_id`, `farm_id` | Individual or batch animal records |) Tj
+0 -11 Td (| `sheds` | `id` | Logical FK `user_id`, `farm_id` | Housing/capacity records |) Tj
+0 -11 Td (| `feed_records` | `id` | Logical FK `user_id`, `farm_id`, `animal_id` | Feed logs |) Tj
+0 -11 Td (| `feed_inventory` | `id` | Logical FK `user_id` | Feed stock tracking |) Tj
+0 -11 Td (| `health_records` | `id` | Logical FK `user_id`, `animal_id` | Health/treatment logs |) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 4 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Length 2412 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(| `production_records` | `id` | Logical FK `user_id` | Milk/egg/output records |) Tj
+0 -11 Td (| `financial_records` | `id` | Logical FK `user_id` | Income/expense records |) Tj
+0 -11 Td (| `mortality_records` | `id` | Logical FK `user_id`, `farm_id` | Animal loss records |) Tj
+0 -11 Td (| `sale_records` | `id` | Logical FK `user_id` | Farm sales records |) Tj
+0 -11 Td (| `cow_weight_estimations` | `id` | Logical FK `user_id`, `farm_id`, `animal_id` | AI/manual cow weight estimates |) Tj
+0 -11 Td (| `cow_detection_feedback` | `id` | Logical FK `user_id`, `estimation_id` | Cow detection feedback/training data |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (3. GreenBondhu Marketplace And Chat) Tj
+0 -11 Td (-----------------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  SHOPS {) Tj
+0 -11 Td (    uuid user_id PK_Logical_FK) Tj
+0 -11 Td (    text shop_name) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PRODUCTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid seller_id Logical_FK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    numeric price) Tj
+0 -11 Td (    integer stock) Tj
+0 -11 Td (    text listing_status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  ORDERS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid buyer_id Logical_FK) Tj
+0 -11 Td (    uuid seller_id Logical_FK) Tj
+0 -11 Td (    jsonb items) Tj
+0 -11 Td (    numeric total) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CONVERSATIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid buyer_id Logical_FK) Tj
+0 -11 Td (    uuid seller_id Logical_FK) Tj
+0 -11 Td (    uuid product_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CHAT_MESSAGES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid conversation_id Logical_FK) Tj
+0 -11 Td (    uuid sender_id Logical_FK) Tj
+0 -11 Td (    uuid shared_product_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CHAT_MESSAGE_TRANSLATIONS {) Tj
+0 -11 Td (    uuid message_id PK_FK) Tj
+0 -11 Td (    text target_lang PK) Tj
+0 -11 Td (    text translated_text) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CHAT_CONTACT_VIOLATIONS {) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 5 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 12 0 R >>
+endobj
+14 0 obj
+<< /Length 2348 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid conversation_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MARKETPLACE_CONVERSATION_REPORTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid conversation_id Logical_FK) Tj
+0 -11 Td (    uuid reported_by Logical_FK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MARKETPLACE_PRODUCT_REVIEWS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid order_id Logical_FK) Tj
+0 -11 Td (    uuid product_id Logical_FK) Tj
+0 -11 Td (    uuid buyer_id Logical_FK) Tj
+0 -11 Td (    uuid seller_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MARKETPLACE_PRODUCT_COMMENTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid product_id Logical_FK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  SELLER_LANE_GRANTS {) Tj
+0 -11 Td (    uuid user_id PK_Logical_FK) Tj
+0 -11 Td (    text lane PK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  SELLER_WITHDRAWALS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid seller_user_id Logical_FK) Tj
+0 -11 Td (    numeric request_amount) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MARKETPLACE_BANNERS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text image_url) Tj
+0 -11 Td (    boolean is_active) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MARKETING_DESIGN_DRAFTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text title) Tj
+0 -11 Td (    jsonb canvas_json) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--|| SHOPS : shop) Tj
+0 -11 Td (  PROFILES ||--o{ PRODUCTS : sells) Tj
+0 -11 Td (  PROFILES ||--o{ ORDERS : buys) Tj
+0 -11 Td (  PROFILES ||--o{ ORDERS : sells) Tj
+0 -11 Td (  PROFILES ||--o{ CONVERSATIONS : buyer) Tj
+0 -11 Td (  PROFILES ||--o{ CONVERSATIONS : seller) Tj
+0 -11 Td (  PRODUCTS ||--o{ CONVERSATIONS : discussed) Tj
+0 -11 Td (  CONVERSATIONS ||--o{ CHAT_MESSAGES : messages) Tj
+0 -11 Td (  PROFILES ||--o{ CHAT_MESSAGES : sends) Tj
+0 -11 Td (  PRODUCTS ||--o{ CHAT_MESSAGES : shared) Tj
+0 -11 Td (  CHAT_MESSAGES ||--o{ CHAT_MESSAGE_TRANSLATIONS : translations) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 6 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+15 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 14 0 R >>
+endobj
+16 0 obj
+<< /Length 3475 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(  CONVERSATIONS ||--o{ CHAT_CONTACT_VIOLATIONS : violations) Tj
+0 -11 Td (  PROFILES ||--o{ CHAT_CONTACT_VIOLATIONS : creates) Tj
+0 -11 Td (  CONVERSATIONS ||--o{ MARKETPLACE_CONVERSATION_REPORTS : reports) Tj
+0 -11 Td (  PROFILES ||--o{ MARKETPLACE_CONVERSATION_REPORTS : reports) Tj
+0 -11 Td (  ORDERS ||--o{ MARKETPLACE_PRODUCT_REVIEWS : reviews) Tj
+0 -11 Td (  PRODUCTS ||--o{ MARKETPLACE_PRODUCT_REVIEWS : reviews) Tj
+0 -11 Td (  PRODUCTS ||--o{ MARKETPLACE_PRODUCT_COMMENTS : comments) Tj
+0 -11 Td (  PROFILES ||--o{ MARKETPLACE_PRODUCT_COMMENTS : writes) Tj
+0 -11 Td (  PROFILES ||--o{ SELLER_LANE_GRANTS : lane_grants) Tj
+0 -11 Td (  PROFILES ||--o{ SELLER_WITHDRAWALS : withdrawals) Tj
+0 -11 Td (  PROFILES ||--o{ MARKETING_DESIGN_DRAFTS : drafts) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Marketplace table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `shops` | `user_id` | Logical FK to `profiles.id` | Seller shop profile |) Tj
+0 -11 Td (| `products` | `id` | Logical FK `seller_id` | Product listings |) Tj
+0 -11 Td (| `orders` | `id` | Logical FK `buyer_id`, `seller_id` | Buyer/seller orders |) Tj
+0 -11 Td (| `conversations` | `id` | Logical FK `buyer_id`, `seller_id`, `product_id` | Buyer-seller chat threads |) Tj
+0 -11 Td (| `chat_messages` | `id` | Logical FK `conversation_id`, `sender_id`, `shared_product_id` | Marketplace chat messages |) Tj
+0 -11 Td (| `chat_message_translations` | `message_id, target_lang` | Declared FK to `chat_messages.id` | Per-message translation ) Tj
+0 -11 Td (cache |) Tj
+0 -11 Td (| `chat_contact_violations` | `id` | Logical FK `user_id`, `conversation_id` | Contact-guard violations |) Tj
+0 -11 Td (| `marketplace_conversation_reports` | `id` | Logical FK `conversation_id`, `reported_by` | Chat report workflow |) Tj
+0 -11 Td (| `marketplace_product_reviews` | `id` | Logical FK `order_id`, `product_id`, `buyer_id`, `seller_id` | Product reviews ) Tj
+0 -11 Td (|) Tj
+0 -11 Td (| `marketplace_product_comments` | `id` | Logical FK `product_id`, `user_id` | Product comments |) Tj
+0 -11 Td (| `seller_lane_grants` | `user_id, lane` | Logical FK `user_id`, `reviewed_by` | Seller lane approval |) Tj
+0 -11 Td (| `seller_withdrawals` | `id` | Logical FK `seller_user_id`, `reviewed_by` | Seller payout request |) Tj
+0 -11 Td (| `marketplace_banners` | `id` | Standalone | Browse/banner carousel configuration |) Tj
+0 -11 Td (| `marketing_design_drafts` | `id` | Logical FK `user_id` | Seller photo-editor drafts |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (4. Community And Learning) Tj
+0 -11 Td (-------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_POSTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text post_type) Tj
+0 -11 Td (    text title) Tj
+0 -11 Td (    text category) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_COMMENTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid post_id Logical_FK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_ANSWERS {) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 7 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+17 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 16 0 R >>
+endobj
+18 0 obj
+<< /Length 2798 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    uuid id PK) Tj
+0 -11 Td (    uuid post_id Logical_FK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    boolean is_best_answer) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_REACTIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid post_id Logical_FK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_SAVES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid post_id Logical_FK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  COMMUNITY_REPORTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid post_id Logical_FK) Tj
+0 -11 Td (    uuid reported_by Logical_FK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  LEARNING_GUIDES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text title) Tj
+0 -11 Td (    text category) Tj
+0 -11 Td (    boolean is_published) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_POSTS : writes) Tj
+0 -11 Td (  COMMUNITY_POSTS ||--o{ COMMUNITY_COMMENTS : comments) Tj
+0 -11 Td (  COMMUNITY_POSTS ||--o{ COMMUNITY_ANSWERS : answers) Tj
+0 -11 Td (  COMMUNITY_POSTS ||--o{ COMMUNITY_REACTIONS : reactions) Tj
+0 -11 Td (  COMMUNITY_POSTS ||--o{ COMMUNITY_SAVES : saves) Tj
+0 -11 Td (  COMMUNITY_POSTS ||--o{ COMMUNITY_REPORTS : reports) Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_COMMENTS : writes) Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_ANSWERS : writes) Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_REACTIONS : reacts) Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_SAVES : saves) Tj
+0 -11 Td (  PROFILES ||--o{ COMMUNITY_REPORTS : reports) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Community and learning table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `community_posts` | `id` | Logical FK `user_id` | Community posts/questions |) Tj
+0 -11 Td (| `community_comments` | `id` | Logical FK `post_id`, `user_id` | Post comments |) Tj
+0 -11 Td (| `community_answers` | `id` | Logical FK `post_id`, `user_id` | Q&A answers |) Tj
+0 -11 Td (| `community_reactions` | `id`; unique `post_id, user_id` | Logical FK `post_id`, `user_id` | Reactions |) Tj
+0 -11 Td (| `community_saves` | `id`; unique `post_id, user_id` | Logical FK `post_id`, `user_id` | Saved posts |) Tj
+0 -11 Td (| `community_reports` | `id` | Logical FK `post_id`, `reported_by` | Moderation reports |) Tj
+0 -11 Td (| `learning_guides` | `id` | Standalone | Published learning content |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (5. VetBondhu) Tj
+0 -11 Td (------------) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 8 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+19 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 18 0 R >>
+endobj
+20 0 obj
+<< /Length 1954 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+() Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  VETS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    boolean verified) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  VET_PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text full_name) Tj
+0 -11 Td (    text verification_status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  VET_AVAILABILITY {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text day) Tj
+0 -11 Td (    text start_time) Tj
+0 -11 Td (    text end_time) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CONSULTATION_BOOKINGS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid patient_mock_id Logical_FK) Tj
+0 -11 Td (    uuid vet_id Logical_FK) Tj
+0 -11 Td (    uuid vet_user_id Logical_FK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  CONSULTATION_MESSAGES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid booking_id Logical_FK) Tj
+0 -11 Td (    uuid sender_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PRESCRIPTIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid vet_id Logical_FK) Tj
+0 -11 Td (    uuid patient_id Logical_FK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PRESCRIPTION_ITEMS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid prescription_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  E_PRESCRIPTIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid patient_mock_id Logical_FK) Tj
+0 -11 Td (    uuid vet_id Logical_FK) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  VET_WITHDRAWALS {) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 9 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+21 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 20 0 R >>
+endobj
+22 0 obj
+<< /Length 2908 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    uuid id PK) Tj
+0 -11 Td (    uuid vet_user_id Logical_FK) Tj
+0 -11 Td (    numeric request_amount) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--o{ VETS : vet_account) Tj
+0 -11 Td (  PROFILES ||--o{ VET_PROFILES : vet_profile) Tj
+0 -11 Td (  PROFILES ||--o{ VET_AVAILABILITY : availability) Tj
+0 -11 Td (  PROFILES ||--o{ CONSULTATION_BOOKINGS : patient) Tj
+0 -11 Td (  VETS ||--o{ CONSULTATION_BOOKINGS : assigned) Tj
+0 -11 Td (  CONSULTATION_BOOKINGS ||--o{ CONSULTATION_MESSAGES : messages) Tj
+0 -11 Td (  PROFILES ||--o{ CONSULTATION_MESSAGES : sends) Tj
+0 -11 Td (  VETS ||--o{ PRESCRIPTIONS : issues) Tj
+0 -11 Td (  PROFILES ||--o{ PRESCRIPTIONS : patient) Tj
+0 -11 Td (  PRESCRIPTIONS ||--o{ PRESCRIPTION_ITEMS : items) Tj
+0 -11 Td (  VETS ||--o{ E_PRESCRIPTIONS : issues) Tj
+0 -11 Td (  PROFILES ||--o{ E_PRESCRIPTIONS : patient) Tj
+0 -11 Td (  PROFILES ||--o{ VET_WITHDRAWALS : withdrawals) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (VetBondhu table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `vets` | `id` | Logical FK `user_id` | Vet listing/identity |) Tj
+0 -11 Td (| `vet_profiles` | `id` | Logical FK `user_id`; unique user | Vet verification profile |) Tj
+0 -11 Td (| `vet_availability` | `id` | Logical FK `user_id` | Vet schedule windows |) Tj
+0 -11 Td (| `consultation_bookings` | `id` | Logical FK `patient_mock_id`, `vet_id`, `vet_user_id` | VetBondhu consultation ) Tj
+0 -11 Td (booking |) Tj
+0 -11 Td (| `consultation_messages` | `id` | Logical FK `booking_id`, `sender_id` | VetBondhu room/chat messages |) Tj
+0 -11 Td (| `prescriptions` | `id` | Logical FK `vet_id`, `patient_id` | Vet prescription header |) Tj
+0 -11 Td (| `prescription_items` | `id` | Logical FK `prescription_id` | Vet prescription medicines/items |) Tj
+0 -11 Td (| `e_prescriptions` | `id` | Logical FK `patient_mock_id`, `vet_id` | Active e-prescription records |) Tj
+0 -11 Td (| `vet_withdrawals` | `id` | Logical FK `vet_user_id`, `reviewed_by` | Vet payout withdrawal |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (6. MediBondhu) Tj
+0 -11 Td (-------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_SPECIALTIES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    text slug) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_HOSPITALS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text name) Tj
+0 -11 Td (    text address) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_DOCTORS {) Tj
+0 -11 Td (    uuid id PK) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 10 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+23 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 22 0 R >>
+endobj
+24 0 obj
+<< /Length 2691 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    uuid user_id Logical_FK) Tj
+0 -11 Td (    uuid specialty_id FK) Tj
+0 -11 Td (    uuid hospital_id FK) Tj
+0 -11 Td (    text full_name) Tj
+0 -11 Td (    text approval_status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_DOCTOR_TIME_SLOTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid doctor_id FK) Tj
+0 -11 Td (    date slot_date) Tj
+0 -11 Td (    timestamptz slot_start) Tj
+0 -11 Td (    timestamptz slot_end) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_APPOINTMENTS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid patient_user_id Logical_FK) Tj
+0 -11 Td (    uuid doctor_id FK) Tj
+0 -11 Td (    uuid slot_id FK) Tj
+0 -11 Td (    uuid specialty_id FK) Tj
+0 -11 Td (    text consultation_type) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_APPOINTMENT_MESSAGES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid appointment_id FK) Tj
+0 -11 Td (    uuid sender_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_PRESCRIPTIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid appointment_id FK) Tj
+0 -11 Td (    uuid doctor_id FK) Tj
+0 -11 Td (    uuid patient_user_id Logical_FK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_PRESCRIPTION_ITEMS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid prescription_id FK) Tj
+0 -11 Td (    text medication_name) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_DOCTOR_WITHDRAWALS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid doctor_user_id Logical_FK) Tj
+0 -11 Td (    numeric request_amount) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  MEDIBONDHU_SPECIALTIES ||--o{ MEDIBONDHU_DOCTORS : specialty) Tj
+0 -11 Td (  MEDIBONDHU_HOSPITALS ||--o{ MEDIBONDHU_DOCTORS : hospital) Tj
+0 -11 Td (  PROFILES ||--o{ MEDIBONDHU_DOCTORS : doctor_user) Tj
+0 -11 Td (  MEDIBONDHU_DOCTORS ||--o{ MEDIBONDHU_DOCTOR_TIME_SLOTS : slots) Tj
+0 -11 Td (  PROFILES ||--o{ MEDIBONDHU_APPOINTMENTS : patient) Tj
+0 -11 Td (  MEDIBONDHU_DOCTORS ||--o{ MEDIBONDHU_APPOINTMENTS : doctor) Tj
+0 -11 Td (  MEDIBONDHU_DOCTOR_TIME_SLOTS ||--o{ MEDIBONDHU_APPOINTMENTS : slot) Tj
+0 -11 Td (  MEDIBONDHU_SPECIALTIES ||--o{ MEDIBONDHU_APPOINTMENTS : specialty) Tj
+0 -11 Td (  MEDIBONDHU_APPOINTMENTS ||--o{ MEDIBONDHU_APPOINTMENT_MESSAGES : messages) Tj
+0 -11 Td (  PROFILES ||--o{ MEDIBONDHU_APPOINTMENT_MESSAGES : sends) Tj
+0 -11 Td (  MEDIBONDHU_APPOINTMENTS ||--o{ MEDIBONDHU_PRESCRIPTIONS : prescription) Tj
+0 -11 Td (  MEDIBONDHU_DOCTORS ||--o{ MEDIBONDHU_PRESCRIPTIONS : issues) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 11 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+25 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 24 0 R >>
+endobj
+26 0 obj
+<< /Length 2845 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(  PROFILES ||--o{ MEDIBONDHU_PRESCRIPTIONS : patient) Tj
+0 -11 Td (  MEDIBONDHU_PRESCRIPTIONS ||--o{ MEDIBONDHU_PRESCRIPTION_ITEMS : items) Tj
+0 -11 Td (  PROFILES ||--o{ MEDIBONDHU_DOCTOR_WITHDRAWALS : withdrawals) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (MediBondhu table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `medibondhu_specialties` | `id` | Standalone | Human doctor specialties |) Tj
+0 -11 Td (| `medibondhu_hospitals` | `id` | Standalone | Hospital/chamber records |) Tj
+0 -11 Td (| `medibondhu_doctors` | `id` | Declared FK `specialty_id`, `hospital_id`; logical FK `user_id` | Human doctor profile |) Tj
+0 -11 Td (| `medibondhu_doctor_time_slots` | `id` | Declared FK `doctor_id` | Doctor availability slots |) Tj
+0 -11 Td (| `medibondhu_appointments` | `id` | Declared FK `doctor_id`, `slot_id`, `specialty_id`; logical FK `patient_user_id` | ) Tj
+0 -11 Td (Patient appointment |) Tj
+0 -11 Td (| `medibondhu_appointment_messages` | `id` | Declared FK `appointment_id`; logical FK `sender_id` | Appointment chat |) Tj
+0 -11 Td (| `medibondhu_prescriptions` | `id` | Declared FK `appointment_id`, `doctor_id`; logical FK `patient_user_id` | Human ) Tj
+0 -11 Td (prescription header |) Tj
+0 -11 Td (| `medibondhu_prescription_items` | `id` | Declared FK `prescription_id` | Prescription items |) Tj
+0 -11 Td (| `medibondhu_doctor_withdrawals` | `id` | Logical FK `doctor_user_id`, `reviewed_by` | Doctor payout withdrawal |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (7. Admin, Support, Notifications, And Audit) Tj
+0 -11 Td (-------------------------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (```mermaid) Tj
+0 -11 Td (erDiagram) Tj
+0 -11 Td (  PROFILES {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  NOTIFICATIONS {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text title) Tj
+0 -11 Td (    text type) Tj
+0 -11 Td (    boolean read) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  ADMIN_TEAM {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    text email) Tj
+0 -11 Td (    text admin_role) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  EMAIL_AUDIT_LOG {) Tj
+0 -11 Td (    uuid id PK) Tj
+0 -11 Td (    text email_type) Tj
+0 -11 Td (    text recipient_email) Tj
+0 -11 Td (    text status) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  REGISTRATION_PENDING {) Tj
+0 -11 Td (    text email PK) Tj
+0 -11 Td (    jsonb profile_data) Tj
+0 -11 Td (    timestamptz expires_at) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PASSWORD_RESET_PENDING {) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 12 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+27 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 26 0 R >>
+endobj
+28 0 obj
+<< /Length 3202 >>
+stream
+BT
+/F1 8.5 Tf
+42 744 Td
+(    text email PK) Tj
+0 -11 Td (    uuid user_id Logical_FK) Tj
+0 -11 Td (    timestamptz expires_at) Tj
+0 -11 Td (  }) Tj
+0 -11 Td () Tj
+0 -11 Td (  PROFILES ||--o{ NOTIFICATIONS : receives) Tj
+0 -11 Td (  PROFILES ||--o{ ADMIN_TEAM : admin_profile) Tj
+0 -11 Td (  PROFILES ||--o{ PASSWORD_RESET_PENDING : resets) Tj
+0 -11 Td (```) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Admin/support table summary) Tj
+0 -11 Td () Tj
+0 -11 Td (| Table | Primary key | FK / logical FK | Purpose |) Tj
+0 -11 Td (| --- | --- | --- | --- |) Tj
+0 -11 Td (| `notifications` | `id` | Logical FK `user_id` | Account-scoped notifications |) Tj
+0 -11 Td (| `admin_team` | `id` | Logical FK `user_id` | Admin team profiles/permissions |) Tj
+0 -11 Td (| `email_audit_log` | `id` | Standalone | Email delivery/audit records |) Tj
+0 -11 Td (| `registration_pending` | `email` | Standalone | OTP registration staging |) Tj
+0 -11 Td (| `password_reset_pending` | `email` | Logical FK `user_id` | Password reset OTP staging |) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Notes About Declared Vs Logical Foreign Keys) Tj
+0 -11 Td (--------------------------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (The schema declares some FK constraints directly, especially in:) Tj
+0 -11 Td () Tj
+0 -11 Td (- `auth_credentials.user_id -> profiles.id`) Tj
+0 -11 Td (- `user_addresses.user_id -> profiles.id`) Tj
+0 -11 Td (- `chat_message_translations.message_id -> chat_messages.id`) Tj
+0 -11 Td (- MediBondhu doctor, slot, appointment, message, and prescription tables) Tj
+0 -11 Td () Tj
+0 -11 Td (Many other relationships are enforced by application logic and ownership checks rather than) Tj
+0 -11 Td (database-level constraints. This is why the diagrams label them as `Logical_FK`.) Tj
+0 -11 Td () Tj
+0 -11 Td (For example:) Tj
+0 -11 Td () Tj
+0 -11 Td (- `farms.user_id` logically points to `profiles.id`) Tj
+0 -11 Td (- `animals.farm_id` logically points to `farms.id`) Tj
+0 -11 Td (- `orders.buyer_id` and `orders.seller_id` logically point to `profiles.id`) Tj
+0 -11 Td (- `community_comments.post_id` logically points to `community_posts.id`) Tj
+0 -11 Td (- `consultation_messages.booking_id` logically points to `consultation_bookings.id`) Tj
+0 -11 Td () Tj
+0 -11 Td (---) Tj
+0 -11 Td () Tj
+0 -11 Td () Tj
+0 -11 Td (Recommended Future Schema Hardening) Tj
+0 -11 Td (-----------------------------------) Tj
+0 -11 Td () Tj
+0 -11 Td (If the project moves toward stricter database integrity, consider adding declared FK constraints) Tj
+0 -11 Td (for high-value relationships:) Tj
+0 -11 Td () Tj
+0 -11 Td (- Farm records to `profiles`, `farms`, and `animals`) Tj
+0 -11 Td (- Marketplace orders/products/chats to users and products) Tj
+0 -11 Td (- Community comments/answers/reactions/saves to posts and users) Tj
+0 -11 Td (- VetBondhu bookings/messages/prescriptions to users and vets) Tj
+0 -11 Td (- Notification ownership to `profiles`) Tj
+0 -11 Td () Tj
+0 -11 Td (Before adding strict constraints, clean or backfill existing data so older rows do not violate the) Tj
+0 -11 Td (new rules.) Tj
+ET
+BT
+/F1 8 Tf
+42 28 Td
+(Page 13 of 13 - FarmBondhu Database ER Documentation) Tj
+ET
+endstream
+endobj
+29 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 28 0 R >>
+endobj
+xref
+0 30
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000198 00000 n 
+0000000268 00000 n 
+0000002776 00000 n 
+0000002902 00000 n 
+0000005607 00000 n 
+0000005733 00000 n 
+0000007731 00000 n 
+0000007857 00000 n 
+0000010822 00000 n 
+0000010950 00000 n 
+0000013415 00000 n 
+0000013543 00000 n 
+0000015944 00000 n 
+0000016072 00000 n 
+0000019600 00000 n 
+0000019728 00000 n 
+0000022579 00000 n 
+0000022707 00000 n 
+0000024714 00000 n 
+0000024842 00000 n 
+0000027803 00000 n 
+0000027931 00000 n 
+0000030675 00000 n 
+0000030803 00000 n 
+0000033701 00000 n 
+0000033829 00000 n 
+0000037084 00000 n 
+trailer
+<< /Size 30 /Root 1 0 R >>
+startxref
+37212
+%%EOF

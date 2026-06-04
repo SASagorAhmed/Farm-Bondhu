@@ -49,7 +49,7 @@ Developer reference: [docs/marketplace.md](docs/marketplace.md)
 
 VetBondhu provides animal-care and veterinary services. It is built for livestock owners, pet owners, farmers, and vets who need veterinary consultation, booking, waiting rooms, video calls, prescriptions, and preserved consultation history.
 
-VetBondhu stays separate from MediBondhu in routes, database tables, query keys, UI theme, and business rules.
+VetBondhu stays separate from MediBondhu in routes, database tables, query keys, UI theme, business rules, admin access controls, and payout workflows.
 
 Call workflow reference: [VETCALL.md](VETCALL.md)
 
@@ -57,7 +57,7 @@ Call workflow reference: [VETCALL.md](VETCALL.md)
 
 MediBondhu provides human healthcare services. Patients can discover doctors, check availability, book online or chamber appointments, join waiting rooms, attend online consultations, and preserve chat history after a consultation ends.
 
-MediBondhu is not a veterinary module. It uses its own appointment model, doctor availability, human-care routes, and `medibondhu_appointments` data flow.
+MediBondhu is not a veterinary module. It uses its own appointment model, doctor availability, human-care routes, `medibondhu_appointments` data flow, doctor approvals, access restrictions, and doctor payout review.
 
 Status reference: [docs/MEDIBONDHU_BOOKING_STATUS.md](docs/MEDIBONDHU_BOOKING_STATUS.md)
 
@@ -75,7 +75,7 @@ The seller photo editor is a design workspace for product photos, shop banners, 
 
 ### Admin, Support, and Moderation
 
-FarmBondhu includes enterprise admin tools for approvals, user access, marketplace moderation, seller lane review, support chat, notification privacy, email audit, order oversight, reports, and platform governance.
+FarmBondhu includes enterprise admin tools for approvals, module-scoped user access, marketplace moderation, seller lane review, support chat, notification privacy, email audit, order oversight, payouts, reports, and platform governance.
 
 ---
 
@@ -102,7 +102,7 @@ FarmBondhu includes enterprise admin tools for approvals, user access, marketpla
 - **Video consultations:** ZegoCloud powers VetBondhu and MediBondhu online rooms with module-specific behavior.
 - **Commerce operations:** Product listings, carts, checkout, order tracking, seller dashboards, reviews, inventory, flash sales, and payouts.
 - **Healthcare workflows:** Doctor/vet availability, appointment booking, waiting rooms, consultation rooms, rejoin grace periods, and preserved chat history.
-- **Admin governance:** Approvals, moderation, reports, email audit, support chat, seller lane review, and platform management.
+- **Admin governance:** Approvals, module-scoped access controls, payout review, moderation, reports, email audit, support chat, seller lane review, and platform management.
 - **Design tools:** Built-in seller photo editor for creating marketplace-ready assets.
 
 ---
@@ -147,6 +147,8 @@ FarmBondhu/
 
 - [Project overview](aboutproject.md)
 - [Customers guide](docs/customers.md)
+- [Database ER documentation](docs/database/database_schema.md)
+- [Database ER PDF](docs/database/database_schema.pdf)
 
 ### Customer and module guides
 

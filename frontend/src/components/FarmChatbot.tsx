@@ -17,6 +17,11 @@ import {
 type Msg = { role: "user" | "assistant"; content: string };
 
 export type ChatModelOption = { id: string; label: string };
+type AiDebugInfo = {
+  provider: string;
+  model: string;
+  status: string;
+};
 
 const CHAT_MODEL_STORAGE_KEY = "farmbondhu_chat_model";
 
@@ -69,11 +74,13 @@ async function streamChat({
   model,
   onDelta,
   onDone,
+  onDebug,
 }: {
   messages: Msg[];
   model: string;
   onDelta: (t: string) => void;
   onDone: () => void;
+  onDebug?: (info: AiDebugInfo) => void;
 }) {
   const token = readSession()?.access_token;
   if (!token) {
@@ -90,14 +97,44 @@ async function streamChat({
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(err.error || `Error ${resp.status}`);
+    const detail =
+      typeof err.detail === "string" && err.detail.trim()
+        ? err.detail.trim()
+        : "";
+    const failedModel =
+      typeof err.failed_model === "string" && err.failed_model.trim()
+        ? ` (${err.failed_model.trim()})`
+        : "";
+    console.info("[FarmBondhu AI]", {
+      provider: typeof err.failed_provider === "string" ? err.failed_provider : "unknown",
+      model: typeof err.failed_model === "string" ? err.failed_model : model,
+      status: resp.status,
+      detail,
+    });
+    throw new Error(
+      detail
+        ? `${err.error || `Error ${resp.status}`}${failedModel}: ${detail}`
+        : err.error || `Error ${resp.status}`
+    );
   }
   if (!resp.body) throw new Error("No stream body");
+  const debugInfo: AiDebugInfo = {
+    provider: resp.headers.get("X-FarmBondhu-AI-Provider") || "unknown",
+    model: resp.headers.get("X-FarmBondhu-AI-Model") || model,
+    status: resp.headers.get("X-FarmBondhu-AI-Status") || "ok",
+  };
+  console.info("[FarmBondhu AI]", {
+    provider: debugInfo.provider,
+    model: debugInfo.model,
+    status: debugInfo.status,
+  });
+  onDebug?.(debugInfo);
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let done = false;
+  let sawContent = false;
 
   while (!done) {
     const { done: d, value } = await reader.read();
@@ -116,17 +153,30 @@ async function streamChat({
       try {
         const p = JSON.parse(json);
         const c = p.choices?.[0]?.delta?.content;
-        if (c) onDelta(c);
+        if (c) {
+          sawContent = true;
+          onDelta(c);
+        }
       } catch {
         buf = line + "\n" + buf;
         break;
       }
     }
   }
+  if (!sawContent) {
+    console.info("[FarmBondhu AI]", {
+      provider: debugInfo.provider,
+      model: debugInfo.model,
+      status: "empty_response",
+    });
+    throw new Error(`This model returned no response: ${debugInfo.provider}:${debugInfo.model}. Try another model.`);
+  }
   onDone();
 }
 
 const SUGGESTIONS = [
+  "Animal & Veterinary Consultation expert guidelines",
+  "Farming & Agricultural Consultation expert guidelines",
   "গরুর খাদ্য তালিকা কেমন হওয়া উচিত?",
   "How to prevent poultry diseases?",
   "ছাগলের টিকা দানের সময়সূচি",
@@ -139,6 +189,7 @@ export default function FarmChatbot() {
   const [loading, setLoading] = useState(false);
   const [chatModels, setChatModels] = useState<ChatModelOption[]>(FALLBACK_CHAT_MODELS);
   const [selectedModel, setSelectedModel] = useState(FALLBACK_CHAT_MODELS[0].id);
+  const [aiDebug, setAiDebug] = useState<AiDebugInfo | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -169,6 +220,7 @@ export default function FarmChatbot() {
     setMessages((p) => [...p, userMsg]);
     setInput("");
     setLoading(true);
+    setAiDebug(null);
 
     let assistantSoFar = "";
     const upsert = (chunk: string) => {
@@ -188,10 +240,11 @@ export default function FarmChatbot() {
         model: selectedModel,
         onDelta: upsert,
         onDone: () => setLoading(false),
+        onDebug: setAiDebug,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       setLoading(false);
-      toast.error(e.message || "Failed to get response");
+      toast.error(e instanceof Error && e.message ? e.message : "Failed to get response");
     }
   };
 
@@ -313,6 +366,14 @@ export default function FarmChatbot() {
 
             {/* Input */}
             <div className="border-t border-border p-3 shrink-0 space-y-2">
+              {aiDebug && (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                  <div className="font-medium text-foreground/80">
+                    AI model: {aiDebug.provider}:{aiDebug.model}
+                  </div>
+                  <div>Status: {aiDebug.status}</div>
+                </div>
+              )}
               <Select
                 value={selectedModel}
                 onValueChange={(v) => {

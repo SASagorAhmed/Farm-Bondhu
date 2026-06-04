@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, FilePlus2, Video } from "lucide-react";
@@ -22,6 +22,8 @@ type Appointment = {
   patient_email?: string | null;
   slot_start?: string | null;
   chief_complaint?: string | null;
+  prescription_id?: string | null;
+  prescription_status?: string | null;
 };
 
 export default function MediDoctorConsultations() {
@@ -31,7 +33,7 @@ export default function MediDoctorConsultations() {
   const queryClient = useQueryClient();
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [doctorPk, setDoctorPk] = useState<string | null>(null);
-  const doctorAppointmentsKey = queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0);
+  const doctorAppointmentsKey = useMemo(() => queryKeys().medibondhuHumanDoctorAppointments(user?.id, 0), [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,10 +51,10 @@ export default function MediDoctorConsultations() {
     };
   }, [user?.id]);
 
-  const invalidateDoctorLists = () => {
+  const invalidateDoctorLists = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: doctorAppointmentsKey });
     void queryClient.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
-  };
+  }, [doctorAppointmentsKey, queryClient]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -66,7 +68,7 @@ export default function MediDoctorConsultations() {
       unsubBroadcast();
       unsubPg();
     };
-  }, [doctorPk, user?.id]);
+  }, [doctorPk, invalidateDoctorLists, user?.id]);
 
   const { data = [], isLoading } = useQuery({
     queryKey: doctorAppointmentsKey,
@@ -157,6 +159,8 @@ export default function MediDoctorConsultations() {
             const done = ["completed", "cancelled", "rejected"].includes(String(item.status || "").toLowerCase());
             const canJoin = String(item.consultation_type || "").toLowerCase() === "online" && !done;
             const patientId = item.patient_user_id ? String(item.patient_user_id) : "";
+            const hasIssuedPrescription =
+              Boolean(item.prescription_id) && String(item.prescription_status || "").toLowerCase() === "issued";
             return (
               <Card key={item.id} className="rounded-xl border-border overflow-hidden">
                 <div className="h-1 w-full" style={{ backgroundColor: MB }} />
@@ -183,10 +187,22 @@ export default function MediDoctorConsultations() {
                         <Video className="h-4 w-4" /> {joiningId === item.id ? "Joining…" : "Join video"}
                       </Button>
                     )}
-                    <Button type="button" size="sm" variant="outline" className="rounded-lg" disabled={readOnly || done || setStatus.isPending} onClick={() => setStatus.mutate({ id: item.id, status: "completed" })}>
-                      Mark complete
-                    </Button>
-                    {patientId && (
+                    {!done && (
+                      <Button type="button" size="sm" variant="outline" className="rounded-lg" disabled={readOnly || setStatus.isPending} onClick={() => setStatus.mutate({ id: item.id, status: "completed" })}>
+                        Mark complete
+                      </Button>
+                    )}
+                    {hasIssuedPrescription ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg"
+                        onClick={() => navigate(`/medibondhu/prescription/${item.prescription_id}`)}
+                      >
+                        Issued
+                      </Button>
+                    ) : patientId && (
                       <Button
                         type="button"
                         size="sm"

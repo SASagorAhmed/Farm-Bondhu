@@ -24,6 +24,7 @@ export default function MediDoctorPrescriptionNew() {
   const [appointmentId, setAppointmentId] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
   const [advice, setAdvice] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
   const [medName, setMedName] = useState("");
   const [dosage, setDosage] = useState("");
 
@@ -45,6 +46,7 @@ export default function MediDoctorPrescriptionNew() {
           appointment_id: appointmentId.trim() && UUID_RE.test(appointmentId.trim()) ? appointmentId.trim() : null,
           diagnosis,
           advice,
+          follow_up_date: followUpDate || null,
           items: medName.trim() ? [{ medication_name: medName.trim(), dosage: dosage.trim() || null }] : [],
         }),
       });
@@ -65,8 +67,7 @@ export default function MediDoctorPrescriptionNew() {
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">MediBondhu · Doctor</p>
         <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground mt-1">Issue prescription</h1>
         <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-          Complete clinical fields carefully. Medication lines can be expanded in a future update; for multiple drugs, issue follow-up prescriptions or use your
-          clinic protocol.
+          Prepare a clear MediBondhu prescription with diagnosis, advice, medication details, and follow-up guidance for the patient.
         </p>
       </header>
 
@@ -115,6 +116,10 @@ export default function MediDoctorPrescriptionNew() {
           <div className="space-y-2">
             <Label htmlFor="rx-advice">Advice & plan</Label>
             <Textarea id="rx-advice" rows={3} className="rounded-xl resize-none" value={advice} onChange={(e) => setAdvice(e.target.value)} placeholder="Lifestyle, investigations, referrals…" disabled={readOnly} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="rx-follow-up">Follow-up date <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input id="rx-follow-up" type="date" className="rounded-xl" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} disabled={readOnly} />
           </div>
         </CardContent>
       </Card>

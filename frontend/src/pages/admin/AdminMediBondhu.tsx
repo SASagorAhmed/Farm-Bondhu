@@ -15,12 +15,16 @@ import { moduleCachePolicy } from "@/lib/queryClient";
 type VetRow = {
   id: string;
   name?: string;
+  email?: string | null;
   specialization?: string;
   location?: string;
   experience?: number;
   fee?: number;
   rating?: number;
   available?: boolean;
+  is_online?: boolean;
+  status_label?: string;
+  last_seen_at?: string | null;
 };
 
 type BookingRow = {
@@ -82,13 +86,28 @@ type WithdrawalDetails = {
   consultations?: WithdrawalConsultationRow[];
 };
 
-export default function AdminMediBondhu() {
+type VetBondhuOverview = {
+  total_vets: number;
+  available_now: number;
+  total_bookings: number;
+  active_sessions: number;
+  pending_withdrawals: number;
+  all_vets: VetRow[];
+  online_vets: VetRow[];
+  recent_bookings: BookingRow[];
+};
+
+const VB = ICON_COLORS.vetbondhu;
+const OVERVIEW_QUERY_KEY = ["admin-vetbondhu-overview", "lists-v2"] as const;
+
+export default function AdminVetBondhuOverview() {
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
   const [actingId, setActingId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [selectedWithdrawalId, setSelectedWithdrawalId] = useState<string | null>(null);
   const [withdrawDetails, setWithdrawDetails] = useState<WithdrawalDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("vets");
   const detailsFetchingRef = useRef(false);
   const queryClient = useQueryClient();
 
@@ -107,7 +126,6 @@ export default function AdminMediBondhu() {
         toast.error(message);
       }
       return [];
-    } finally {
     }
   }, []);
 
@@ -137,26 +155,8 @@ export default function AdminMediBondhu() {
     }
   }, []);
 
-  const { data: vets = [], isLoading: vetsLoading } = useQuery({
-    queryKey: ["admin-medibondhu-vets"],
-    staleTime: moduleCachePolicy.admin.staleTime,
-    gcTime: moduleCachePolicy.admin.gcTime,
-    queryFn: async () => {
-      const vetsRes = await api.from("vets").select("*").order("created_at", { ascending: false });
-      return (vetsRes.data || []) as VetRow[];
-    },
-  });
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ["admin-medibondhu-bookings"],
-    staleTime: moduleCachePolicy.admin.staleTime,
-    gcTime: moduleCachePolicy.admin.gcTime,
-    queryFn: async () => {
-      const bookingsRes = await api.from("consultation_bookings").select("*").order("created_at", { ascending: false }).limit(100);
-      return (bookingsRes.data || []) as BookingRow[];
-    },
-  });
   const { data: cachedWithdrawals = [], isLoading: withdrawalsLoading } = useQuery({
-    queryKey: ["admin-medibondhu-withdrawals"],
+    queryKey: ["admin-vetbondhu-withdrawals"],
     staleTime: moduleCachePolicy.admin.staleTime,
     gcTime: moduleCachePolicy.admin.gcTime,
     queryFn: async () => fetchWithdrawals(),
@@ -168,14 +168,15 @@ export default function AdminMediBondhu() {
 
   useEffect(() => {
     const channels = [
-      { key: "admin-medibondhu-vets-live", table: "vets", queryKey: ["admin-medibondhu-vets"] as const },
-      { key: "admin-medibondhu-bookings-live", table: "consultation_bookings", queryKey: ["admin-medibondhu-bookings"] as const },
-      { key: "admin-medibondhu-withdrawals-live", table: "vet_withdrawal_requests", queryKey: ["admin-medibondhu-withdrawals"] as const },
+      { key: "admin-vetbondhu-vets-live", table: "vets", queryKey: ["admin-vetbondhu-vets"] as const },
+      { key: "admin-vetbondhu-bookings-live", table: "consultation_bookings", queryKey: ["admin-vetbondhu-bookings"] as const },
+      { key: "admin-vetbondhu-withdrawals-live", table: "vet_withdrawals", queryKey: ["admin-vetbondhu-withdrawals"] as const },
     ].map((entry) =>
       api
         .channel(entry.key)
         .on("postgres_changes", { event: "*", schema: "public", table: entry.table }, () => {
           queryClient.invalidateQueries({ queryKey: entry.queryKey });
+          queryClient.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
           if (selectedWithdrawalId) {
             void fetchWithdrawalDetails(selectedWithdrawalId, { silent: true });
           }
@@ -186,13 +187,40 @@ export default function AdminMediBondhu() {
       channels.forEach((channel) => api.removeChannel(channel));
     };
   }, [fetchWithdrawalDetails, queryClient, selectedWithdrawalId]);
-  const loading = vetsLoading || bookingsLoading || withdrawalsLoading;
+  const { data: overview, isLoading: overviewLoading } = useQuery({
+    queryKey: OVERVIEW_QUERY_KEY,
+    staleTime: moduleCachePolicy.admin.staleTime,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const token = readSession()?.access_token;
+      const res = await fetch(`${API_BASE}/v1/vetbondhu/admin/overview`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = (await res.json().catch(() => ({}))) as { data?: VetBondhuOverview; error?: string };
+      if (!res.ok) throw new Error(body.error || "Failed to load VetBondhu overview");
+      return body.data || {
+        total_vets: 0,
+        available_now: 0,
+        total_bookings: 0,
+        active_sessions: 0,
+        pending_withdrawals: 0,
+        all_vets: [],
+        online_vets: [],
+        recent_bookings: [],
+      };
+    },
+  });
 
-  const totalVets = vets.length;
-  const availableVets = vets.filter(v => v.available).length;
-  const totalBookings = bookings.length;
-  const activeBookings = bookings.filter(b => ["pending", "in_progress"].includes(b.status)).length;
-  const pendingWithdrawals = withdrawals.filter((w) => w.status === "pending").length;
+  const loading = withdrawalsLoading || overviewLoading;
+
+  const vets = overview?.all_vets || [];
+  const bookings = overview?.recent_bookings || [];
+  const totalVets = overview?.total_vets ?? vets.length;
+  const availableVets = overview?.available_now ?? 0;
+  const totalBookings = overview?.total_bookings ?? bookings.length;
+  const activeBookings = overview?.active_sessions ?? bookings.filter(b => ["pending", "confirmed", "in_progress"].includes(b.status || "")).length;
+  const pendingWithdrawals = overview?.pending_withdrawals ?? withdrawals.filter((w) => w.status === "pending").length;
+  const onlineVets = overview?.online_vets || [];
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
     const token = readSession()?.access_token;
@@ -209,7 +237,8 @@ export default function AdminMediBondhu() {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error || `Failed to ${action} request`);
       toast.success(`Withdrawal ${action}d`);
-      queryClient.invalidateQueries({ queryKey: ["admin-medibondhu-withdrawals"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-vetbondhu-withdrawals"] });
+      queryClient.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
       if (selectedWithdrawalId === id) {
         await fetchWithdrawalDetails(id);
       }
@@ -232,31 +261,37 @@ export default function AdminMediBondhu() {
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${ICON_COLORS.admin}, #7c3aed)` }}>
+        <div className="h-10 w-10 rounded-xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${VB}, #047857)` }}>
           <Stethoscope className="h-5 w-5 text-white" />
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">MediBondhu Overview</h1>
-            <Badge className="text-[10px] font-bold" style={{ backgroundColor: `${ICON_COLORS.admin}1A`, color: ICON_COLORS.admin }}>
+            <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground">VetBondhu Overview</h1>
+            <Badge className="text-[10px] font-bold" style={{ backgroundColor: `${VB}1A`, color: VB }}>
               <Shield className="h-3 w-3 mr-0.5" /> Admin View
             </Badge>
           </div>
-          <p className="text-muted-foreground text-sm">Platform-wide veterinary services monitoring</p>
+          <p className="text-muted-foreground text-sm">Platform-wide VetBondhu veterinary services monitoring</p>
         </div>
       </motion.div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Vets", value: totalVets, icon: Users, color: ICON_COLORS.stethoscope },
-          { label: "Available Now", value: availableVets, icon: Stethoscope, color: ICON_COLORS.farm },
+          { label: "Total Vets", value: totalVets, icon: Users, color: VB },
+          { label: "Available Now", value: availableVets, icon: Stethoscope, color: VB, clickable: true },
           { label: "Total Bookings", value: totalBookings, icon: CalendarCheck, color: ICON_COLORS.dashboard },
           { label: "Active Sessions", value: activeBookings, icon: CalendarCheck, color: ICON_COLORS.health },
           { label: "Pending Withdrawals", value: pendingWithdrawals, icon: Shield, color: ICON_COLORS.admin },
         ].map(s => (
-          <Card key={s.label} className="shadow-card overflow-hidden">
-            <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.admin}, #7c3aed)` }} />
+          <Card
+            key={s.label}
+            className={`shadow-card overflow-hidden ${s.clickable ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
+            onClick={() => {
+              if (s.clickable) setActiveTab("available");
+            }}
+          >
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${VB}, #047857)` }} />
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-1">
                 <s.icon className="h-4 w-4" style={{ color: s.color }} />
@@ -268,16 +303,17 @@ export default function AdminMediBondhu() {
         ))}
       </div>
 
-      <Tabs defaultValue="vets">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="vets">All Vets ({totalVets})</TabsTrigger>
+          <TabsTrigger value="available">Available Now ({availableVets})</TabsTrigger>
           <TabsTrigger value="bookings">Recent Bookings ({totalBookings})</TabsTrigger>
           <TabsTrigger value="withdrawals">Withdrawals ({withdrawals.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="vets">
           <Card className="shadow-card overflow-hidden">
-            <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.admin}, #7c3aed)` }} />
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${VB}, #047857)` }} />
             <CardHeader><CardTitle className="text-lg">Registered Veterinarians</CardTitle></CardHeader>
             <CardContent>
               {vets.length === 0 ? (
@@ -318,9 +354,50 @@ export default function AdminMediBondhu() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="available">
+          <Card className="shadow-card overflow-hidden">
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${VB}, #047857)` }} />
+            <CardHeader><CardTitle className="text-lg">Active Online Vets</CardTitle></CardHeader>
+            <CardContent>
+              {onlineVets.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No vets are online right now</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Specialization</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Fee</TableHead>
+                      <TableHead>Last Seen</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {onlineVets.map((v) => (
+                      <TableRow key={v.id}>
+                        <TableCell className="font-medium">{v.name || "Vet Doctor"}</TableCell>
+                        <TableCell>{v.email || "-"}</TableCell>
+                        <TableCell>{v.specialization || "-"}</TableCell>
+                        <TableCell>{v.location || "-"}</TableCell>
+                        <TableCell>৳{Number(v.fee || 0)}</TableCell>
+                        <TableCell className="text-sm">{v.last_seen_at ? new Date(v.last_seen_at).toLocaleString() : "-"}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-emerald-100 text-emerald-700">Online</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="bookings">
           <Card className="shadow-card overflow-hidden">
-            <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.admin}, #7c3aed)` }} />
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${VB}, #047857)` }} />
             <CardHeader><CardTitle className="text-lg">Recent Consultation Bookings</CardTitle></CardHeader>
             <CardContent>
               {bookings.length === 0 ? (
@@ -363,7 +440,7 @@ export default function AdminMediBondhu() {
 
         <TabsContent value="withdrawals">
           <Card className="shadow-card overflow-hidden">
-            <div className="h-1" style={{ background: `linear-gradient(to right, ${ICON_COLORS.admin}, #7c3aed)` }} />
+            <div className="h-1" style={{ background: `linear-gradient(to right, ${VB}, #047857)` }} />
             <CardHeader><CardTitle className="text-lg">Vet Withdrawal Requests</CardTitle></CardHeader>
             <CardContent>
               {withdrawals.length === 0 ? (

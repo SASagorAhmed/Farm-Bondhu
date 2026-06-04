@@ -87,8 +87,7 @@ export default function Consultations() {
             Consultations
           </h1>
           <p className="text-muted-foreground mt-2 max-w-xl">
-            MediBondhu human doctors — waiting room and video behave like VetBondhu: pending until the doctor starts, then join video from here or the appointment
-            screen.
+            Track your MediBondhu appointments, wait for the doctor to start online visits, and join video consultations from here or the appointment screen.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

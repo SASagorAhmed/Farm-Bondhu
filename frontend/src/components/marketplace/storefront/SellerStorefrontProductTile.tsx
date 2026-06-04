@@ -1,5 +1,11 @@
-import { ChevronLeft, ChevronRight, Pin, PinOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit, MoreVertical, Pin, PinOff, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { MarketplaceProduct } from "@/lib/marketplaceProduct";
 import MarketplaceProductCard from "@/components/marketplace/MarketplaceProductCard";
 import { cn } from "@/lib/utils";
@@ -11,6 +17,8 @@ interface Props {
   pinDisabled?: boolean;
   onPin?: () => void;
   onUnpin?: () => void;
+  onEditProduct?: () => void;
+  onDeleteProduct?: () => void;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
   canMoveLeft?: boolean;
@@ -28,6 +36,8 @@ export default function SellerStorefrontProductTile({
   pinDisabled = false,
   onPin,
   onUnpin,
+  onEditProduct,
+  onDeleteProduct,
   onMoveLeft,
   onMoveRight,
   canMoveLeft = false,
@@ -37,6 +47,8 @@ export default function SellerStorefrontProductTile({
   onBuyNow,
   className,
 }: Props) {
+  const hasProductActions = Boolean(onEditProduct || onDeleteProduct);
+
   return (
     <div className={cn("relative group/tile", className)}>
       <MarketplaceProductCard
@@ -49,6 +61,46 @@ export default function SellerStorefrontProductTile({
       {editMode && (
         <>
           <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 items-end">
+            {hasProductActions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="h-8 w-8 shadow-md"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Product actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40" onClick={(e) => e.stopPropagation()}>
+                  {onEditProduct && (
+                    <DropdownMenuItem
+                      className="gap-2"
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        onEditProduct();
+                      }}
+                    >
+                      <Edit className="h-3.5 w-3.5" /> Edit product
+                    </DropdownMenuItem>
+                  )}
+                  {onDeleteProduct && (
+                    <DropdownMenuItem
+                      className="gap-2 text-destructive focus:text-destructive"
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        onDeleteProduct();
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete product
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {isPinned && (
               <span className="rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-2 py-0.5 shadow">
                 #{product.shop_pin_order}

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, ChevronRight } from "lucide-react";
+import { FileText } from "lucide-react";
 import { mediHumanJson } from "@/lib/medibondhuHuman";
 import { queryKeys } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
@@ -93,10 +93,9 @@ export default function Prescriptions() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Button type="button" variant="outline" size="sm" className="rounded-lg" style={{ borderColor: MB, color: MB }} onClick={(e) => { e.stopPropagation(); navigate(`/medibondhu/prescription/${p.id}`); }}>
-                    View
+                  <Button type="button" variant="outline" size="sm" className="rounded-lg" style={{ borderColor: MB, color: MB }} onClick={(e) => { e.stopPropagation(); navigate(`/medibondhu/prescription/${p.id}?preview=1`); }}>
+                    Preview prescription
                   </Button>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground hidden sm:block group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </CardContent>
             </Card>

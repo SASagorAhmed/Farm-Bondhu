@@ -3,8 +3,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import {
   COW_WEIGHT_RETAKE_ACCENT,
   COW_WEIGHT_RETAKE_BG,
-  cowWeightRetakeAlertBox,
-  cowWeightRetakeAlertTitle,
 } from "@/components/cowWeight/cowWeightCalloutStyles";
 
 export default function CowWeightGreenbondhuAlert() {
@@ -12,25 +10,23 @@ export default function CowWeightGreenbondhuAlert() {
 
   return (
     <div
-      className={cowWeightRetakeAlertBox}
+      className="overflow-hidden rounded-xl border shadow-sm"
       role="alert"
       style={{
         backgroundColor: COW_WEIGHT_RETAKE_BG,
-        borderColor: `${COW_WEIGHT_RETAKE_ACCENT}55`,
-        borderLeftWidth: 4,
-        borderLeftColor: COW_WEIGHT_RETAKE_ACCENT,
+        borderColor: `${COW_WEIGHT_RETAKE_ACCENT}66`,
       }}
     >
-      <div className="flex items-start gap-2">
-        <AlertTriangle
-          className="h-5 w-5 shrink-0 mt-0.5"
-          style={{ color: COW_WEIGHT_RETAKE_ACCENT }}
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className={cowWeightRetakeAlertTitle} style={{ color: "#881337" }}>
-            {t("cowWeight.scan.greenbondhuAiAlertTitle")}
-          </p>
+      <div className="flex items-center gap-2 px-3 py-2" style={{ backgroundColor: COW_WEIGHT_RETAKE_ACCENT }}>
+        <span className="rounded-full bg-white/20 p-1">
+          <AlertTriangle className="h-3.5 w-3.5 text-white" aria-hidden />
+        </span>
+        <p className="text-xs font-bold uppercase tracking-wide text-white">
+          {t("cowWeight.scan.greenbondhuAiAlertTitle")}
+        </p>
+      </div>
+      <div className="px-3 py-2.5">
+        <div className="min-w-0 flex-1">
           <p className="text-xs leading-snug" style={{ color: "#9f1239" }}>
             {t("cowWeight.scan.greenbondhuAiDisclaimer")}
           </p>
