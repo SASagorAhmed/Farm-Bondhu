@@ -680,4 +680,73 @@ router.delete(
   })
 );
 
+/** sales_memos */
+router.get(
+  "/sales-memos",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const limit = readLimit(req, 100, 200);
+    const rows = await sql`
+      select id, user_id, memo_no, memo_date, buyer_name, grand_total, draft, created_at, updated_at
+      from sales_memos
+      where user_id = ${req.userId}
+      order by memo_date desc, created_at desc
+      limit ${limit}
+    `;
+    res.json({ data: rows });
+  })
+);
+router.post(
+  "/sales-memos",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const row = pick(b, ["memo_no", "memo_date", "buyer_name", "grand_total", "draft"]);
+    if (!row.memo_no || !row.memo_date || row.draft === undefined) {
+      res.status(400).json({ error: "memo_no, memo_date, and draft are required" });
+      return;
+    }
+    const [created] = await sql`
+      insert into sales_memos ${sql({ ...row, user_id: req.userId })}
+      returning *
+    `;
+    res.status(201).json({ data: created });
+  })
+);
+router.patch(
+  "/sales-memos/:id",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const patch = pick(req.body || {}, ["memo_no", "memo_date", "buyer_name", "grand_total", "draft"]);
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No fields to update" });
+      return;
+    }
+    const [updated] = await sql`
+      update sales_memos set ${sql({ ...patch, updated_at: new Date() })}
+      where id = ${req.params.id} and user_id = ${req.userId}
+      returning *
+    `;
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json({ data: updated });
+  })
+);
+router.delete(
+  "/sales-memos/:id",
+  ...chain,
+  asyncHandler(async (req, res) => {
+    const rows = await sql`
+      delete from sales_memos where id = ${req.params.id} and user_id = ${req.userId} returning id
+    `;
+    if (!rows.length) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.status(204).end();
+  })
+);
+
 export default router;
