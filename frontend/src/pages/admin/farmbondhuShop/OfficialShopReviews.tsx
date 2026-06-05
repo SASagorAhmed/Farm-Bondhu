@@ -23,8 +23,8 @@ export default function OfficialShopReviews() {
   const [commentFilter, setCommentFilter] = useState<Filter>("all");
   const [mainTab, setMainTab] = useState("reviews");
 
-  const { data: reviewStats } = useSellerReviewStats(sellerId);
-  const { data: commentStats } = useSellerCommentStats(sellerId);
+  const { data: reviewStats } = useSellerReviewStats(sellerId, "official");
+  const { data: commentStats } = useSellerCommentStats(sellerId, "official");
 
   const needsReplyTotal = (reviewStats?.needsReplyCount ?? 0) + (commentStats?.needsReplyCount ?? 0);
   const reviewResponseRate = reviewStats?.responseRate ?? 0;
@@ -57,7 +57,7 @@ export default function OfficialShopReviews() {
                   ))}
                 </TabsList>
               </Tabs>
-              <SellerReviewInbox userId={sellerId} filter={reviewFilter} />
+              <SellerReviewInbox userId={sellerId} filter={reviewFilter} apiMode="official" />
             </TabsContent>
             <TabsContent value="comments" className="space-y-4 mt-0">
               <Tabs value={commentFilter} onValueChange={(v) => setCommentFilter(v as Filter)}>
@@ -69,7 +69,7 @@ export default function OfficialShopReviews() {
                   ))}
                 </TabsList>
               </Tabs>
-              <SellerCommentInbox userId={sellerId} filter={commentFilter} />
+              <SellerCommentInbox userId={sellerId} filter={commentFilter} apiMode="official" />
             </TabsContent>
           </Tabs>
         </CardContent>

@@ -6,9 +6,14 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   fetchSellerReviews,
+  mapSellerReview,
   submitSellerReviewReply,
   type SellerReviewRow,
 } from "@/lib/marketplaceReviewsApi";
+import {
+  fetchOfficialShopReviews,
+  submitOfficialShopReviewReply,
+} from "@/lib/adminFarmBondhuShopApi";
 import { marketplaceStarStyle } from "@/lib/marketplaceTheme";
 import SellerInlineReplyForm from "@/components/marketplace/seller/SellerInlineReplyForm";
 
@@ -17,18 +22,41 @@ type Filter = "all" | "needs_reply" | "replied";
 interface Props {
   userId: string;
   filter: Filter;
+  apiMode?: "seller" | "official";
 }
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function ReviewCard({ review, onSaved }: { review: SellerReviewRow; onSaved: () => void }) {
+function ReviewCard({
+  review,
+  onSaved,
+  apiMode = "seller",
+}: {
+  review: SellerReviewRow;
+  onSaved: () => void;
+  apiMode?: "seller" | "official";
+}) {
+  const productPath =
+    apiMode === "official"
+      ? `/admin/farmbondhu-shop/products/${review.product_id}`
+      : `/seller/products/${review.product_id}`;
+
   const handleReply = async (reply: string) => {
-    const result = await submitSellerReviewReply(review.id, reply);
-    if (!result.ok) {
-      toast.error(result.error || "Could not save reply");
-      return false;
+    if (apiMode === "official") {
+      try {
+        await submitOfficialShopReviewReply(review.id, reply);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not save reply");
+        return false;
+      }
+    } else {
+      const result = await submitSellerReviewReply(review.id, reply);
+      if (!result.ok) {
+        toast.error(result.error || "Could not save reply");
+        return false;
+      }
     }
     toast.success(review.seller_reply ? "Reply updated" : "Reply posted");
     onSaved();
@@ -43,7 +71,7 @@ function ReviewCard({ review, onSaved }: { review: SellerReviewRow; onSaved: () 
         )}
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link to={`/seller/products/${review.product_id}`} className="font-medium text-foreground hover:underline">
+            <Link to={productPath} className="font-medium text-foreground hover:underline">
               {review.product_name || "Product"}
             </Link>
             {!review.seller_reply && (
@@ -92,16 +120,31 @@ function ReviewCard({ review, onSaved }: { review: SellerReviewRow; onSaved: () 
   );
 }
 
-export default function SellerReviewInbox({ userId, filter }: Props) {
+async function loadReviews(filter: Filter, apiMode: "seller" | "official") {
+  if (apiMode === "official") {
+    const data = await fetchOfficialShopReviews({ filter });
+    return {
+      ok: true as const,
+      reviews: (data.reviews || []).map((row) => mapSellerReview(row)),
+      page: data.page,
+      total: data.total,
+      stats: data.stats,
+    };
+  }
+  return fetchSellerReviews({ filter });
+}
+
+export default function SellerReviewInbox({ userId, filter, apiMode = "seller" }: Props) {
   const queryClient = useQueryClient();
+  const queryKeyPrefix = apiMode === "official" ? "admin-official-shop-reviews" : "seller-reviews";
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["seller-reviews", userId, filter],
-    queryFn: () => fetchSellerReviews({ filter }),
+    queryKey: [queryKeyPrefix, userId, filter],
+    queryFn: () => loadReviews(filter, apiMode),
   });
 
   const reviews = data?.ok ? data.reviews : [];
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["seller-reviews", userId] });
+    queryClient.invalidateQueries({ queryKey: [queryKeyPrefix, userId] });
     queryClient.invalidateQueries({ queryKey: ["product-reviews"] });
   };
 
@@ -117,17 +160,18 @@ export default function SellerReviewInbox({ userId, filter }: Props) {
   return (
     <div className="space-y-4">
       {reviews.map((review) => (
-        <ReviewCard key={review.id} review={review} onSaved={invalidate} />
+        <ReviewCard key={review.id} review={review} onSaved={invalidate} apiMode={apiMode} />
       ))}
       {isFetching && <p className="text-xs text-muted-foreground text-center">Refreshing…</p>}
     </div>
   );
 }
 
-export function useSellerReviewStats(userId: string) {
+export function useSellerReviewStats(userId: string, apiMode: "seller" | "official" = "seller") {
+  const queryKeyPrefix = apiMode === "official" ? "admin-official-shop-reviews" : "seller-reviews";
   return useQuery({
-    queryKey: ["seller-reviews", userId, "all"],
-    queryFn: () => fetchSellerReviews({ filter: "all" }),
+    queryKey: [queryKeyPrefix, userId, "all"],
+    queryFn: () => loadReviews("all", apiMode),
     select: (d) => (d.ok ? d.stats : null),
   });
 }

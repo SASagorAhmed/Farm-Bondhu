@@ -32,6 +32,24 @@ Co-Admin and Moderator do not see these controls; delete API calls return 403. H
 
 `/admin/profile` shows account details and Platform shortcuts only — not MediBondhu doctor verification. Doctor and vet onboarding are managed under Admin → MediBondhu and Admin → VetBondhu.
 
+## FarmBondhu Official Shop
+
+The official FarmBondhu marketplace shop is a full seller-style workspace under **Admin → Marketplace → FarmBondhu official shop** (`/admin/farmbondhu-shop/*`). Any platform admin can manage the canonical official seller account without being logged in as that seller user.
+
+| Admin path | Purpose |
+|------------|---------|
+| `/admin/farmbondhu-shop` | Seller-style dashboard: products, orders, messages |
+| `/admin/farmbondhu-shop/shop` | Storefront editor with inline product CRUD, pin/sort, branding |
+| `/admin/farmbondhu-shop/products` | Full product management across all marketplace lanes |
+| `/admin/farmbondhu-shop/products/:productId` | Product detail, reviews, Q&A, flash sale |
+| `/admin/farmbondhu-shop/orders` | Order fulfillment list with returns tab |
+| `/admin/farmbondhu-shop/orders/:orderId` | Seller-style order detail and fulfillment actions |
+| `/admin/farmbondhu-shop/payouts` | Earnings, monthly trend, withdrawal requests |
+| `/admin/farmbondhu-shop/reviews` | Official shop review and product Q&A inbox |
+| `/admin/farmbondhu-shop/messages` | Buyer chat inbox for the official seller |
+
+Admin shop writes use dedicated APIs under `/v1/marketplace/admin/farmbondhu-shop/*` so storefront edits, withdrawals, and review replies always target the canonical official seller resolved by [`officialFarmBondhuShop.js`](../backend/src/services/officialFarmBondhuShop.js). Normal marketplace seller routes (`/seller/*`, `/my-shop`) are unchanged.
+
 ## VetBondhu Admin Operations
 
 VetBondhu admin overview and payouts stay in the VetBondhu admin module and use VetBondhu veterinary data only.

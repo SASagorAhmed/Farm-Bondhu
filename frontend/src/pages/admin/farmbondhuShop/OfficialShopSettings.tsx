@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Store, Save } from "lucide-react";
 import { ICON_COLORS } from "@/lib/iconColors";
 import { toast } from "sonner";
-import { fetchPublicShop, updateMyShop } from "@/lib/marketplaceShopApi";
+import { fetchPublicShop } from "@/lib/marketplaceShopApi";
+import { updateOfficialShopProfile } from "@/lib/adminFarmBondhuShopApi";
 import ChatNotificationSoundSettings from "@/components/marketplace/ChatNotificationSoundSettings";
 import OfficialShopPageHeader from "./OfficialShopPageHeader";
 import { useOfficialShop } from "./OfficialShopProvider";
@@ -34,12 +35,14 @@ export default function OfficialShopSettings() {
 
   const handleSave = async () => {
     setSaving(true);
-    const { ok, error } = await updateMyShop(sellerId, { description, location });
-    setSaving(false);
-    if (!ok) {
-      toast.error(error || "Could not save settings");
+    try {
+      await updateOfficialShopProfile({ description, location });
+    } catch (error) {
+      setSaving(false);
+      toast.error(error instanceof Error ? error.message : "Could not save settings");
       return;
     }
+    setSaving(false);
     toast.success("Shop settings saved");
   };
 

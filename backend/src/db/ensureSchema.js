@@ -391,6 +391,18 @@ export async function ensureSchema(sql) {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.sales_memos (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL,
+      memo_no text NOT NULL,
+      memo_date date NOT NULL,
+      buyer_name text,
+      grand_total numeric NOT NULL DEFAULT 0,
+      draft jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.notifications (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid NOT NULL,
@@ -1906,6 +1918,7 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_financial_records_user_date ON public.financial_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_health_records_user_date ON public.health_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_sale_records_user_date ON public.sale_records (user_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_memos_user_date ON public.sales_memos (user_id, memo_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_mortality_records_user_date ON public.mortality_records (user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_animals_farm_id ON public.animals (farm_id)`,
     `CREATE INDEX IF NOT EXISTS idx_cow_weight_estimations_user ON public.cow_weight_estimations (user_id, created_at DESC)`,

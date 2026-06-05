@@ -53,6 +53,7 @@ import {
   getOfficialFarmBondhuShopMeta,
   resolveOfficialShopSellerId,
   isOfficialFarmBondhuSellerId,
+  ensureOfficialFarmBondhuShop,
 } from "../../services/officialFarmBondhuShop.js";
 import {
   getPlatformSupportMeta,
@@ -2052,6 +2053,243 @@ router.get(
     `;
     res.setHeader("Cache-Control", "private, no-cache");
     res.json({ data: rows });
+  })
+);
+
+router.get(
+  "/admin/farmbondhu-shop/orders/:orderId",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const orderId = String(req.params.orderId || "");
+    if (!UUID_RE.test(orderId)) {
+      res.status(400).json({ error: "Invalid order id" });
+      return;
+    }
+    const [row] = await sql`
+      select *
+      from orders
+      where id = ${orderId}
+        and seller_id = ${sellerId}
+      limit 1
+    `;
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.setHeader("Cache-Control", "private, no-cache");
+    res.json({ data: row });
+  })
+);
+
+router.patch(
+  "/admin/farmbondhu-shop/shop",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    await ensureOfficialFarmBondhuShop(sellerId);
+    const allowed = ["description", "location", "shop_name", "logo_url", "banner_url"];
+    const patch = {};
+    for (const key of allowed) {
+      if (key in req.body) patch[key] = req.body[key];
+    }
+    if (!Object.keys(patch).length) {
+      res.status(400).json({ error: "No valid fields to update" });
+      return;
+    }
+    patch.updated_at = new Date().toISOString();
+    const [updated] = await sql`
+      update shops set ${sql(patch)} where user_id = ${sellerId} returning *
+    `;
+    if (!updated) {
+      res.status(404).json({ error: "Shop not found" });
+      return;
+    }
+    res.json({ data: updated });
+  })
+);
+
+router.patch(
+  "/admin/farmbondhu-shop/storefront",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    try {
+      const updated = await applyShopStorefrontUpdates(sql, sellerId, req.body?.items || []);
+      res.json({ data: updated });
+    } catch (error) {
+      if (error instanceof ShopStorefrontError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  })
+);
+
+router.post(
+  "/admin/farmbondhu-shop/upload-asset",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const assetType = String(req.body?.type || req.body?.asset_type || "banner").toLowerCase();
+    if (assetType !== "banner" && assetType !== "logo") {
+      res.status(400).json({ error: "type must be banner or logo" });
+      return;
+    }
+    const fileData = String(req.body?.image || req.body?.file_data || "");
+    if (!fileData) {
+      res.status(400).json({ error: "image is required" });
+      return;
+    }
+    const folder = assetType === "logo" ? "marketplace/shops/logos" : "marketplace/shops/banners";
+    try {
+      const uploaded = await uploadToCloudinary(fileData, folder, `shop_${assetType}_${sellerId}`);
+      res.status(201).json({ data: { url: uploaded.url, type: assetType } });
+    } catch (error) {
+      const message = String(error?.message || "");
+      if (message.toLowerCase().includes("cloudinary is not configured")) {
+        res.status(201).json({ data: { url: fileData, type: assetType, storage: "inline_data_url" } });
+        return;
+      }
+      throw error;
+    }
+  })
+);
+
+router.get(
+  "/admin/farmbondhu-shop/products/:productId",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const productId = String(req.params.productId || "");
+    if (!UUID_RE.test(productId)) {
+      res.status(400).json({ error: "Invalid product id" });
+      return;
+    }
+    const [product] = await sql`select * from products where id = ${productId} limit 1`;
+    if (!product) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (String(product.seller_id) !== String(sellerId)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const data = await loadProductWithShop(product);
+    res.setHeader("Cache-Control", "private, no-cache");
+    res.json({ data });
+  })
+);
+
+router.post(
+  "/admin/farmbondhu-shop/withdrawals",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const requestAmount = Number(req.body?.request_amount);
+    if (!Number.isFinite(requestAmount) || requestAmount <= 0) {
+      res.status(400).json({ error: "request_amount must be a positive number" });
+      return;
+    }
+    try {
+      const created = await createSellerWithdrawal(sellerId, requestAmount, req.body?.note);
+      res.status(201).json({ data: created });
+    } catch (error) {
+      const status = /** @type {{ status?: number }} */ (error)?.status || 500;
+      res.status(status).json({ error: error instanceof Error ? error.message : "Withdrawal failed" });
+    }
+  })
+);
+
+router.get(
+  "/admin/farmbondhu-shop/reviews",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const filter = req.query.filter ? String(req.query.filter) : "all";
+    const productId = req.query.product_id ? String(req.query.product_id) : undefined;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 20;
+    const data = await listSellerReviews(sellerId, { filter, productId, page, limit });
+    res.setHeader("Cache-Control", "private, no-cache");
+    res.json({ data });
+  })
+);
+
+router.put(
+  "/admin/farmbondhu-shop/reviews/:id/reply",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    if (!UUID_RE.test(req.params.id)) {
+      res.status(400).json({ error: "Invalid review id" });
+      return;
+    }
+    try {
+      const updated = await upsertSellerReviewReply(
+        sellerId,
+        req.params.id,
+        req.body?.reply ?? req.body?.body,
+      );
+      res.json({ data: updated });
+    } catch (error) {
+      if (error instanceof ReviewError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  })
+);
+
+router.get(
+  "/admin/farmbondhu-shop/product-comments",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    const filter = req.query.filter ? String(req.query.filter) : "all";
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 20;
+    const data = await listSellerProductComments(sellerId, { filter, page, limit });
+    res.setHeader("Cache-Control", "private, no-cache");
+    res.json({ data });
+  })
+);
+
+router.post(
+  "/admin/farmbondhu-shop/product-comments/:id/reply",
+  ...adminChain,
+  asyncHandler(async (req, res) => {
+    const sellerId = await requireOfficialShopSellerIdFromRequest(req, res);
+    if (!sellerId) return;
+    if (!UUID_RE.test(req.params.id)) {
+      res.status(400).json({ error: "Invalid comment id" });
+      return;
+    }
+    try {
+      const created = await upsertSellerCommentReply(
+        sellerId,
+        req.params.id,
+        req.body?.body ?? req.body?.reply,
+      );
+      res.status(201).json({ data: created });
+    } catch (error) {
+      if (error instanceof ReviewError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   })
 );
 

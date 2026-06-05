@@ -25,6 +25,7 @@ import {
   sellerOrderNextActions,
   sellerOrderStatusColors,
 } from "@/lib/sellerOrderWorkflow";
+import DeliveryReceiptActions from "@/components/marketplace/DeliveryReceiptActions";
 
 export default function SellerOrderDetail() {
   const { orderId } = useParams();
@@ -96,10 +97,13 @@ export default function SellerOrderDetail() {
         </Badge>
       </motion.div>
 
-      {action && (
-        <div className="flex justify-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex-1 min-w-0">
+          <DeliveryReceiptActions order={order} variant="seller" />
+        </div>
+        {action && (
           <Button
-            className="text-white"
+            className="text-white shrink-0"
             style={{ backgroundColor: sellerOrderStatusColors[action.nextStatus] || VENDOR_THEME.primary }}
             onClick={handleAction}
           >
@@ -107,8 +111,8 @@ export default function SellerOrderDetail() {
             {action.label}
             <ArrowRight className="h-4 w-4 ml-1" />
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {!isCancelled && !isReturned && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>

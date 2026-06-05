@@ -141,7 +141,7 @@ function mapComment(row: Record<string, unknown>): ProductCommentRow {
   };
 }
 
-function mapSellerReview(row: Record<string, unknown>): SellerReviewRow {
+export function mapSellerReview(row: Record<string, unknown>): SellerReviewRow {
   return {
     ...mapReview(row),
     product_name: row.product_name != null ? String(row.product_name) : null,
@@ -150,7 +150,7 @@ function mapSellerReview(row: Record<string, unknown>): SellerReviewRow {
   };
 }
 
-function mapSellerComment(row: Record<string, unknown>): SellerCommentRow {
+export function mapSellerComment(row: Record<string, unknown>): SellerCommentRow {
   return {
     ...mapComment(row),
     product_name: row.product_name != null ? String(row.product_name) : null,

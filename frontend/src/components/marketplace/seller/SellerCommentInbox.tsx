@@ -4,9 +4,14 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   fetchSellerProductComments,
+  mapSellerComment,
   submitSellerCommentReply,
   type SellerCommentRow,
 } from "@/lib/marketplaceReviewsApi";
+import {
+  fetchOfficialShopProductComments,
+  submitOfficialShopProductCommentReply,
+} from "@/lib/adminFarmBondhuShopApi";
 import SellerInlineReplyForm from "@/components/marketplace/seller/SellerInlineReplyForm";
 
 type Filter = "all" | "needs_reply" | "replied";
@@ -14,18 +19,41 @@ type Filter = "all" | "needs_reply" | "replied";
 interface Props {
   userId: string;
   filter: Filter;
+  apiMode?: "seller" | "official";
 }
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function CommentCard({ comment, onSaved }: { comment: SellerCommentRow; onSaved: () => void }) {
+function CommentCard({
+  comment,
+  onSaved,
+  apiMode = "seller",
+}: {
+  comment: SellerCommentRow;
+  onSaved: () => void;
+  apiMode?: "seller" | "official";
+}) {
+  const productPath =
+    apiMode === "official"
+      ? `/admin/farmbondhu-shop/products/${comment.product_id}`
+      : `/seller/products/${comment.product_id}`;
+
   const handleReply = async (body: string) => {
-    const result = await submitSellerCommentReply(comment.id, body);
-    if (!result.ok) {
-      toast.error(result.error || "Could not save reply");
-      return false;
+    if (apiMode === "official") {
+      try {
+        await submitOfficialShopProductCommentReply(comment.id, body);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not save reply");
+        return false;
+      }
+    } else {
+      const result = await submitSellerCommentReply(comment.id, body);
+      if (!result.ok) {
+        toast.error(result.error || "Could not save reply");
+        return false;
+      }
     }
     toast.success(comment.seller_reply ? "Reply updated" : "Reply posted");
     onSaved();
@@ -40,7 +68,7 @@ function CommentCard({ comment, onSaved }: { comment: SellerCommentRow; onSaved:
         )}
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link to={`/seller/products/${comment.product_id}`} className="font-medium text-foreground hover:underline">
+            <Link to={productPath} className="font-medium text-foreground hover:underline">
               {comment.product_name || "Product"}
             </Link>
             {!comment.seller_reply && (
@@ -72,16 +100,31 @@ function CommentCard({ comment, onSaved }: { comment: SellerCommentRow; onSaved:
   );
 }
 
-export default function SellerCommentInbox({ userId, filter }: Props) {
+async function loadComments(filter: Filter, apiMode: "seller" | "official") {
+  if (apiMode === "official") {
+    const data = await fetchOfficialShopProductComments({ filter });
+    return {
+      ok: true as const,
+      comments: (data.comments || []).map((row) => mapSellerComment(row)),
+      page: data.page,
+      total: data.total,
+      stats: data.stats,
+    };
+  }
+  return fetchSellerProductComments({ filter });
+}
+
+export default function SellerCommentInbox({ userId, filter, apiMode = "seller" }: Props) {
   const queryClient = useQueryClient();
+  const queryKeyPrefix = apiMode === "official" ? "admin-official-shop-product-comments" : "seller-product-comments";
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["seller-product-comments", userId, filter],
-    queryFn: () => fetchSellerProductComments({ filter }),
+    queryKey: [queryKeyPrefix, userId, filter],
+    queryFn: () => loadComments(filter, apiMode),
   });
 
   const comments = data?.ok ? data.comments : [];
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["seller-product-comments", userId] });
+    queryClient.invalidateQueries({ queryKey: [queryKeyPrefix, userId] });
     queryClient.invalidateQueries({ queryKey: ["product-comments"] });
   };
 
@@ -97,17 +140,18 @@ export default function SellerCommentInbox({ userId, filter }: Props) {
   return (
     <div className="space-y-4">
       {comments.map((comment) => (
-        <CommentCard key={comment.id} comment={comment} onSaved={invalidate} />
+        <CommentCard key={comment.id} comment={comment} onSaved={invalidate} apiMode={apiMode} />
       ))}
       {isFetching && <p className="text-xs text-muted-foreground text-center">Refreshing…</p>}
     </div>
   );
 }
 
-export function useSellerCommentStats(userId: string) {
+export function useSellerCommentStats(userId: string, apiMode: "seller" | "official" = "seller") {
+  const queryKeyPrefix = apiMode === "official" ? "admin-official-shop-product-comments" : "seller-product-comments";
   return useQuery({
-    queryKey: ["seller-product-comments", userId, "all"],
-    queryFn: () => fetchSellerProductComments({ filter: "all" }),
+    queryKey: [queryKeyPrefix, userId, "all"],
+    queryFn: () => loadComments("all", apiMode),
     select: (d) => (d.ok ? d.stats : null),
   });
 }

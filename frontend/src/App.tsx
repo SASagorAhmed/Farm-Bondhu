@@ -130,10 +130,12 @@ import AdminSellerLaneApprovals from "./pages/admin/AdminSellerLaneApprovals";
 import OfficialShopAdminLayout from "./pages/admin/farmbondhuShop/OfficialShopAdminLayout";
 import FarmBondhuShopOverview from "./pages/admin/farmbondhuShop/FarmBondhuShopOverview";
 import OfficialShopProducts from "./pages/admin/farmbondhuShop/OfficialShopProducts";
+import OfficialShopProductDetail from "./pages/admin/farmbondhuShop/OfficialShopProductDetail";
 import OfficialShopMyShop from "./pages/admin/farmbondhuShop/OfficialShopMyShop";
 import OfficialShopPhotoEditor from "./pages/admin/farmbondhuShop/OfficialShopPhotoEditor";
 import { ADMIN_PHOTO_EDITOR_BASE } from "@/features/photoEditor/lib/photoEditorPaths";
 import OfficialShopOrders from "./pages/admin/farmbondhuShop/OfficialShopOrders";
+import OfficialShopOrderDetail from "./pages/admin/farmbondhuShop/OfficialShopOrderDetail";
 import OfficialShopInventory from "./pages/admin/farmbondhuShop/OfficialShopInventory";
 import OfficialShopPayouts from "./pages/admin/farmbondhuShop/OfficialShopPayouts";
 import OfficialShopReviews from "./pages/admin/farmbondhuShop/OfficialShopReviews";
@@ -647,12 +649,14 @@ const App = () => (
                     <Route index element={<FarmBondhuShopOverview />} />
                     <Route path="shop" element={<OfficialShopMyShop />} />
                     <Route path="products" element={<OfficialShopProducts />} />
+                    <Route path="products/:productId" element={<OfficialShopProductDetail />} />
                     <Route path="photo-editor" element={<OfficialShopPhotoEditor />} />
                     <Route
                       path="photo-editor/drafts"
                       element={<PhotoEditorDrafts editorBasePath={ADMIN_PHOTO_EDITOR_BASE} />}
                     />
                     <Route path="orders" element={<OfficialShopOrders />} />
+                    <Route path="orders/:orderId" element={<OfficialShopOrderDetail />} />
                     <Route path="inventory" element={<OfficialShopInventory />} />
                     <Route path="payouts" element={<OfficialShopPayouts />} />
                     <Route path="reviews" element={<OfficialShopReviews />} />

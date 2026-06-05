@@ -237,6 +237,8 @@ Examples:
 
 Sales history helps compare income against production and expenses.
 
+**Sales memo:** On the Sales page, **Preview & download memo** opens a live editor ([`SalesMemo.tsx`](../frontend/src/components/dashboard/SalesMemo.tsx)) to select sale lines, **add custom memo-only lines**, **edit or delete sale records inline**, and adjust farm contact, buyer, date, and footer text. **Preview PDF** opens an iframe review before download; **Print** is also available. Downloading saves the memo to **`sales_memos`** (draft jsonb + summary fields). The **Memo history** table below the sales list supports **preview**, **download**, **edit**, and **delete** without reopening the full editor. Farm/profile fields on the memo are editor-only; sale line edits update `sale_records`. Line dates render as short en-GB dates in the PDF (no ISO overlap). PDF amounts use **`BDT`** with `en-US` grouping (Helvetica-safe).
+
 ---
 
 ## Farm Setup Guide

@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import StatCard from "@/components/dashboard/StatCard";
 import { sellerOrderNextActions, sellerOrderStatusColors } from "@/lib/sellerOrderWorkflow";
+import DeliveryReceiptActions from "@/components/marketplace/DeliveryReceiptActions";
+import { isDeliveryReceiptEligible } from "@/lib/marketplaceDeliveryReceiptPdf";
 
 const statusTabs = [
   { value: "all", label: "All" },
@@ -145,6 +147,9 @@ export default function SellerOrders() {
                           {action.label}
                           <ArrowRight className="h-3.5 w-3.5 ml-1" />
                         </Button>
+                      )}
+                      {isDeliveryReceiptEligible(order.status) && (
+                        <DeliveryReceiptActions order={order} variant="seller" compact />
                       )}
                       <Button variant="ghost" size="sm" onClick={() => navigate(`/seller/orders/${order.id}`)}>
                         <Eye className="h-3.5 w-3.5 mr-1" />
