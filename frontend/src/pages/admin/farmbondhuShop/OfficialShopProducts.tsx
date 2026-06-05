@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,7 @@ function listingStatusBadge(status?: string | null) {
 }
 
 export default function OfficialShopProducts() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { sellerId } = useOfficialShop();
   const queryClient = useQueryClient();
@@ -453,6 +455,14 @@ export default function OfficialShopProducts() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => navigate(`/admin/farmbondhu-shop/products/${p.id}`)}
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon"

@@ -26,6 +26,7 @@ const statusTabs = [
   { value: "packed", label: "Packed" },
   { value: "shipped", label: "Shipped" },
   { value: "delivered", label: "Delivered" },
+  { value: "return_requested", label: "Returns" },
 ];
 
 export default function OfficialShopOrders() {
@@ -154,9 +155,9 @@ export default function OfficialShopOrders() {
                       </p>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <Button variant="outline" size="sm" onClick={() => navigate(`/admin/orders/${order.id}`)}>
+                      <Button variant="outline" size="sm" onClick={() => navigate(`/admin/farmbondhu-shop/orders/${order.id}`)}>
                         <Eye className="h-4 w-4 mr-1" />
-                        Admin detail
+                        View order
                       </Button>
                       {action && (
                         <Button size="sm" disabled={updateMutation.isPending} onClick={() => handleAction(order)}>
