@@ -32,3 +32,8 @@ frontend-git-history.backup/
 # Cattle ML dataset (see cattledataset/README.md)
 cattledataset/data/
 cattledataset/yolo_seg/
+
+# Selenium E2E (local env + artifacts)
+selenium-tests/screenshots/
+selenium-tests/.pytest_cache/
+selenium-tests/**/__pycache__/
