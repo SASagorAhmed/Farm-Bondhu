@@ -80,6 +80,8 @@ Users can hold **both** capabilities (buy from others and sell from their shop).
 | `/seller/orders` | Seller order list ([`SellerOrders.tsx`](../frontend/src/pages/marketplace/SellerOrders.tsx)) |
 | `/seller/orders/:orderId` | Seller order detail — vendor layout, fulfillment actions ([`SellerOrderDetail.tsx`](../frontend/src/pages/marketplace/SellerOrderDetail.tsx)) |
 | `/orders/:orderId` | **Buyer** order tracking only ([`OrderTracking.tsx`](../frontend/src/pages/marketplace/OrderTracking.tsx)) — not used from vendor panel |
+
+**Delivery handover receipt:** On active fulfillment orders (pending through delivered), sellers open a **preview & edit** dialog before **Download PDF** or **Print receipt** ([`DeliveryReceiptEditorDialog.tsx`](../frontend/src/components/marketplace/DeliveryReceiptEditorDialog.tsx)). Sellers can adjust **seller phone**, **pickup location**, and **customer delivery address** on the slip only (receipt does not update the order or shop record). The PDF ([`marketplaceDeliveryReceiptPdf.ts`](../frontend/src/lib/marketplaceDeliveryReceiptPdf.ts)) defaults to a **250×100 mm** (5:2) courier slip and **grows taller** when addresses or product rows need more room (aspect ratio relaxes). Content is capped at **A4 landscape height (210 mm)** on page 1; overflow address lines and/or extra products continue on a **second page**. **FROM** seller / **DELIVER TO** customer, product table with totals, and COD collect line when applicable. PDF amounts use **`BDT`** with `en-US` grouping (Helvetica-safe); the on-screen preview may still show `৳`. The same control is on official FarmBondhu shop admin order detail.
 | `/seller/products`, `/seller/inventory`, … | Vendor tools |
 
 `/my-shop` is reachable without `can_sell` on the route guard but the page checks capability internally.
@@ -97,7 +99,9 @@ Users can hold **both** capabilities (buy from others and sell from their shop).
 | `/admin/marketplace/messages` | [`AdminPlatformMessages`](../frontend/src/pages/admin/AdminPlatformMessages.tsx) — all marketplace threads; view-only until reported; admin replies labeled **Platform support from admin** |
 | `/admin/marketplace/reports` | [`AdminMarketplaceReports`](../frontend/src/pages/admin/AdminMarketplaceReports.tsx) — marketplace chat reports only |
 | `/admin/moderation-reports` | [`AdminModerationReports`](../frontend/src/pages/admin/AdminModerationReports.tsx) — **all** user reports (community + marketplace) |
-| `/admin/farmbondhu-shop` | [`FarmBondhuShop`](../frontend/src/pages/admin/FarmBondhuShop.tsx) — official products + seller-style Messages tab (`SellerChatInbox` for canonical FarmBondhu seller) |
+| `/admin/farmbondhu-shop` | Official FarmBondhu seller workspace — dashboard, shop editor, products, orders, payouts, reviews, messages (`frontend/src/pages/admin/farmbondhuShop/*`) |
+| `/admin/farmbondhu-shop/products/:productId` | Official shop product detail |
+| `/admin/farmbondhu-shop/orders/:orderId` | Official shop order fulfillment detail |
 | Admin chat panel | [`AdminChatInbox`](../frontend/src/components/marketplace/AdminChatInbox.tsx) — platform support inbox UI (`scope="platform_support"` on Customer Support) |
 
 ### Admin moderation (buyers & sellers)
@@ -532,6 +536,15 @@ Base path: **`/v1/marketplace`** (plus **`/v1/orders`** for orders, **`/v1/compa
 | POST | `/chat/contact-violations` | Participant | Log blocked contact attempt; returns `chat_guard` restriction state |
 | GET | `/chat/admin/bootstrap` | Admin | Marketplace threads (`scope=all`), FarmBondhu (`scope=farmbondhu`), or customer support (`scope=platform_support`) |
 | GET | `/admin/farmbondhu-shop/meta` | Admin | `{ seller_id, shop_name }` — canonical official shop seller; ensures approved `shops` row |
+| PATCH | `/admin/farmbondhu-shop/shop` | Admin | Update official shop profile (description, location, logo, banner) |
+| PATCH | `/admin/farmbondhu-shop/storefront` | Admin | Pin/unpin/reorder official shop storefront products |
+| POST | `/admin/farmbondhu-shop/upload-asset` | Admin | Upload official shop banner/logo |
+| GET | `/admin/farmbondhu-shop/orders/:orderId` | Admin | Fetch one official-shop order |
+| POST | `/admin/farmbondhu-shop/withdrawals` | Admin | Create official seller withdrawal request |
+| GET | `/admin/farmbondhu-shop/reviews` | Admin | Official seller review inbox |
+| PUT | `/admin/farmbondhu-shop/reviews/:id/reply` | Admin | Reply to official shop product review |
+| GET | `/admin/farmbondhu-shop/product-comments` | Admin | Official seller product Q&A inbox |
+| POST | `/admin/farmbondhu-shop/product-comments/:id/reply` | Admin | Reply to official shop product question |
 
 Receipt updates call `invalidateMarketplaceChatCache(buyerId, sellerId)`.
 
