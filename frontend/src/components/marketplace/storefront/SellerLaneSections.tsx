@@ -7,6 +7,7 @@ import {
 } from "@/components/marketplace/marketplaceCalloutStyles";
 import type { MarketplaceLane } from "@/lib/marketplaceCategories";
 import { MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { laneLabel } from "@/lib/marketplaceLaneLabels";
 import { groupProductsByLane, type StorefrontLaneGroup } from "@/lib/storefrontUtils";
 import SellerStorefrontProductTile from "./SellerStorefrontProductTile";
 
@@ -14,6 +15,8 @@ type ShopLaneFilter = "all" | Exclude<MarketplaceLane, "all"> | "other";
 
 interface Props {
   products: MarketplaceProduct[];
+  /** When set, always show tabs for every lane (including empty lanes). */
+  fixedLanes?: readonly Exclude<MarketplaceLane, "all">[];
   editMode?: boolean;
   pinDisabled?: boolean;
   pinnedIds: Set<string>;
@@ -107,6 +110,7 @@ function LaneSectionBody({
 
 export default function SellerLaneSections({
   products,
+  fixedLanes,
   editMode = false,
   pinDisabled = false,
   pinnedIds,
@@ -118,7 +122,10 @@ export default function SellerLaneSections({
   onAddToCart,
   onBuyNow,
 }: Props) {
-  const laneGroups = useMemo(() => groupProductsByLane(products), [products]);
+  const laneGroups = useMemo(
+    () => groupProductsByLane(products, fixedLanes?.length ? { fixedLanes } : undefined),
+    [products, fixedLanes],
+  );
   const mainLaneGroups = useMemo(
     () => laneGroups.filter((g) => g.lane !== "other"),
     [laneGroups]
@@ -135,10 +142,12 @@ export default function SellerLaneSections({
     [activeLane, laneGroups]
   );
 
-  const sectionsForAllView = useMemo(
-    () => (otherGroup ? [...mainLaneGroups, otherGroup] : mainLaneGroups),
-    [mainLaneGroups, otherGroup]
-  );
+  const sectionsForAllView = useMemo(() => {
+    const base = fixedLanes?.length
+      ? mainLaneGroups
+      : mainLaneGroups.filter((g) => g.products.length > 0);
+    return otherGroup ? [...base, otherGroup] : base;
+  }, [mainLaneGroups, otherGroup, fixedLanes]);
 
   const gridProps = {
     editMode,
@@ -153,7 +162,21 @@ export default function SellerLaneSections({
     onBuyNow,
   };
 
-  if (products.length === 0) {
+  const showFixedLaneStructure = Boolean(fixedLanes?.length);
+  const laneTabs = showFixedLaneStructure
+    ? fixedLanes!.map((lane) => {
+        const group = mainLaneGroups.find((g) => g.lane === lane);
+        return {
+          lane,
+          label: group?.label ?? laneLabel(lane),
+          count: group?.products.length ?? 0,
+        };
+      })
+    : mainLaneGroups
+        .filter((g) => g.products.length > 0)
+        .map((g) => ({ lane: g.lane, label: g.label, count: g.products.length }));
+
+  if (products.length === 0 && !showFixedLaneStructure) {
     return (
       <div className="rounded-xl border bg-muted/20 py-12 text-center text-sm text-muted-foreground">
         No products match your filters.
@@ -176,13 +199,13 @@ export default function SellerLaneSections({
           <TabsTrigger value="all" className={marketplaceFilterTabsTriggerClass}>
             All ({totalCount})
           </TabsTrigger>
-          {mainLaneGroups.map((g) => (
+          {laneTabs.map((tab) => (
             <TabsTrigger
-              key={g.lane}
-              value={g.lane}
+              key={tab.lane}
+              value={tab.lane}
               className={marketplaceFilterTabsTriggerClass}
             >
-              {g.label} ({g.products.length})
+              {tab.label} ({tab.count})
             </TabsTrigger>
           ))}
           {otherGroup && (

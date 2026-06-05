@@ -29,8 +29,21 @@ import {
   uploadShopAsset,
 } from "@/lib/marketplaceShopApi";
 import { MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { ALL_MARKETPLACE_LANES } from "@/lib/marketplaceLaneLabels";
 import { filterStorefrontProducts, getPinnedProducts } from "@/lib/storefrontUtils";
 import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
+
+export type ShopStorefrontActions = {
+  updateShop: (
+    sellerId: string,
+    patch: { description?: string; location?: string; logo_url?: string; banner_url?: string },
+  ) => Promise<{ ok: boolean; error?: string }>;
+  updateStorefront: (
+    sellerId: string,
+    items: { product_id: string; shop_pin_order?: number | null; shop_sort_order?: number }[],
+  ) => Promise<{ ok: boolean; error?: string }>;
+  uploadAsset: (type: "banner" | "logo", file: File) => Promise<string>;
+};
 
 export interface SellerStorefrontLayoutProps {
   shop: PublicShop;
@@ -40,6 +53,7 @@ export interface SellerStorefrontLayoutProps {
   showOwnerPreviewBanner?: boolean;
   variant?: "seller" | "admin";
   shopEditorPath?: string;
+  shopActions?: ShopStorefrontActions;
   onAddProduct?: () => void;
   onEditProduct?: (product: MarketplaceProduct) => void;
   onDeleteProduct?: (product: MarketplaceProduct) => void;
@@ -57,6 +71,7 @@ export default function SellerStorefrontLayout({
   showOwnerPreviewBanner = false,
   variant = "seller",
   shopEditorPath = "/seller/my-shop",
+  shopActions,
   onAddProduct,
   onEditProduct,
   onDeleteProduct,
@@ -85,15 +100,27 @@ export default function SellerStorefrontLayout({
   const sampleProductId = products[0]?.id || null;
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["public-shop", sellerId] });
-    queryClient.invalidateQueries({ queryKey: ["shop-products", sellerId] });
-    queryClient.invalidateQueries({ queryKey: ["my-shop", sellerId] });
+    if (variant === "admin") {
+      queryClient.invalidateQueries({ queryKey: ["official-shop-public", sellerId] });
+      queryClient.invalidateQueries({ queryKey: ["official-shop-products-storefront", sellerId] });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ["public-shop", sellerId] });
+      queryClient.invalidateQueries({ queryKey: ["shop-products", sellerId] });
+      queryClient.invalidateQueries({ queryKey: ["my-shop", sellerId] });
+    }
     onProductsChange?.();
   };
 
+  const adminFixedLanes = variant === "admin" ? ALL_MARKETPLACE_LANES : undefined;
+  const showLaneSections = products.length > 0 || (editMode && variant === "admin");
+
+  const saveShop = shopActions?.updateShop ?? ((id, patch) => updateMyShop(id, patch));
+  const saveStorefront = shopActions?.updateStorefront ?? ((id, items) => updateShopStorefront(id, items));
+  const saveAsset = shopActions?.uploadAsset ?? uploadShopAsset;
+
   const handleSaveInfo = async () => {
     setSavingInfo(true);
-    const { ok, error } = await updateMyShop(sellerId, {
+    const { ok, error } = await saveShop(sellerId, {
       description: editForm.description.trim(),
       location: editForm.location.trim(),
     });
@@ -111,9 +138,9 @@ export default function SellerStorefrontLayout({
     if (type === "banner") setUploadingBanner(true);
     else setUploadingLogo(true);
     try {
-      const url = await uploadShopAsset(type, file);
+      const url = await saveAsset(type, file);
       const patch = type === "banner" ? { banner_url: url } : { logo_url: url };
-      const { ok, error } = await updateMyShop(sellerId, patch);
+      const { ok, error } = await saveShop(sellerId, patch);
       if (!ok) throw new Error(error || "Failed to save");
       toast.success(type === "banner" ? "Banner updated" : "Logo updated");
       invalidate();
@@ -132,7 +159,7 @@ export default function SellerStorefrontLayout({
       return;
     }
     setPinBusy(true);
-    const { ok, error } = await updateShopStorefront(sellerId, [
+    const { ok, error } = await saveStorefront(sellerId, [
       { product_id: product.id, shop_pin_order: slot },
     ]);
     setPinBusy(false);
@@ -146,7 +173,7 @@ export default function SellerStorefrontLayout({
 
   const handleUnpin = async (product: MarketplaceProduct) => {
     setPinBusy(true);
-    const { ok, error } = await updateShopStorefront(sellerId, [
+    const { ok, error } = await saveStorefront(sellerId, [
       { product_id: product.id, shop_pin_order: null },
     ]);
     setPinBusy(false);
@@ -167,7 +194,7 @@ export default function SellerStorefrontLayout({
     if (!neighbor || neighbor.shop_pin_order == null) return;
 
     setPinBusy(true);
-    const { ok, error } = await updateShopStorefront(sellerId, [
+    const { ok, error } = await saveStorefront(sellerId, [
       { product_id: product.id, shop_pin_order: neighbor.shop_pin_order },
       { product_id: neighbor.id, shop_pin_order: order },
     ]);
@@ -246,27 +273,10 @@ export default function SellerStorefrontLayout({
         />
       )}
 
-      {products.length === 0 ? (
-        <div className="text-center py-16 space-y-3 rounded-xl border bg-muted/20 px-4">
-          <Store className="h-12 w-12 mx-auto text-muted-foreground/40" />
-          {editMode ? (
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              {variant === "admin"
-                ? "No products yet. Add listings under Official shop → Products, then return here to pin and arrange them."
-                : "No live products in your shop yet. Add and get listings approved under Products in the sidebar, then return here to pin and arrange them."}
-            </p>
-          ) : (
-            <>
-              <p className="text-muted-foreground">No products listed in this shop yet.</p>
-              {sampleProductId && (
-                <TalkToSellerButton sellerId={sellerId} productId={sampleProductId} variant="default" />
-              )}
-            </>
-          )}
-        </div>
-      ) : (
+      {showLaneSections ? (
         <SellerLaneSections
           products={gridProducts}
+          fixedLanes={adminFixedLanes}
           editMode={editMode}
           pinDisabled={pinBusy || pinDisabled}
           pinnedIds={pinnedIds}
@@ -278,6 +288,22 @@ export default function SellerStorefrontLayout({
           onAddToCart={onAddToCart}
           onBuyNow={onBuyNow}
         />
+      ) : (
+        <div className="text-center py-16 space-y-3 rounded-xl border bg-muted/20 px-4">
+          <Store className="h-12 w-12 mx-auto text-muted-foreground/40" />
+          {editMode ? (
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              No live products in your shop yet. Add and get listings approved under Products in the sidebar, then return here to pin and arrange them.
+            </p>
+          ) : (
+            <>
+              <p className="text-muted-foreground">No products listed in this shop yet.</p>
+              {sampleProductId && (
+                <TalkToSellerButton sellerId={sellerId} productId={sampleProductId} variant="default" />
+              )}
+            </>
+          )}
+        </div>
       )}
 
       <Dialog open={editInfoOpen} onOpenChange={setEditInfoOpen}>

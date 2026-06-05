@@ -28,7 +28,15 @@ export type StorefrontLaneGroup = {
   products: MarketplaceProduct[];
 };
 
-export function groupProductsByLane(products: MarketplaceProduct[]): StorefrontLaneGroup[] {
+export type GroupProductsByLaneOptions = {
+  /** When set, always include these lanes (with empty product lists when none match). */
+  fixedLanes?: readonly Exclude<MarketplaceLane, "all">[];
+};
+
+export function groupProductsByLane(
+  products: MarketplaceProduct[],
+  options?: GroupProductsByLaneOptions,
+): StorefrontLaneGroup[] {
   const byLane = new Map<Exclude<MarketplaceLane, "all">, MarketplaceProduct[]>();
   const unassigned: MarketplaceProduct[] = [];
 
@@ -43,8 +51,15 @@ export function groupProductsByLane(products: MarketplaceProduct[]): StorefrontL
     byLane.set(lane, list);
   }
 
+  const laneOrder = options?.fixedLanes?.length
+    ? options.fixedLanes.map((lane) => {
+        const known = SHOP_LANE_ORDER.find((entry) => entry.lane === lane);
+        return known ?? { lane, label: lane };
+      })
+    : SHOP_LANE_ORDER;
+
   const groups: StorefrontLaneGroup[] = [];
-  for (const { lane, label } of SHOP_LANE_ORDER) {
+  for (const { lane, label } of laneOrder) {
     const items = byLane.get(lane) || [];
     groups.push({ lane, label, products: sortStorefrontProducts(items) });
   }
