@@ -236,8 +236,16 @@ Add screenshots, GIFs, or hosted demo links here when public assets are ready. S
 
 | Screenshot | Preview |
 | --- | --- |
-| img1 | ![FarmBondhu screenshot 1](screenshots/img1.png) |
-| img2 | ![FarmBondhu screenshot 2](screenshots/img2.png) |
+| img1 | ![FarmBondhu screenshot 1](screenshots/img1.jpg) |
+| img2 | ![FarmBondhu screenshot 2](screenshots/img2.jpg) |
+| img3 | ![FarmBondhu screenshot 3](screenshots/img3.jpg) |
+| img4 | ![FarmBondhu screenshot 4](screenshots/img4.jpg) |
+| img5 | ![FarmBondhu screenshot 5](screenshots/img5.jpg) |
+| img6 | ![FarmBondhu screenshot 6](screenshots/img6.jpg) |
+| img7 | ![FarmBondhu screenshot 7](screenshots/img7.jpg) |
+| img8 | ![FarmBondhu screenshot 8](screenshots/img8.jpg) |
+| img9 | ![FarmBondhu screenshot 9](screenshots/img9.jpg) |
+| img10 | ![FarmBondhu screenshot 10](screenshots/img10.jpg) |
 
 ---
 
