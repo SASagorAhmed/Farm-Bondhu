@@ -23,24 +23,41 @@ import AdminMarketplaceBanners from "@/components/marketplace/AdminMarketplaceBa
 import AdminFlashSaleManager from "@/components/admin/AdminFlashSaleManager";
 import { useAdminFlashSalePendingCount } from "@/components/admin/AdminFlashSalePendingRequests";
 import AdminMarketplaceChatSoundSettings from "@/components/marketplace/AdminMarketplaceChatSoundSettings";
-import { adminListPendingProducts, adminModerateProductListing } from "@/lib/sellerOnboardingApi";
+import AdminSellerLaneApprovals from "@/pages/admin/AdminSellerLaneApprovals";
+import { adminListPendingProducts, adminListSellerLanes, adminModerateProductListing } from "@/lib/sellerOnboardingApi";
 import {
   fetchAdminProducts,
   fetchAdminShopsList,
   adminSetShopVerified,
   adminVerifySellerProducts,
+  type AdminProductRow,
   type AdminSellerRow,
 } from "@/lib/adminMarketplaceApi";
 import { Textarea } from "@/components/ui/textarea";
 import { Link } from "react-router-dom";
 import { Zap } from "lucide-react";
 
+const ADMIN_PENDING_LISTINGS_QUERY_KEY = ["admin-pending-listings"] as const;
+const ADMIN_MARKETPLACE_PENDING_SELLER_LANES_QUERY_KEY = ["admin-seller-lanes", "marketplace-pending-count"] as const;
+
+type AdminMarketplaceProduct = AdminProductRow & {
+  image?: string;
+  category?: string;
+  unit?: string;
+  location?: string;
+  description?: string;
+  rating?: number;
+  review_count?: number;
+  free_delivery?: boolean;
+  is_verified_seller?: boolean;
+};
+
 export default function AdminMarketplace() {
   const { user } = useAuth();
   const canDeleteProducts = isSuperAdmin(user);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [listingReviewTarget, setListingReviewTarget] = useState<any>(null);
+  const [selectedProduct, setSelectedProduct] = useState<AdminMarketplaceProduct | null>(null);
+  const [listingReviewTarget, setListingReviewTarget] = useState<AdminMarketplaceProduct | null>(null);
   const [listingReviewAction, setListingReviewAction] = useState<"approve" | "reject">("approve");
   const [listingReviewNotes, setListingReviewNotes] = useState("");
   const [listingReviewSubmitting, setListingReviewSubmitting] = useState(false);
@@ -74,8 +91,8 @@ export default function AdminMarketplace() {
     if (shopsError) toast.error("Failed to load marketplace shops");
   }, [shopsError]);
   const { data: pendingListings = [] } = useQuery({
-    queryKey: ["admin-pending-listings"],
-    staleTime: moduleCachePolicy.admin.staleTime,
+    queryKey: ADMIN_PENDING_LISTINGS_QUERY_KEY,
+    staleTime: 0,
     gcTime: moduleCachePolicy.admin.gcTime,
     queryFn: async () => {
       const { ok, data, error } = await adminListPendingProducts();
@@ -83,7 +100,16 @@ export default function AdminMarketplace() {
         toast.error(error || "Failed to load listing queue");
         return [];
       }
-      return data || [];
+      return (data || []) as AdminMarketplaceProduct[];
+    },
+  });
+  const { data: pendingSellerLanes = [] } = useQuery({
+    queryKey: ADMIN_MARKETPLACE_PENDING_SELLER_LANES_QUERY_KEY,
+    staleTime: 0,
+    gcTime: moduleCachePolicy.admin.gcTime,
+    queryFn: async () => {
+      const { ok, data } = await adminListSellerLanes("pending");
+      return ok && data ? data : [];
     },
   });
 
@@ -128,8 +154,9 @@ export default function AdminMarketplace() {
     }
     toast.success(listingReviewAction === "approve" ? "Listing approved" : "Listing rejected");
     setListingReviewTarget(null);
-    queryClient.invalidateQueries({ queryKey: ["admin-pending-listings"] });
+    queryClient.invalidateQueries({ queryKey: ADMIN_PENDING_LISTINGS_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: queryKeys().adminMarketplaceProducts() });
+    queryClient.invalidateQueries({ queryKey: queryKeys().products() });
   };
 
   const { data: pendingFlashCount = 0 } = useAdminFlashSalePendingCount();
@@ -157,13 +184,26 @@ export default function AdminMarketplace() {
 
   useEffect(() => {
     const channels = [
-      { name: "admin-marketplace-products-live", table: "products", key: queryKeys().adminMarketplaceProducts() },
-      { name: "admin-marketplace-shops-live", table: "shops", key: queryKeys().adminMarketplaceShops() },
+      {
+        name: "admin-marketplace-products-live",
+        table: "products",
+        invalidate: () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminMarketplaceProducts() });
+          queryClient.invalidateQueries({ queryKey: ADMIN_PENDING_LISTINGS_QUERY_KEY });
+        },
+      },
+      {
+        name: "admin-marketplace-shops-live",
+        table: "shops",
+        invalidate: () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys().adminMarketplaceShops() });
+        },
+      },
     ].map((entry) =>
       api
         .channel(entry.name)
         .on("postgres_changes", { event: "*", schema: "public", table: entry.table }, () => {
-          queryClient.invalidateQueries({ queryKey: entry.key });
+          entry.invalidate();
         })
         .subscribe()
     );
@@ -183,6 +223,7 @@ export default function AdminMarketplace() {
         <TabsList>
           <TabsTrigger value="products">Products ({products.length})</TabsTrigger>
           <TabsTrigger value="listing-review">Listing review ({pendingListings.length})</TabsTrigger>
+          <TabsTrigger value="seller-lanes">Seller lanes ({pendingSellerLanes.length})</TabsTrigger>
           <TabsTrigger value="shops">Shops ({shops.length})</TabsTrigger>
           <TabsTrigger value="flash-sale" className="gap-1.5">
             Flash Sale
@@ -294,7 +335,7 @@ export default function AdminMarketplace() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pendingListings.map((p: any) => (
+                  {pendingListings.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.name}</TableCell>
                       <TableCell><Badge variant="outline">{p.category}</Badge></TableCell>
@@ -335,6 +376,10 @@ export default function AdminMarketplace() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="seller-lanes">
+          <AdminSellerLaneApprovals />
         </TabsContent>
 
         <TabsContent value="shops">

@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/api/client";
 import SellerStorefrontLayout from "@/components/marketplace/storefront/SellerStorefrontLayout";
 import ProductFormDialog from "@/components/marketplace/ProductFormDialog";
-import { fetchPublicShop, fetchShopProducts } from "@/lib/marketplaceShopApi";
+import { fetchPublicShop } from "@/lib/marketplaceShopApi";
 import { fetchSellerOnboardingMe } from "@/lib/sellerOnboardingApi";
 import type { MarketplaceLane } from "@/lib/marketplaceCategories";
 import { fromDbRow, type ProductFormValues } from "@/lib/marketplaceProductForm";
-import { type MarketplaceProduct } from "@/lib/marketplaceProduct";
+import { dbToProduct, type MarketplaceProduct } from "@/lib/marketplaceProduct";
 import { invalidateMarketplaceStockQueries } from "@/lib/marketplaceStockQueries";
 import { useSellerProductUpdate } from "@/hooks/useSellerProductUpdate";
+import { useSellerInventory } from "@/lib/sellerInventoryApi";
 import { usePhotoEditorShopSessionExports } from "@/features/photoEditor/hooks/usePhotoEditorShopSessionExports";
 import { VENDOR_THEME } from "@/lib/vendorTheme";
 import { toast } from "sonner";
@@ -36,14 +37,24 @@ export default function SellerShopEditor() {
     queryFn: () => fetchPublicShop(sellerId),
   });
 
-  const { data: productResult, isLoading: productsLoading, refetch } = useQuery({
-    queryKey: ["shop-products", sellerId],
-    enabled: Boolean(sellerId),
-    queryFn: () => fetchShopProducts(sellerId, { sort: "storefront" }),
-  });
+  const {
+    data: inventoryProducts = [],
+    isLoading: productsLoading,
+    error: productsError,
+    refetch: refetchInventory,
+  } = useSellerInventory();
 
-  const products = productResult?.products ?? [];
-  const productsError = productResult?.error;
+  const products = useMemo(
+    () =>
+      inventoryProducts
+        .map((row) => dbToProduct(row as Record<string, unknown>))
+        .sort((a, b) => {
+          const sortDelta = (a.shop_sort_order ?? 0) - (b.shop_sort_order ?? 0);
+          if (sortDelta !== 0) return sortDelta;
+          return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+        }),
+    [inventoryProducts],
+  );
 
   const { data: onboarding } = useQuery({
     queryKey: ["seller-onboarding-me", user?.id],
@@ -56,7 +67,8 @@ export default function SellerShopEditor() {
   usePhotoEditorShopSessionExports(sellerId, () => {
     queryClient.invalidateQueries({ queryKey: ["my-shop", sellerId] });
     queryClient.invalidateQueries({ queryKey: ["public-shop", sellerId] });
-    void refetch();
+    queryClient.invalidateQueries({ queryKey: ["shop-products", sellerId] });
+    void refetchInventory();
   });
 
   useEffect(() => {
@@ -72,7 +84,7 @@ export default function SellerShopEditor() {
   const refreshProducts = () => {
     invalidateMarketplaceStockQueries(queryClient, { userId: user?.id });
     queryClient.invalidateQueries({ queryKey: ["shop-products", sellerId] });
-    void refetch();
+    void refetchInventory();
   };
 
   const productToFormValues = (product: MarketplaceProduct): ProductFormValues =>
@@ -130,7 +142,7 @@ export default function SellerShopEditor() {
     <>
       {productsError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm text-destructive mb-4">
-          Could not load shop products: {productsError}
+          Could not load shop products: {productsError instanceof Error ? productsError.message : "Please try again."}
         </div>
       )}
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
