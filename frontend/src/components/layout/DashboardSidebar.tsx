@@ -227,14 +227,9 @@ export default function DashboardSidebar() {
               </button>
             </>
           ) : (
-            <>
-              {isAdmin && activeAdminModule && !onAdminHub ? (
-                <AdminModuleSwitcher activeModule={activeAdminModule} collapsed={true} />
-              ) : null}
-              <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto">
-                <Menu className="h-4 w-4" />
-              </button>
-            </>
+            <button onClick={toggleSidebar} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mx-auto">
+              <Menu className="h-4 w-4" />
+            </button>
           )}
         </div>
       </SidebarHeader>
@@ -324,7 +319,7 @@ export default function DashboardSidebar() {
       <SidebarFooter className="border-t border-sidebar-border p-3">
         {!collapsed && (
           <button onClick={() => navigate("/admin/profile")} className="flex items-center gap-2 mb-2 px-1 w-full hover:opacity-80 transition-opacity cursor-pointer">
-            <div className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: ICON_COLORS.profile }}>
+            <div className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: ICON_COLORS.admin }}>
               {user.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0 text-left">

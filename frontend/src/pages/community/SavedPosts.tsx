@@ -1,14 +1,24 @@
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2 } from "lucide-react";
+import { BookmarkX, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import PostCard from "@/components/community/PostCard";
 import { useCommunityPostsBundle } from "@/hooks/useCommunityPostsBundle";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+
+type SavedCommunityPost = Record<string, unknown> & {
+  id: string;
+  user_id: string;
+};
 
 export default function SavedPosts() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const savedQueryKey = ["community-saved", user?.id || "anon"] as const;
   const { data, isLoading } = useCommunityPostsBundle({
-    queryKey: ["community-saved", user?.id || "anon"],
+    queryKey: savedQueryKey,
     enabled: Boolean(user?.id),
     loadPosts: async () => {
       if (!user?.id) return [];
@@ -24,8 +34,23 @@ export default function SavedPosts() {
       return postsData || [];
     },
   });
-  const posts = data?.posts || [];
+  const posts = (data?.posts || []) as SavedCommunityPost[];
   const profiles = data?.profiles || {};
+
+  const removeSavedPost = async (postId: string) => {
+    if (!user?.id) return;
+    const { error } = await api.from("community_saves").delete().eq("post_id", postId).eq("user_id", user.id);
+    if (error) {
+      toast({ title: "Could not remove saved post", description: error.message, variant: "destructive" });
+      return;
+    }
+    queryClient.setQueryData<{ posts: SavedCommunityPost[]; profiles: typeof profiles }>(savedQueryKey, (prev) =>
+      prev ? { ...prev, posts: prev.posts.filter((post) => post.id !== postId) } : prev
+    );
+    void queryClient.invalidateQueries({ queryKey: savedQueryKey });
+    void queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+    toast({ title: "Removed from saved" });
+  };
 
   return (
     <div className="space-y-5">
@@ -35,7 +60,27 @@ export default function SavedPosts() {
       </motion.div>
       {isLoading && !posts.length ? <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         : posts.length === 0 ? <p className="text-center py-16 text-muted-foreground">No saved posts yet.</p>
-        : <div className="space-y-3">{posts.map(p => <PostCard key={p.id} post={{ ...p, author_name: profiles[p.user_id]?.name, author_role: profiles[p.user_id]?.primary_role }} />)}</div>}
+        : <div className="space-y-3">{posts.map(p => (
+          <div key={p.id} className="relative">
+            <PostCard
+              post={{ ...p, author_name: profiles[p.user_id]?.name, author_role: profiles[p.user_id]?.primary_role, has_saved: true }}
+              hideModerationDelete
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="absolute right-3 top-3 z-10 rounded-full border-teal-200 bg-background/95 text-teal-700 shadow-sm hover:bg-teal-50"
+              onClick={(event) => {
+                event.stopPropagation();
+                void removeSavedPost(p.id);
+              }}
+            >
+              <BookmarkX className="mr-1.5 h-3.5 w-3.5" />
+              Remove saved
+            </Button>
+          </div>
+        ))}</div>}
     </div>
   );
 }

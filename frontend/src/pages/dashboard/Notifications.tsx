@@ -14,7 +14,7 @@ import { api } from "@/api/client";
 
 import { useAuth, canAccessWorkspace, type WorkspaceKey } from "@/contexts/AuthContext";
 
-import { Bell, ShieldCheck, CheckCheck, Loader2, Layers, ShoppingCart, GraduationCap, ExternalLink, Stethoscope, Tractor } from "lucide-react";
+import { Bell, ShieldCheck, CheckCheck, Loader2, Layers, ShoppingCart, GraduationCap, ExternalLink, Stethoscope, Tractor, MessageSquareText } from "lucide-react";
 
 import { motion } from "framer-motion";
 
@@ -66,6 +66,8 @@ const WORKSPACE_TABS = [
 
   { value: "learning", label: "Learning", icon: GraduationCap, contexts: ["learning"] },
 
+  { value: "community", label: "Community", icon: MessageSquareText, contexts: ["community"] },
+
   { value: "admin", label: "Admin", icon: ShieldCheck, contexts: ["admin"] },
 
 ];
@@ -97,6 +99,8 @@ function getDefaultTab(contextFilter?: string[]): string {
   if (contextFilter.includes("medibondhu")) return "medibondhu";
 
   if (contextFilter.includes("learning")) return "learning";
+
+  if (contextFilter.includes("community")) return "community";
 
   if (contextFilter.includes("admin")) return "admin";
 
@@ -139,6 +143,14 @@ export default function Notifications({ contextFilter }: NotificationsProps) {
     enabled: Boolean(userId),
 
     staleTime: 30 * 1000,
+
+    refetchInterval: () => {
+
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+
+      return 10_000;
+
+    },
 
   });
 

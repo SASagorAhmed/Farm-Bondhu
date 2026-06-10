@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
-  LayoutGrid, PenSquare, HelpCircle, AlertTriangle, Bookmark, User, LogOut, Menu, PanelLeftClose,
+  LayoutGrid, PenSquare, Bookmark, User, LogOut, Menu, PanelLeftClose,
   MessageSquareText, UserCircle, Settings, Clock, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,11 +39,9 @@ export default function CommunitySidebar() {
   const COMMUNITY_ITEMS: NavItem[] = [
     { title: t("sidebar.feed"), url: "/community", icon: LayoutGrid, iconColor: CB },
     { title: t("sidebar.createPost"), url: "/community/create", icon: PenSquare, iconColor: CB },
-    { title: t("sidebar.unanswered"), url: "/community/unanswered", icon: HelpCircle, iconColor: "#F59E0B" },
-    { title: t("sidebar.urgent"), url: "/community/urgent", icon: AlertTriangle, iconColor: "#F43F5E" },
     { title: t("sidebar.myPosts"), url: "/community/my-posts", icon: User, iconColor: ICON_COLORS.profile },
     { title: t("sidebar.saved"), url: "/community/saved", icon: Bookmark, iconColor: ICON_COLORS.bell },
-    { title: t("sidebar.history"), url: "/community/history", icon: Clock, iconColor: "#8B5CF6" },
+    { title: t("sidebar.history"), url: "/community/history", icon: Clock, iconColor: CB },
   ];
 
   const COMMUNITY_BOTTOM: NavItem[] = [

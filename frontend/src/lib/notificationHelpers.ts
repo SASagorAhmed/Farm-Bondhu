@@ -1,6 +1,6 @@
 import type { ElementType } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Bell, Banknote, Info, Package, ShieldCheck, Stethoscope, Tractor } from "lucide-react";
+import { Bell, Banknote, Info, MessageSquareText, Package, ShieldCheck, Stethoscope, Tractor } from "lucide-react";
 import { api } from "@/api/client";
 import { ICON_COLORS } from "@/lib/iconColors";
 import type { QueryClient } from "@tanstack/react-query";
@@ -26,6 +26,7 @@ export const typeIcons: Record<string, ElementType> = {
   vet: Stethoscope,
   farm: Tractor,
   general: Bell,
+  community: MessageSquareText,
   seller_withdrawal_submitted: Banknote,
   seller_withdrawal_review: Banknote,
   seller_withdrawal_new: Banknote,
@@ -38,6 +39,7 @@ export const typeIconColors: Record<string, string> = {
   vet: ICON_COLORS.stethoscope,
   farm: ICON_COLORS.farmBrand,
   general: ICON_COLORS.dashboard,
+  community: ICON_COLORS.community,
   seller_withdrawal_submitted: ICON_COLORS.finance,
   seller_withdrawal_review: ICON_COLORS.finance,
   seller_withdrawal_new: ICON_COLORS.admin,
@@ -125,6 +127,64 @@ export function notificationsQueryKey(userId?: string) {
   return ["notifications", userId] as const;
 }
 
+function sortNotifications(rows: NotificationRow[]): NotificationRow[] {
+  return [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+export function mergeNotificationsIntoCache(
+  queryClient: QueryClient,
+  userId: string,
+  rows: NotificationRow[]
+): NotificationRow[] {
+  const incoming = filterNotificationsForUser(rows, userId);
+  const key = notificationsQueryKey(userId);
+  const previous = queryClient.getQueryData<NotificationRow[]>(key) || [];
+  const previousIds = new Set(previous.map((row) => row.id));
+  const byId = new Map<string, NotificationRow>();
+  for (const row of previous) byId.set(row.id, row);
+  for (const row of incoming) byId.set(row.id, row);
+  const merged = sortNotifications(filterNotificationsForUser([...byId.values()], userId));
+  queryClient.setQueryData<NotificationRow[]>(key, merged);
+  return incoming.filter((row) => !previousIds.has(row.id));
+}
+
+export function startNotificationsPolling(
+  userId: string,
+  queryClient: QueryClient,
+  options?: {
+    intervalMs?: number;
+    onInsert?: (row: NotificationRow) => void;
+  }
+) {
+  const intervalMs = Math.max(3000, options?.intervalMs ?? 5000);
+  let stopped = false;
+  let primed = false;
+  const seenIds = new Set<string>();
+
+  const poll = async () => {
+    if (stopped) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const rows = await fetchNotifications(userId);
+    mergeNotificationsIntoCache(queryClient, userId, rows);
+    const newUnreadRows = rows.filter((row) => !row.read && !seenIds.has(row.id));
+    for (const row of rows) seenIds.add(row.id);
+    if (primed) {
+      for (const row of newUnreadRows) options?.onInsert?.(row);
+    }
+    primed = true;
+  };
+
+  void poll();
+  const intervalId = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+
+  return () => {
+    stopped = true;
+    window.clearInterval(intervalId);
+  };
+}
+
 function notificationChannelName(channelId: string, userId: string): string {
   return `${channelId}-${String(userId).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
@@ -150,7 +210,7 @@ export function subscribeNotificationsRealtime(
           const row = payload.new as NotificationRow;
           if (prev.some((n) => n.id === row.id)) return prev;
           inserted = true;
-          return [row, ...prev];
+          return sortNotifications([row, ...prev]);
         });
         if (inserted) options?.onInsert?.(payload.new as NotificationRow);
         return;

@@ -1,7 +1,9 @@
 import { Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import PostTypeBadge from "./PostTypeBadge";
-import { CATEGORY_LABELS, ANIMAL_LABELS } from "./PostCard";
+import { CATEGORY_LABELS, ANIMAL_LABELS } from "@/lib/communityCategories";
+import CommunityImageGrid from "./CommunityImageGrid";
+import type { CommunityImageAttachment } from "@/lib/communityPostMediaApi";
 
 export interface SharedPostData {
   id: string;
@@ -11,6 +13,11 @@ export interface SharedPostData {
   category: string;
   animal_type: string;
   created_at: string;
+  reaction_count?: number;
+  comment_count?: number;
+  answer_count?: number;
+  share_count?: number;
+  attachments?: CommunityImageAttachment[] | null;
   author_name?: string;
   author_role?: string;
 }
@@ -68,6 +75,12 @@ export default function SharedPostEmbed({ post, compact, onClick }: SharedPostEm
             {post.body}
           </p>
         )}
+        <CommunityImageGrid attachments={post.attachments} compact />
+        <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+          <span>{post.reaction_count || 0} reactions</span>
+          <span>{post.comment_count || 0} comments</span>
+          {(post.answer_count || 0) > 0 && <span>{post.answer_count} answers</span>}
+        </div>
       </div>
     </div>
   );

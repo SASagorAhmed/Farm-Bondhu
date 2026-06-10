@@ -2,7 +2,8 @@ import { useParams } from "react-router-dom";
 import { api } from "@/api/client";
 import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
-import PostCard, { CATEGORY_LABELS } from "@/components/community/PostCard";
+import PostCard from "@/components/community/PostCard";
+import { CATEGORY_LABELS } from "@/lib/communityCategories";
 import { useCommunityPostsBundle } from "@/hooks/useCommunityPostsBundle";
 
 export default function CategoryFeed() {

@@ -179,6 +179,11 @@ export async function ensureSchema(sql) {
     "extension pgcrypto",
     `CREATE EXTENSION IF NOT EXISTS pgcrypto`
   );
+  await runOptional(
+    sql,
+    "extension pg_trgm",
+    `CREATE EXTENSION IF NOT EXISTS pg_trgm`
+  );
 
   const stmts = [
     `CREATE TABLE IF NOT EXISTS public.profiles (
@@ -189,6 +194,10 @@ export async function ensureSchema(sql) {
       phone text,
       location text,
       avatar_url text,
+      cv_url text,
+      cv_filename text,
+      cv_mime_type text,
+      cv_updated_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
@@ -536,9 +545,65 @@ export async function ensureSchema(sql) {
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
 
+    `CREATE TABLE IF NOT EXISTS public.learning_courses (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      title text NOT NULL,
+      slug text UNIQUE,
+      summary text,
+      description text,
+      category text,
+      animal_type text,
+      thumbnail_url text,
+      access_type text NOT NULL DEFAULT 'free',
+      price numeric NOT NULL DEFAULT 0,
+      currency text NOT NULL DEFAULT 'BDT',
+      is_published boolean NOT NULL DEFAULT false,
+      sort_order integer NOT NULL DEFAULT 0,
+      author_id uuid,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.learning_course_videos (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      course_id uuid NOT NULL,
+      title text NOT NULL,
+      description text,
+      video_url text,
+      cloudinary_public_id text,
+      duration_seconds integer NOT NULL DEFAULT 0,
+      sort_order integer NOT NULL DEFAULT 0,
+      is_preview boolean NOT NULL DEFAULT false,
+      is_published boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.learning_course_enrollments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      course_id uuid NOT NULL,
+      user_id uuid NOT NULL,
+      status text NOT NULL DEFAULT 'pending',
+      access_source text NOT NULL DEFAULT 'manual_payment',
+      valid_until timestamptz,
+      granted_by uuid,
+      payment_status text NOT NULL DEFAULT 'unpaid',
+      payment_method text,
+      payment_reference text,
+      payment_sender text,
+      payment_amount numeric NOT NULL DEFAULT 0,
+      payment_currency text NOT NULL DEFAULT 'BDT',
+      payment_note text,
+      payment_submitted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (course_id, user_id)
+    )`,
+
     `CREATE TABLE IF NOT EXISTS public.community_posts (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid NOT NULL,
+      post_intent text NOT NULL DEFAULT 'general',
       post_type text NOT NULL DEFAULT 'question',
       title text,
       body text,
@@ -550,6 +615,9 @@ export async function ensureSchema(sql) {
       comment_count integer NOT NULL DEFAULT 0,
       answer_count integer NOT NULL DEFAULT 0,
       share_count integer NOT NULL DEFAULT 0,
+      shared_post_id uuid,
+      workspace_context text[] NOT NULL DEFAULT '{}'::text[],
+      hiring_details jsonb NOT NULL DEFAULT '{}'::jsonb,
       link_preview jsonb,
       attachments jsonb,
       tags text[],
@@ -561,9 +629,20 @@ export async function ensureSchema(sql) {
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       post_id uuid NOT NULL,
       user_id uuid NOT NULL,
+      parent_id uuid,
       body text NOT NULL,
+      reaction_count integer NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.community_comment_reactions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      comment_id uuid NOT NULL,
+      post_id uuid NOT NULL,
+      user_id uuid NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (comment_id, user_id)
     )`,
 
     `CREATE TABLE IF NOT EXISTS public.community_answers (
@@ -602,6 +681,20 @@ export async function ensureSchema(sql) {
       status text NOT NULL DEFAULT 'open',
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS public.community_hiring_interests (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      post_id uuid NOT NULL,
+      owner_user_id uuid NOT NULL,
+      interested_user_id uuid NOT NULL,
+      status text NOT NULL DEFAULT 'interested',
+      shared_profile jsonb NOT NULL DEFAULT '{}'::jsonb,
+      shared_cv_url text,
+      message text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (post_id, interested_user_id)
     )`,
 
     `CREATE TABLE IF NOT EXISTS public.conversations (
@@ -1065,6 +1158,10 @@ export async function ensureSchema(sql) {
     "phone text",
     "location text",
     "avatar_url text",
+    "cv_url text",
+    "cv_filename text",
+    "cv_mime_type text",
+    "cv_updated_at timestamptz",
     "status text NOT NULL DEFAULT 'active'",
     "farmer_open_medibondhu boolean NOT NULL DEFAULT true",
     "signup_module text",
@@ -1104,6 +1201,7 @@ export async function ensureSchema(sql) {
   ]);
 
   await addColumns(sql, "community_posts", [
+    "post_intent text NOT NULL DEFAULT 'general'",
     "post_type text NOT NULL DEFAULT 'question'",
     "title text",
     "body text",
@@ -1115,6 +1213,9 @@ export async function ensureSchema(sql) {
     "comment_count integer NOT NULL DEFAULT 0",
     "answer_count integer NOT NULL DEFAULT 0",
     "share_count integer NOT NULL DEFAULT 0",
+    "shared_post_id uuid",
+    "workspace_context text[] NOT NULL DEFAULT '{}'::text[]",
+    "hiring_details jsonb NOT NULL DEFAULT '{}'::jsonb",
     "link_preview jsonb",
     "attachments jsonb",
     "tags text[]",
@@ -1125,6 +1226,11 @@ export async function ensureSchema(sql) {
   await addColumns(sql, "community_answers", [
     "is_best_answer boolean NOT NULL DEFAULT false",
     "upvote_count integer NOT NULL DEFAULT 0",
+  ]);
+
+  await addColumns(sql, "community_comments", [
+    "parent_id uuid",
+    "reaction_count integer NOT NULL DEFAULT 0",
   ]);
 
   await addColumns(sql, "community_reports", [
@@ -1651,6 +1757,17 @@ export async function ensureSchema(sql) {
     "updated_at timestamptz NOT NULL DEFAULT now()",
   ]);
 
+  await addColumns(sql, "learning_course_enrollments", [
+    "payment_status text NOT NULL DEFAULT 'unpaid'",
+    "payment_method text",
+    "payment_reference text",
+    "payment_sender text",
+    "payment_amount numeric NOT NULL DEFAULT 0",
+    "payment_currency text NOT NULL DEFAULT 'BDT'",
+    "payment_note text",
+    "payment_submitted_at timestamptz",
+  ]);
+
   await addColumns(sql, "vet_withdrawals", [
     "vet_user_id uuid NOT NULL",
     "request_amount numeric NOT NULL",
@@ -1924,6 +2041,20 @@ export async function ensureSchema(sql) {
     `CREATE INDEX IF NOT EXISTS idx_cow_weight_estimations_user ON public.cow_weight_estimations (user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_cow_detection_feedback_user ON public.cow_detection_feedback (user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_community_posts_status ON public.community_posts (status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_category_created ON public.community_posts (category, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_animal_created ON public.community_posts (animal_type, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_workspace_context ON public.community_posts USING gin (workspace_context)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_search_doc ON public.community_posts USING gin (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(body, '') || ' ' || coalesce(category, '') || ' ' || coalesce(animal_type, '') || ' ' || coalesce(array_to_string(tags, ' '), '')))`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_title_trgm ON public.community_posts USING gin (lower(coalesce(title, '')) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_body_trgm ON public.community_posts USING gin (lower(coalesce(body, '')) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_posts_intent_created ON public.community_posts (post_intent, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_comments_post_parent_created ON public.community_comments (post_id, parent_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_comments_user_created ON public.community_comments (user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_comment_reactions_comment ON public.community_comment_reactions (comment_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_comment_reactions_user ON public.community_comment_reactions (user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_hiring_interests_post ON public.community_hiring_interests (post_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_hiring_interests_owner ON public.community_hiring_interests (owner_user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_hiring_interests_user ON public.community_hiring_interests (interested_user_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_buyer ON public.orders (buyer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_seller ON public.orders (seller_id)`,
     `CREATE INDEX IF NOT EXISTS idx_products_seller ON public.products (seller_id)`,

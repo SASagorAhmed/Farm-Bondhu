@@ -4,7 +4,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageSquare, Heart, Bookmark, HelpCircle, PenSquare, Clock, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -102,12 +101,12 @@ export default function CommunityHistory() {
                     <Icon className={`h-4 w-4 ${cfg.color}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
                       <Badge variant="outline" className="mr-2 text-xs">
                         {cfg.label}
                       </Badge>
-                      {a.post_title}
-                    </p>
+                      <span className="truncate">{a.post_title}</span>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
                     </p>

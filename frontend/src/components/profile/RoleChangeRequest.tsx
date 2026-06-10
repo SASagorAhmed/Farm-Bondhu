@@ -46,7 +46,7 @@ export default function RoleChangeRequest() {
         .limit(1);
 
       if (data && data.length > 0) {
-        setExisting(data[0] as any);
+        setExisting(data[0] as ExistingRequest);
       }
       setLoading(false);
     };
@@ -75,7 +75,7 @@ export default function RoleChangeRequest() {
         .eq("request_type", "role_change")
         .order("created_at", { ascending: false })
         .limit(1);
-      if (data && data.length > 0) setExisting(data[0] as any);
+      if (data && data.length > 0) setExisting(data[0] as ExistingRequest);
       setSelectedRole("");
       setReason("");
     }
@@ -123,7 +123,7 @@ export default function RoleChangeRequest() {
               <span className="text-sm font-medium capitalize">{existing.status} Request</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Requested: <span className="font-medium capitalize">{(existing.details as any)?.requested_role}</span>
+              Requested: <span className="font-medium capitalize">{existing.details.requested_role}</span>
               {" · "}{new Date(existing.created_at).toLocaleDateString()}
             </p>
             {existing.review_notes && (
@@ -157,7 +157,7 @@ export default function RoleChangeRequest() {
                 placeholder="Explain why you want to change your role..."
                 rows={3}
                 maxLength={500}
-                className="resize-none"
+                className="resize-none overflow-hidden"
               />
             </div>
 

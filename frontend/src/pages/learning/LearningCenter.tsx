@@ -82,14 +82,14 @@ export default function LearningCenter() {
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl md:text-3xl font-display font-bold" style={{ color: "#F97316" }}>Learning Center</h1>
-        <p className="text-muted-foreground mt-1">Guides on diseases, medicines, vaccines and feeding</p>
+        <h1 className="text-2xl md:text-3xl font-display font-bold" style={{ color: "#F97316" }}>Articles</h1>
+        <p className="text-muted-foreground mt-1">Guides and articles on diseases, medicines, vaccines and feeding</p>
       </motion.div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search guides..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search articles..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Tabs value={category} onValueChange={setCategory}>
           <TabsList className="flex-wrap">

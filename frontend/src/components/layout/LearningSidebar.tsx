@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
-  LogOut, Menu, PanelLeftClose, BookOpen, LayoutGrid, UserCircle,
+  LogOut, Menu, PanelLeftClose, BookOpen, LayoutGrid, UserCircle, PlaySquare,
   Shield, Settings, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,13 @@ interface NavItem {
 }
 
 const LEARNING_ITEMS: NavItem[] = [
-  { title: "Home", url: "/learning", icon: LayoutGrid, iconColor: LB },
+  { title: "Dashboard", url: "/learning/dashboard", icon: LayoutGrid, iconColor: LB },
+  { title: "My Course", url: "/learning/my-course", icon: PlaySquare, iconColor: LB },
+  { title: "Article", url: "/learning/articles", icon: BookOpen, iconColor: LB },
 ];
 
 const LEARNING_BOTTOM: NavItem[] = [
-  { title: "Access Center", url: "/learning/access-center", icon: Shield, iconColor: "hsl(262, 83%, 58%)" },
+  { title: "Access Center", url: "/learning/access-center", icon: Shield, iconColor: LB },
   { title: "Profile", url: "/learning/profile", icon: UserCircle, iconColor: ICON_COLORS.profile },
   { title: "Help & Support", url: "/learning/support", icon: Headphones, iconColor: LB },
   { title: "Settings", url: "/learning/settings", icon: Settings, iconColor: ICON_COLORS.dashboard },
@@ -51,8 +53,8 @@ export default function LearningSidebar() {
   const renderItem = (item: NavItem) => {
     const path = location.pathname;
     const active =
-      item.url === "/learning"
-        ? path === "/learning" || path === "/learning/"
+      item.url === "/learning/dashboard"
+        ? path === item.url || path.startsWith(`${item.url}/`) || path.startsWith("/learning/courses/")
         : path === item.url || path.startsWith(`${item.url}/`);
     return (
       <SidebarMenuItem key={item.url}>
