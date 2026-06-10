@@ -232,16 +232,12 @@ GET http://localhost:3001/api/v1
 
 ## Screenshots and Demo
 
-Add screenshots, GIFs, or hosted demo links here when public assets are ready:
+Add screenshots, GIFs, or hosted demo links here when public assets are ready. Store README screenshots in `screenshots/` and rename these placeholder files later as needed.
 
-| Area | Preview |
+| Screenshot | Preview |
 | --- | --- |
-| FarmBondhu workspace | Coming soon |
-| GreenBondhu Marketplace | Coming soon |
-| VetBondhu consultation | Coming soon |
-| MediBondhu doctor booking | Coming soon |
-| Seller photo editor | Coming soon |
-| Admin dashboard | Coming soon |
+| img1 | ![FarmBondhu screenshot 1](screenshots/img1.png) |
+| img2 | ![FarmBondhu screenshot 2](screenshots/img2.png) |
 
 ---
 
