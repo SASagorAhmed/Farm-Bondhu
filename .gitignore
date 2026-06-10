@@ -23,6 +23,7 @@ Thumbs.db
 
 # IDE
 .idea/
+.cursor/
 .vscode/*
 !.vscode/extensions.json
 
