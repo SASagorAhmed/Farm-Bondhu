@@ -50,8 +50,10 @@ FB_BASE_URL=http://localhost:8080
 FB_TEST_EMAIL=your-farmer@email.com
 FB_TEST_PASSWORD=yourpassword
 COW_WEIGHT_TEST_IMAGE=assets/cow-test.jpg
+CHROME_ZOOM=100
+CHROME_FULLSCREEN=true
 SELENIUM_HEADLESS=false
-STEP_DELAY_SEC=4
+STEP_DELAY_SEC=0
 COW_WEIGHT_AI_TIMEOUT_SEC=180
 COW_WEIGHT_SAVE_TIMEOUT_SEC=60
 ```
@@ -68,13 +70,17 @@ pytest tests/test_farmer_tour.py -v -s
 
 `-s` prints `PASS:` / `FAIL:` lines for your demo.
 
-For live demos, Chrome opens **fullscreen** at **80% zoom** by default (`CHROME_FULLSCREEN=true`, `CHROME_ZOOM=80` in `.env`). Set `CHROME_ZOOM=100` and `CHROME_FULLSCREEN=false` to use a normal maximized window at 100%.
+For live demos, Chrome opens in fullscreen/kiosk-style demo mode at **100% zoom** by default (`CHROME_FULLSCREEN=true`, `CHROME_ZOOM=100` in `.env`). The site stays full-size inside Chrome instead of being CSS-shrunk inside the viewport. Set `CHROME_FULLSCREEN=false` to use a normal maximized window.
 
 On failure, screenshots are saved under `selenium-tests/screenshots/`.
 
 ## Step delay (demo pacing)
 
-`STEP_DELAY_SEC=4` pauses **4 seconds after each successful step** so the browser tour is visible during a project show. The test also **waits for page text** (e.g. `Welcome,`) before asserting — React loads after HTML `readyState`, so instant checks can fail even when the page looks correct.
+`STEP_DELAY_SEC=0` removes extra pauses after each successful step. Set it to `1`, `2`, or another value only if you want a slower narrated demo. The test still **waits for page text** (e.g. `Welcome,`) before asserting — React loads after HTML `readyState`, so instant checks can fail even when the page looks correct.
+
+After each page loads, the farmer tour does a fast top-to-bottom showcase scroll and immediately moves to the next step. Page changes use the app navigation links where possible, so the demo behaves like a user clicking through the sidebar instead of reloading every route directly.
+
+Before logout, the tour visits the marketplace, chooses the first available product, completes checkout, places a real local test order for the configured account, waits 2 seconds on the order page, then logs out. Use a local/demo database account for this flow.
 
 ## Cow Weight full flow
 
@@ -82,10 +88,10 @@ The tour runs the **complete AI wizard** (not just upload):
 
 1. Upload photo on `/dashboard/cow-weight/upload`
 2. Wait for AI analyze → scan (up to `COW_WEIGHT_AI_TIMEOUT_SEC`, default 180s)
-3. Click **Next** through scan steps 1–5 (4s pause after each)
+3. Click **Next** through scan steps 1–5
 4. Click **Confirm & calculate** on step 6
 5. Wait for **Estimation result** saved (up to `COW_WEIGHT_SAVE_TIMEOUT_SEC`, default 60s)
-6. **Back** to Cow Weight hub, then continue Feed → Sales → … → Logout
+6. **Back** to Cow Weight hub, then continue Feed → Sales → Marketplace order → Logout
 
 Expect **3–5 minutes** total runtime when AI and save are included. Increase timeouts on slower machines.
 
@@ -95,7 +101,8 @@ Expect **3–5 minutes** total runtime when AI and save are included. Increase t
 2. Dashboard → Farms → Animals → Cow Weight hub → **full AI save flow**
 3. Feed → Health → Production → Mortality → Sales → Finances
 4. Access Center → Profile → Support → Settings
-5. Logout
+5. Marketplace → first available product → checkout → place local test order
+6. Logout
 
 ## Headless mode
 

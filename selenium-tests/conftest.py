@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
@@ -28,6 +30,66 @@ FARM_SHELL_MARKERS = ("Welcome,", "Farm Management", "Your farm overview at a gl
 def step_pause() -> None:
     if STEP_DELAY_SEC > 0:
         time.sleep(STEP_DELAY_SEC)
+
+
+def scroll_page_top_bottom_top(
+    driver,
+    *,
+    target_sec: float = 0.45,
+    max_sec: float = 0.9,
+    return_to_top: bool = True,
+) -> None:
+    viewport_height, page_height = driver.execute_script(
+        """
+        const main = Array.from(document.querySelectorAll('main'))
+            .find((el) => el.scrollHeight > el.clientHeight + 8);
+        const scrollingElement = main || document.scrollingElement || document.documentElement;
+        window.__farmBondhuScrollTarget = scrollingElement;
+        scrollingElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        return [
+            scrollingElement.clientHeight || window.innerHeight || document.documentElement.clientHeight,
+            scrollingElement.scrollHeight,
+        ];
+        """
+    )
+    max_position = max(page_height - viewport_height, 0)
+    if max_position <= 4:
+        time.sleep(0.03)
+        return
+
+    started_at = time.monotonic()
+    steps = max(1, min(3, int(max_position // max(viewport_height, 1)) + 1))
+    pause_sec = min(0.08, max(0.04, target_sec / (steps + (2 if return_to_top else 1))))
+
+    for step in range(1, steps + 1):
+        next_position = int(max_position * step / steps)
+        driver.execute_script(
+            """
+            const target = window.__farmBondhuScrollTarget || document.scrollingElement || document.documentElement;
+            target.scrollTo({ top: arguments[0], left: 0, behavior: 'smooth' });
+            """,
+            next_position,
+        )
+        time.sleep(pause_sec)
+        if time.monotonic() - started_at >= max_sec:
+            break
+
+    driver.execute_script(
+        """
+        const target = window.__farmBondhuScrollTarget || document.scrollingElement || document.documentElement;
+        target.scrollTo({ top: arguments[0], left: 0, behavior: 'smooth' });
+        """,
+        max_position,
+    )
+    time.sleep(pause_sec)
+    if return_to_top:
+        driver.execute_script(
+            """
+            const target = window.__farmBondhuScrollTarget || document.scrollingElement || document.documentElement;
+            target.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            """
+        )
+        time.sleep(pause_sec)
 
 
 def _marker_present(driver, marker: str) -> bool:
@@ -84,17 +146,21 @@ def _resolve_chrome_binary() -> str:
 
 
 def apply_chrome_zoom(driver) -> None:
+    # Keep the app at full browser size. CSS body zoom shrinks the site and
+    # leaves black/empty space in fullscreen demo recordings.
     if CHROME_ZOOM != 100:
-        driver.execute_cdp_cmd(
-            "Emulation.setPageScaleFactor",
-            {"pageScaleFactor": CHROME_ZOOM / 100},
-        )
+        print(f"CHROME_ZOOM={CHROME_ZOOM} ignored; Selenium demo keeps app viewport at 100%.")
 
 
 def setup_chrome_demo_view(driver, *, log: bool = False) -> None:
     if not HEADLESS:
         if CHROME_FULLSCREEN:
             driver.fullscreen_window()
+            try:
+                ActionChains(driver).send_keys(Keys.F11).perform()
+                time.sleep(0.2)
+            except Exception:
+                pass
         else:
             driver.maximize_window()
     apply_chrome_zoom(driver)
@@ -118,10 +184,15 @@ def driver():
     if HEADLESS:
         options.add_argument("--headless=new")
         options.add_argument("--window-size=1920,1080")
+    elif CHROME_FULLSCREEN:
+        options.add_argument("--start-fullscreen")
+        options.add_argument("--kiosk")
     elif not CHROME_FULLSCREEN:
         options.add_argument("--window-size=1400,900")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
 
     drv = webdriver.Chrome(
         service=Service(ChromeDriverManager().install()),
