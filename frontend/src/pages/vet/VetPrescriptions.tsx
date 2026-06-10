@@ -36,6 +36,7 @@ const statusStyles: Record<string, { label: string; class: string }> = {
   completed: { label: "Completed", class: "bg-emerald-100 text-emerald-700" },
 };
 const VB = ICON_COLORS.vetbondhu;
+const PRESCRIPTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function formatDateTimeSafe(value: string | null | undefined, fallback = "Unknown time") {
   if (!value) return fallback;
@@ -117,9 +118,12 @@ export default function VetPrescriptions() {
   };
 
   const openPrescriptionByCode = async () => {
-    const code = searchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    if (!/^[A-Z0-9]{6}$/.test(code)) {
-      toast({ title: "Enter a 6-digit prescription code", variant: "destructive" });
+    const raw = searchCode.trim();
+    const code = PRESCRIPTION_ID_RE.test(raw)
+      ? raw
+      : raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!PRESCRIPTION_ID_RE.test(code) && !/^[A-Z0-9]{6}$/.test(code)) {
+      toast({ title: "Enter a prescription code or ID", variant: "destructive" });
       return;
     }
     const token = readSession()?.access_token;
@@ -155,19 +159,19 @@ export default function VetPrescriptions() {
       <Card className="border-border">
         <CardContent className="p-4 flex flex-col sm:flex-row gap-2 sm:items-center">
           <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">Search prescription by 6-digit code</p>
-            <p className="text-xs text-muted-foreground">Find only your VetBondhu prescriptions.</p>
+            <p className="text-sm font-medium text-foreground">Search prescription by code or ID</p>
+            <p className="text-xs text-muted-foreground">Find any VetBondhu prescription when a patient shares the code or ID.</p>
           </div>
-          <div className="flex gap-2 sm:w-[320px]">
+          <div className="flex gap-2 sm:w-[380px]">
             <Input
               value={searchCode}
-              onChange={(event) => setSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onChange={(event) => setSearchCode(event.target.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 36))}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void openPrescriptionByCode();
               }}
-              placeholder="123456"
+              placeholder="123456 or prescription UUID"
               className="font-mono tracking-widest"
-              maxLength={6}
+              maxLength={36}
             />
             <Button type="button" className="text-white" style={{ backgroundColor: VB }} disabled={searching} onClick={() => void openPrescriptionByCode()}>
               {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}

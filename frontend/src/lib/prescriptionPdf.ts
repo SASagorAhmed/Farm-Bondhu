@@ -79,6 +79,11 @@ function toBanglaDigits(input: string) {
   return input.replace(/\d/g, (d) => map[Number(d)] || d);
 }
 
+function getPdfPrescriptionId(detail: PrescriptionDetail) {
+  const code = text(detail?.prescription_code, "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return code || toSixDigitPrescriptionId(text(detail?.id, "0"));
+}
+
 function mapFrequencyToDosePattern(frequencyRaw: unknown, isBangla: boolean) {
   const frequency = String(frequencyRaw || "").trim().toLowerCase();
   if (!frequency) return isBangla ? "দিনে ২ বার" : "twice daily";
@@ -127,7 +132,7 @@ export async function buildPrescriptionPdfBlob(
   const language = String(detail?.language || "en").toLowerCase() === "bn" ? "bn" : "en";
   const isBangla = language === "bn";
   const dateText = summary.created_at ? new Date(String(summary.created_at)).toLocaleDateString() : "-";
-  const prescriptionId = toSixDigitPrescriptionId(text(detail?.id, "0"));
+  const prescriptionId = getPdfPrescriptionId(detail);
   const followUpRows = [
     pdfInfoBlock(isBangla ? "ফলো-আপ প্রয়োজন" : "Follow-up required", detail?.follow_up_required ? (isBangla ? "হ্যাঁ" : "Yes") : "N/A"),
     pdfInfoBlock(isBangla ? "তারিখ" : "Date", formatPdfDate(detail?.follow_up_date)),

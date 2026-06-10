@@ -15,6 +15,8 @@ import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { patchBookingList, subscribeConsultationBookings } from "@/lib/consultationRealtime";
 import { withApiTiming } from "@/lib/perfMetrics";
 
+const PRESCRIPTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type VetDashboardBooking = {
   id: string;
   patient_name?: string | null;
@@ -220,9 +222,12 @@ export default function VetDashboard() {
   };
 
   const openPrescriptionByCode = async () => {
-    const code = prescriptionSearchCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    if (!/^[A-Z0-9]{6}$/.test(code)) {
-      toast({ title: "Enter a 6-digit prescription code", variant: "destructive" });
+    const raw = prescriptionSearchCode.trim();
+    const code = PRESCRIPTION_ID_RE.test(raw)
+      ? raw
+      : raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (!PRESCRIPTION_ID_RE.test(code) && !/^[A-Z0-9]{6}$/.test(code)) {
+      toast({ title: "Enter a prescription code or ID", variant: "destructive" });
       return;
     }
     const token = readSession()?.access_token;
@@ -263,18 +268,18 @@ export default function VetDashboard() {
         <CardContent className="p-4 flex flex-col md:flex-row md:items-center gap-3">
           <div className="flex-1">
             <p className="text-sm font-medium text-foreground">Search VetBondhu prescription</p>
-            <p className="text-xs text-muted-foreground">Enter the 6-digit prescription code to open the record.</p>
+            <p className="text-xs text-muted-foreground">Enter a patient-provided prescription code or ID to open the record.</p>
           </div>
-          <div className="flex gap-2 md:w-[320px]">
+          <div className="flex gap-2 md:w-[380px]">
             <Input
               value={prescriptionSearchCode}
-              onChange={(event) => setPrescriptionSearchCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              onChange={(event) => setPrescriptionSearchCode(event.target.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 36))}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void openPrescriptionByCode();
               }}
-              placeholder="123456"
+              placeholder="123456 or prescription UUID"
               className="font-mono tracking-widest"
-              maxLength={6}
+              maxLength={36}
             />
             <Button type="button" className="text-white" style={{ backgroundColor: ICON_COLORS.vetbondhu }} disabled={searchingPrescription} onClick={() => void openPrescriptionByCode()}>
               {searchingPrescription ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}

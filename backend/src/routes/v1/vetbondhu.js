@@ -2465,13 +2465,14 @@ router.get(
   requireDatabase,
   requireUser,
   asyncHandler(async (req, res) => {
-    const code = normalizePrescriptionCode(req.query.code);
-    if (!PRESCRIPTION_CODE_RE.test(code)) {
-      res.status(400).json({ error: "Enter a valid 6-character prescription code" });
+    const rawQuery = String(req.query.code || req.query.id || "").trim();
+    const fullPrescriptionId = isUuid(rawQuery) ? rawQuery : null;
+    const code = normalizePrescriptionCode(rawQuery);
+    if (!fullPrescriptionId && !PRESCRIPTION_CODE_RE.test(code)) {
+      res.status(400).json({ error: "Enter a valid prescription code or ID" });
       return;
     }
     const uid = req.userId;
-    const canonicalVetUserId = await resolveCanonicalVetUserId(uid);
     const isAdmin = await requestHasAnyRole(req, ["admin"]);
     if (!isAdmin) await assertVetBondhuAccessAllowed(uid, "vet");
     const rows = await sql`
@@ -2479,11 +2480,12 @@ router.get(
              animal_type, symptoms, diagnosis, severity, follow_up_required, follow_up_date,
              status, language, created_at, updated_at
       from prescriptions
-      where (${isAdmin ? sql`true` : sql`coalesce(vet_user_id, vet_id) = ${canonicalVetUserId}`})
-        and (
-          upper(coalesce(prescription_code, '')) = ${code}
-          or upper(right(replace(id::text, '-', ''), 6)) = ${code}
-        )
+      where ${fullPrescriptionId
+        ? sql`id = ${fullPrescriptionId}`
+        : sql`(
+            upper(coalesce(prescription_code, '')) = ${code}
+            or upper(right(replace(id::text, '-', ''), 6)) = ${code}
+          )`}
       order by created_at desc
       limit 1
     `;
@@ -2508,9 +2510,8 @@ router.get(
       res.status(404).json({ error: "Prescription not found" });
       return;
     }
-    if (!isAdmin && row.vet_user_id !== uid && row.farmer_user_id !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
+    if (!isAdmin && row.farmer_user_id !== uid) {
+      await assertVetBondhuAccessAllowed(uid, "vet");
     }
     res.json({ data: row });
   })
@@ -2528,9 +2529,8 @@ router.get(
       res.status(404).json({ error: "Prescription not found" });
       return;
     }
-    if (!isAdmin && parent.vet_user_id !== uid && parent.farmer_user_id !== uid) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
+    if (!isAdmin && parent.farmer_user_id !== uid) {
+      await assertVetBondhuAccessAllowed(uid, "vet");
     }
     const limit = readLimit(req.query.limit, 150, 300);
     const rows = await sql`
