@@ -151,6 +151,17 @@ export default function ConsultationRoom() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    const suppressKnownZegoCleanupError = (event: ErrorEvent) => {
+      const message = String(event.message || event.error?.message || "");
+      const stack = String(event.error?.stack || "");
+      const isZegoCleanupError =
+        (message.includes("Cannot read properties of null") || message.includes("Cannot read property")) &&
+        (message.includes("createSpan") || message.includes("classList") || stack.includes("zego-uikit-prebuilt"));
+      if (!isZegoCleanupError) return;
+      event.preventDefault();
+      return true;
+    };
+    window.addEventListener("error", suppressKnownZegoCleanupError);
     return () => {
       isMountedRef.current = false;
       isUnmountingRef.current = true;
@@ -158,6 +169,9 @@ export default function ConsultationRoom() {
         window.clearTimeout(zegoRetryTimerRef.current);
         zegoRetryTimerRef.current = null;
       }
+      window.setTimeout(() => {
+        window.removeEventListener("error", suppressKnownZegoCleanupError);
+      }, 3000);
     };
   }, []);
 
@@ -167,6 +181,33 @@ export default function ConsultationRoom() {
       zegoRetryTimerRef.current = null;
     }
   }, []);
+
+  const destroyZegoInstance = useCallback(() => {
+    clearZegoRetryTimer();
+    zegoInitAttemptRef.current += 1;
+    skipZegoLeaveHookRef.current = true;
+    isDestroyingZegoRef.current = true;
+    hasJoinedZegoRoomRef.current = false;
+    zegoInitStatusRef.current = "idle";
+    zegoJoinedRoomKeyRef.current = null;
+    zegoRoomKeyRef.current = null;
+    zegoInitInFlightRef.current = false;
+
+    const instance = zegoInstanceRef.current;
+    zegoInstanceRef.current = null;
+    if (instance) {
+      try {
+        instance.destroy();
+      } catch {
+        /* Zego cleanup can throw after its internal DOM has already been removed. */
+      }
+    }
+
+    isDestroyingZegoRef.current = false;
+    window.setTimeout(() => {
+      skipZegoLeaveHookRef.current = false;
+    }, 1000);
+  }, [clearZegoRetryTimer]);
 
   const enterStageFullscreen = useCallback(async () => {
     const node = stageShellRef.current;
@@ -265,21 +306,46 @@ export default function ConsultationRoom() {
     }
   }, [roomBootstrap]);
 
-  useEffect(() => {
-    if (!booking || hasHandledTerminalStatusRef.current) return;
-    if (booking.status === "cancelled" || booking.status === "completed") {
+  const handleTerminalBookingStatus = useCallback(
+    (nextStatus: "completed" | "cancelled") => {
+      if (hasHandledTerminalStatusRef.current) return;
       hasHandledTerminalStatusRef.current = true;
-      queryClient.invalidateQueries({ queryKey: ["vetbondhu-consultations"] });
-      queryClient.invalidateQueries({ queryKey: ["vet-consultations"] });
+      hasFinalizedRef.current = true;
+      finalizeInFlightRef.current = false;
+      hasExitGraceStartedRef.current = false;
+      lastLeftParticipantIdRef.current = null;
+      localLeaveDeadlineRef.current = null;
+      setLeaveGraceSeconds(null);
+      setBooking((prev: any) =>
+        prev ? { ...prev, status: nextStatus, leave_deadline_at: null, left_user_id: null } : prev
+      );
+      destroyZegoInstance();
+      queryClient.setQueriesData(
+        { queryKey: ["vetbondhu-consultations"] },
+        (prev: any) => (bookingId ? patchConsultationCaches(prev, bookingId, nextStatus) : prev)
+      );
+      queryClient.setQueriesData(
+        { queryKey: ["vet-consultations"] },
+        (prev: any) => (bookingId ? patchConsultationCaches(prev, bookingId, nextStatus) : prev)
+      );
       queryClient.invalidateQueries({ queryKey: ["vet-dashboard-bookings"] });
-      if (booking.status === "completed") {
+      if (bookingId) queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuConsultationRoom(bookingId) });
+      if (nextStatus === "completed") {
         toast.success("Your consultation successfully completed.");
       } else {
         toast.info("Consultation cancelled.");
       }
-      return;
+      navigate(consultationsPath, { replace: true });
+    },
+    [bookingId, consultationsPath, destroyZegoInstance, navigate, queryClient]
+  );
+
+  useEffect(() => {
+    if (!booking || hasHandledTerminalStatusRef.current) return;
+    if (booking.status === "cancelled" || booking.status === "completed") {
+      handleTerminalBookingStatus(booking.status);
     }
-  }, [booking, queryClient]);
+  }, [booking, handleTerminalBookingStatus]);
 
   // Realtime subscription (best effort; polling remains authoritative fallback).
   useEffect(() => {
@@ -306,7 +372,7 @@ export default function ConsultationRoom() {
       .subscribe();
 
     return () => { vetbondhuApi.removeChannel(channel); };
-  }, [bookingId]);
+  }, [bookingId, queryClient]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -553,6 +619,7 @@ export default function ConsultationRoom() {
   // Initialize ZegoCloud for audio/video (deps are primitives so polling does not destroy the room)
   useEffect(() => {
     if (!bookingId || !user?.id) return;
+    if (hasFinalizedRef.current || isTerminalBookingStatus(bookingRef.current?.status)) return;
     if (!normalizedConsultMethod || normalizedConsultMethod === "chat") return;
     if (!canJoinRoom) return;
     if (isUnmountingRef.current || !isMountedRef.current) return;
@@ -654,6 +721,7 @@ export default function ConsultationRoom() {
             zegoRetryCountRef.current += 1;
             clearZegoRetryTimer();
             zegoRetryTimerRef.current = window.setTimeout(() => {
+              if (hasFinalizedRef.current || isTerminalBookingStatus(bookingRef.current?.status)) return;
               if (attemptId !== zegoInitAttemptRef.current) return;
               if (isUnmountingRef.current || !isMountedRef.current) return;
               setZegoRetryTick((n) => n + 1);
@@ -739,6 +807,7 @@ export default function ConsultationRoom() {
           zegoRetryCountRef.current += 1;
           clearZegoRetryTimer();
           zegoRetryTimerRef.current = window.setTimeout(() => {
+            if (hasFinalizedRef.current || isTerminalBookingStatus(bookingRef.current?.status)) return;
             if (attemptId !== zegoInitAttemptRef.current) return;
             if (isUnmountingRef.current || !isMountedRef.current) return;
             setZegoRetryTick((n) => n + 1);
@@ -762,27 +831,21 @@ export default function ConsultationRoom() {
         void beginGraceLeave("unmount");
       }
       clearLeaveGraceTimerRef.current?.();
-      hasJoinedZegoRoomRef.current = false;
-      zegoInitStatusRef.current = "idle";
-      zegoJoinedRoomKeyRef.current = null;
-      zegoRoomKeyRef.current = null;
-      zegoInitInFlightRef.current = false;
-      if (zegoInstanceRef.current) {
-        skipZegoLeaveHookRef.current = true;
-        isDestroyingZegoRef.current = true;
-        try {
-          zegoInstanceRef.current.destroy();
-        } catch {
-          /* ignore */
-        }
-        zegoInstanceRef.current = null;
-        isDestroyingZegoRef.current = false;
-        queueMicrotask(() => {
-          skipZegoLeaveHookRef.current = false;
-        });
-      }
+      destroyZegoInstance();
     };
-  }, [beginGraceLeave, bookingId, canJoinRoom, clearZegoRetryTimer, normalizedConsultMethod, user?.id, zegoRetryTick]);
+  }, [
+    beginGraceLeave,
+    bookingId,
+    canJoinRoom,
+    clearLeaveGraceInDb,
+    clearLeaveGraceTimer,
+    clearZegoRetryTimer,
+    destroyZegoInstance,
+    normalizedConsultMethod,
+    user?.id,
+    user?.name,
+    zegoRetryTick,
+  ]);
 
   useEffect(() => {
     if (!bookingId) return;
@@ -817,12 +880,7 @@ export default function ConsultationRoom() {
           }
           const nextStatus = String((payload.new as any)?.status || "");
           if ((nextStatus === "completed" || nextStatus === "cancelled") && !hasHandledTerminalStatusRef.current) {
-            hasHandledTerminalStatusRef.current = true;
-            if (nextStatus === "completed") {
-              toast.success("Your consultation successfully completed.");
-            } else {
-              toast.info("Consultation cancelled.");
-            }
+            handleTerminalBookingStatus(nextStatus);
           }
         }
       )
@@ -830,7 +888,7 @@ export default function ConsultationRoom() {
     return () => {
       vetbondhuApi.removeChannel(channel);
     };
-  }, [bookingId, resetGraceUiWhenNoLeaveDeadline]);
+  }, [bookingId, handleTerminalBookingStatus, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
     const activeNoGrace =

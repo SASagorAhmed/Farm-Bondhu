@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, Edit, MoreVertical, Pin, PinOff, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +10,13 @@ import {
 import { MarketplaceProduct } from "@/lib/marketplaceProduct";
 import MarketplaceProductCard from "@/components/marketplace/MarketplaceProductCard";
 import { cn } from "@/lib/utils";
+
+function listingStatusLabel(status?: string | null) {
+  if (status === "pending_review") return "Pending review";
+  if (status === "rejected") return "Rejected";
+  if (status === "draft") return "Draft";
+  return null;
+}
 
 interface Props {
   product: MarketplaceProduct;
@@ -48,6 +56,10 @@ export default function SellerStorefrontProductTile({
   className,
 }: Props) {
   const hasProductActions = Boolean(onEditProduct || onDeleteProduct);
+  const statusLabel = editMode ? listingStatusLabel(product.listing_status) : null;
+  const isApprovedListing = !product.listing_status || product.listing_status === "approved";
+  const pinBlocked = !isApprovedListing;
+  const pinButtonDisabled = pinDisabled || pinBlocked;
 
   return (
     <div className={cn("relative group/tile", className)}>
@@ -60,6 +72,14 @@ export default function SellerStorefrontProductTile({
       />
       {editMode && (
         <>
+          {statusLabel && (
+            <Badge
+              variant={product.listing_status === "rejected" ? "destructive" : "secondary"}
+              className="absolute left-3 top-3 z-10 shadow-md"
+            >
+              {statusLabel}
+            </Badge>
+          )}
           <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 items-end">
             {hasProductActions && (
               <DropdownMenu>
@@ -125,13 +145,15 @@ export default function SellerStorefrontProductTile({
                 size="sm"
                 variant="secondary"
                 className="h-8 gap-1 shadow-md"
-                disabled={pinDisabled}
+                disabled={pinButtonDisabled}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (pinButtonDisabled) return;
                   onPin?.();
                 }}
+                title={pinBlocked ? "Only approved products can be pinned" : undefined}
               >
-                <Pin className="h-3.5 w-3.5" /> Pin
+                <Pin className="h-3.5 w-3.5" /> {pinBlocked ? "Review" : "Pin"}
               </Button>
             )}
           </div>

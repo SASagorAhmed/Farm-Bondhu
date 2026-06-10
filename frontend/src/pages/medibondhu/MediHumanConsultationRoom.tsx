@@ -225,11 +225,55 @@ export default function MediHumanConsultationRoom() {
   const permissionDoctor = Boolean(roomBootstrap?.permissions?.isDoctor);
   const listBack = permissionDoctor ? "/medibondhu/doctor/dashboard" : backHref();
 
+  const destroyZegoInstance = useCallback(() => {
+    zegoAttemptRef.current += 1;
+    skipLeaveHookRef.current = true;
+    const instance = zegoInstanceRef.current;
+    zegoInstanceRef.current = null;
+    if (instance) {
+      try {
+        instance.destroy();
+      } catch {
+        /* Zego can throw while tearing down detached internal DOM nodes. */
+      }
+    }
+    window.setTimeout(() => {
+      skipLeaveHookRef.current = false;
+    }, 1000);
+  }, []);
+
   useEffect(() => {
     bookingRef.current = appt ?? null;
   }, [appt]);
 
   const terminalNow = useMemo(() => isTerminal(appt?.status), [appt?.status]);
+
+  const handleTerminalAppointmentStatus = useCallback(
+    (nextStatus: string) => {
+      const st = String(nextStatus || "").toLowerCase();
+      if (!appointmentId || !isTerminal(st)) return;
+      if (terminalNavHandledRef.current) return;
+      terminalNavHandledRef.current = true;
+      hasFinalizedRef.current = true;
+      finalizeBusyRef.current = false;
+      localLeaveDeadlineRef.current = null;
+      lastLeftParticipantIdRef.current = null;
+      setLeaveGraceSeconds(null);
+      patchRoomAppointment({ status: st, leave_deadline_at: null, left_user_id: null });
+      destroyZegoInstance();
+      void qc.invalidateQueries({ queryKey: roomQueryKey });
+      void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanWaitingRoom(appointmentId) });
+      void qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
+      void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
+      void qc.invalidateQueries({
+        queryKey: queryKeys().medibondhuHumanAppointmentDetail(appointmentId),
+      });
+      if (st === "completed") toast.success("Consultation ended.");
+      else toast.info("This appointment is closed.");
+      navigate(listBack, { replace: true });
+    },
+    [appointmentId, destroyZegoInstance, listBack, navigate, patchRoomAppointment, qc, roomQueryKey]
+  );
 
   /** Online visits stay pending/confirmed until the doctor accepts; patients use the waiting room. */
   useEffect(() => {
@@ -267,12 +311,17 @@ export default function MediHumanConsultationRoom() {
     return subscribeMediHumanAppointments({
       channelKey: `medi-human-room-${appointmentId}`,
       appointmentId,
-      onEvent: () => {
+      onEvent: (_eventType, row) => {
+        const nextStatus = String(row.status || "").toLowerCase();
+        if (isTerminal(nextStatus)) {
+          handleTerminalAppointmentStatus(nextStatus);
+          return;
+        }
         void qc.invalidateQueries({ queryKey: roomQueryKey });
         void qc.invalidateQueries({ queryKey: queryKeys().medibondhuHumanWaitingRoom(appointmentId) });
       },
     });
-  }, [appointmentId, qc, roomQueryKey]);
+  }, [appointmentId, handleTerminalAppointmentStatus, qc, roomQueryKey]);
 
   useEffect(() => {
     if (!appointmentId) return;
@@ -280,20 +329,8 @@ export default function MediHumanConsultationRoom() {
       terminalNavHandledRef.current = false;
       return;
     }
-    if (terminalNavHandledRef.current) return;
-    terminalNavHandledRef.current = true;
-    const st = String(appt?.status || "").toLowerCase();
-    void qc.invalidateQueries({
-      queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
-    });
-    void qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
-    void qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
-    void qc.invalidateQueries({
-      queryKey: queryKeys().medibondhuHumanAppointmentDetail(appointmentId),
-    });
-    if (st === "completed") toast.success("Consultation ended.");
-    else if (st === "cancelled" || st === "rejected") toast.info("This appointment is closed.");
-  }, [appointmentId, appt?.status, qc, terminalNow]);
+    handleTerminalAppointmentStatus(String(appt?.status || ""));
+  }, [appointmentId, appt?.status, handleTerminalAppointmentStatus, terminalNow]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -301,13 +338,13 @@ export default function MediHumanConsultationRoom() {
 
   const canJoinRoom = Boolean(roomBootstrap?.permissions?.canJoinVideo && !terminalNow);
 
-  const completeVisit = useCallback(async () => {
+  const endVisit = useCallback(async (nextStatus: "completed" | "cancelled") => {
     if (!appointmentId || finalizeBusyRef.current) return;
     finalizeBusyRef.current = true;
     try {
       const { res, body } = await mediHumanJson(`/appointments/${appointmentId}`, {
         method: "PATCH",
-        body: JSON.stringify({ status: "completed", leave_deadline_at: null, left_user_id: null }),
+        body: JSON.stringify({ status: nextStatus, leave_deadline_at: null, left_user_id: null }),
       });
       if (!res.ok)
         throw new Error(String((body as { error?: string }).error || res.status));
@@ -315,19 +352,21 @@ export default function MediHumanConsultationRoom() {
       setLeaveGraceSeconds(null);
       localLeaveDeadlineRef.current = null;
       lastLeftParticipantIdRef.current = null;
-      toast.success("Visit marked complete.");
-      await qc.invalidateQueries({
-        queryKey: queryKeys().medibondhuHumanConsultationRoom(appointmentId),
-      });
-      await qc.invalidateQueries({ queryKey: ["medibondhu-human-doctor-feed"] });
-      await qc.invalidateQueries({ queryKey: ["medibondhu-human-appt-feed"] });
-      navigate(listBack);
+      handleTerminalAppointmentStatus(nextStatus);
     } catch (e) {
-      toast.error((e as Error).message || "Could not complete visit");
+      toast.error((e as Error).message || "Could not end visit");
     } finally {
       finalizeBusyRef.current = false;
     }
-  }, [appointmentId, listBack, navigate, qc]);
+  }, [appointmentId, handleTerminalAppointmentStatus]);
+
+  const completeVisit = useCallback(async () => {
+    await endVisit("completed");
+  }, [endVisit]);
+
+  const cancelVisit = useCallback(async () => {
+    await endVisit("cancelled");
+  }, [endVisit]);
 
   const resetGraceUiWhenNoLeaveDeadline = useCallback(() => {
     localLeaveDeadlineRef.current = null;
@@ -475,6 +514,7 @@ export default function MediHumanConsultationRoom() {
 
   useEffect(() => {
     if (!appointmentId || !user?.id) return;
+    if (hasFinalizedRef.current) return;
     if (!canJoinRoom) return;
     const container = zegoContainerRef.current;
     if (!container) return;
@@ -487,14 +527,7 @@ export default function MediHumanConsultationRoom() {
 
     const run = async () => {
       if (zegoInstanceRef.current) {
-        skipLeaveHookRef.current = true;
-        try {
-          zegoInstanceRef.current.destroy();
-        } catch {
-          /* ignore */
-        }
-        skipLeaveHookRef.current = false;
-        zegoInstanceRef.current = null;
+        destroyZegoInstance();
       }
 
       try {
@@ -598,23 +631,14 @@ export default function MediHumanConsultationRoom() {
 
     return () => {
       cancelled = true;
-      zegoAttemptRef.current += 1;
-      if (zegoInstanceRef.current) {
-        skipLeaveHookRef.current = true;
-        try {
-          zegoInstanceRef.current.destroy();
-        } catch {
-          /* ignore */
-        }
-        skipLeaveHookRef.current = false;
-        zegoInstanceRef.current = null;
-      }
+      destroyZegoInstance();
     };
   }, [
     appointmentId,
     beginGraceLeave,
     canJoinRoom,
     clearLeaveGraceInDb,
+    destroyZegoInstance,
     roomBootstrap?.permissions?.zegoRoomId,
     user?.id,
     user?.name,
@@ -688,8 +712,9 @@ export default function MediHumanConsultationRoom() {
             </Button>
           )}
           {!permissionDoctor && (
-            <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={leaveOnly}>
-              Leave room
+            <Button type="button" variant="destructive" size="sm" className="rounded-lg" onClick={() => void cancelVisit()}>
+              <PhoneOff className="h-4 w-4 mr-1" />
+              End consultation
             </Button>
           )}
         </div>

@@ -123,6 +123,10 @@ function invalidateMarketplaceBannersCache() {
   invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|`);
 }
 
+function invalidateMarketplaceProductsCache() {
+  invalidateByPrefix(`${MARKETPLACE_CACHE_PREFIX}|`);
+}
+
 const FLASH_SALE_REQUEST_STRIP_KEYS = [
   "is_flash_sale",
   "flash_sale_end",
@@ -1665,6 +1669,7 @@ router.post(
         insert into products ${sql(b)}
         returning *
       `;
+      invalidateMarketplaceProductsCache();
       res.status(201).json({ data: created });
     } catch (error) {
       if (error?.code === "42703") {
@@ -1733,6 +1738,7 @@ router.patch(
     const [updated] = await sql`
       update products set ${sql(validated)}, updated_at = now() where id = ${req.params.id} returning *
     `;
+    invalidateMarketplaceProductsCache();
     res.json({ data: updated });
   })
 );
@@ -3286,6 +3292,7 @@ router.patch(
         reviewNotes: req.body?.review_notes,
         adminUserId: req.userId,
       });
+      invalidateMarketplaceProductsCache();
       res.json({ data });
     } catch (error) {
       if (error instanceof SellerLaneError) {

@@ -7,18 +7,23 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { API_BASE, vetbondhuApi, readSession } from "@/api/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { toast } from "@/hooks/use-toast";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { downloadPrescriptionPdf } from "@/lib/prescriptionPdf";
 import {
   ArrowLeft, Stethoscope, Pill, Heart, CalendarCheck,
-  FileText, Loader2, Clock, AlertTriangle, Send, Edit3, Save, X,
+  FileText, Loader2, Clock, AlertTriangle, Send, Edit3, Save, X, Download,
 } from "lucide-react";
 
 interface PrescriptionData {
   id: string;
+  prescription_code?: string | null;
   consultation_id: string | null;
+  vet_user_id?: string | null;
+  vet_id?: string | null;
   vet_name: string;
   vet_degree?: string | null;
   vet_address?: string | null;
@@ -80,6 +85,10 @@ const severityStyles: Record<string, string> = {
 };
 const VB = ICON_COLORS.vetbondhu;
 
+function getPrescriptionCode(p: Pick<PrescriptionData, "id" | "prescription_code">) {
+  return p.prescription_code?.trim() || p.id.replace(/-/g, "").slice(-6).toUpperCase();
+}
+
 function displayNA(value?: string | number | boolean | null) {
   const text = value == null ? "" : String(value).trim();
   return text || "N/A";
@@ -95,10 +104,12 @@ function formatPrescriptionDate(value?: string | null) {
 export default function PrescriptionDetail() {
   const { prescriptionId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [prescription, setPrescription] = useState<PrescriptionData | null>(null);
   const [medicines, setMedicines] = useState<MedicineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [editingSummary, setEditingSummary] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [diseaseDraft, setDiseaseDraft] = useState("");
@@ -151,8 +162,11 @@ export default function PrescriptionDetail() {
     setEditingSummary(false);
   };
 
+  const canManagePrescriptionDraft = (row: PrescriptionData | null) =>
+    Boolean(row && row.status === "draft" && (row.vet_user_id === user?.id || row.vet_id === user?.id));
+
   const saveSummaryDraft = async () => {
-    if (!p || p.status !== "draft") return;
+    if (!canManagePrescriptionDraft(p)) return;
     setSavingSummary(true);
     const { data, error } = await vetbondhuApi
       .from("prescriptions")
@@ -185,7 +199,7 @@ export default function PrescriptionDetail() {
   };
 
   const issueDraft = async () => {
-    if (!p || p.status !== "draft") return;
+    if (!canManagePrescriptionDraft(p)) return;
     const token = readSession()?.access_token;
     setIssuing(true);
     try {
@@ -208,6 +222,21 @@ export default function PrescriptionDetail() {
     }
   };
 
+  const downloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      await downloadPrescriptionPdf(p, p, medicines);
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Could not generate prescription PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-12">
       {/* Header */}
@@ -223,11 +252,18 @@ export default function PrescriptionDetail() {
           <p className="text-sm text-muted-foreground">
             {format(new Date(p.created_at), "MMMM dd, yyyy 'at' h:mm a")}
           </p>
+          <p className="mt-1 font-mono text-xs font-semibold tracking-widest" style={{ color: VB }}>
+            Code: {getPrescriptionCode(p)}
+          </p>
         </div>
+        <Button variant="outline" onClick={() => void downloadPdf()} disabled={downloadingPdf}>
+          {downloadingPdf ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
+          Download
+        </Button>
         <Badge className={`capitalize ${statusStyles[p.status] || statusStyles.draft}`}>
           {p.status}
         </Badge>
-        {p.status === "draft" ? (
+        {canManagePrescriptionDraft(p) ? (
           <Button className="text-white" style={{ backgroundColor: VB }} onClick={() => void issueDraft()} disabled={issuing}>
             {issuing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
             Issue Prescription
@@ -241,6 +277,8 @@ export default function PrescriptionDetail() {
         <CardContent className="pt-6">
           <div className="grid grid-cols-2 gap-6 mb-6">
             <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Prescription Code</p>
+              <p className="mb-3 font-mono text-lg font-bold tracking-widest" style={{ color: VB }}>{getPrescriptionCode(p)}</p>
               <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Veterinarian</p>
               <p className="font-display font-bold text-foreground">{p.vet_name}</p>
               <p className="text-sm font-medium" style={{ color: VB }}>{vetDesignation}</p>
@@ -284,7 +322,7 @@ export default function PrescriptionDetail() {
                   {p.severity}
                 </Badge>
               )}
-              {p.status === "draft" && !editingSummary && (
+              {canManagePrescriptionDraft(p) && !editingSummary && (
                 <Button
                   type="button"
                   variant="ghost"

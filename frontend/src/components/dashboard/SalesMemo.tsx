@@ -230,7 +230,7 @@ export default function SalesMemo({
           });
           return;
         }
-        const [{ data: farms }, { data: profile }] = await Promise.all([
+      const [{ data: farms }, { data: profile }] = await Promise.all([
           api.from("farms").select("name, location, type").eq("user_id", userId).limit(1),
           api.from("profiles").select("name, phone, email").eq("id", userId).single(),
         ]);
@@ -491,18 +491,18 @@ export default function SalesMemo({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-display flex items-center gap-2">
+        <DialogHeader>
+          <DialogTitle className="font-display flex items-center gap-2">
               <FileText className="h-5 w-5" style={{ color: accent }} />
               {editingMemoId ? "Edit sales memo" : "Sales memo — preview & edit"}
-            </DialogTitle>
+          </DialogTitle>
             <DialogDescription>
               Select sale lines or add custom lines, edit sales inline, then preview the PDF before download. Memos are
               saved to history when you download.
             </DialogDescription>
-          </DialogHeader>
+        </DialogHeader>
 
           {loading || !form || !draft ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
@@ -511,7 +511,7 @@ export default function SalesMemo({
             </div>
           ) : (
             <div className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-4">
+        <div className="space-y-4">
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Farm (seller)</p>
                   <div>
@@ -556,7 +556,7 @@ export default function SalesMemo({
                         placeholder="01XXXXXXXXX"
                       />
                     </div>
-                    <div>
+          <div>
                       <Label htmlFor="smEmail">Email</Label>
                       <Input
                         id="smEmail"
@@ -566,7 +566,7 @@ export default function SalesMemo({
                       />
                     </div>
                   </div>
-                </div>
+          </div>
 
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Buyer & memo</p>
@@ -598,7 +598,7 @@ export default function SalesMemo({
                       onChange={(e) => patch({ memoDate: e.target.value })}
                     />
                   </div>
-                  <div>
+          <div>
                     <Label htmlFor="smFooter">Footer note</Label>
                     <Textarea
                       id="smFooter"
@@ -626,9 +626,9 @@ export default function SalesMemo({
                         Record sale
                       </Button>
                       {records.length > 0 && (
-                        <Button variant="ghost" size="sm" onClick={toggleAll} className="text-xs h-7">
+              <Button variant="ghost" size="sm" onClick={toggleAll} className="text-xs h-7">
                           {form.selectedIds.length === records.length ? "Deselect all" : "Select all"}
-                        </Button>
+              </Button>
                       )}
                     </div>
                   </div>
@@ -648,7 +648,7 @@ export default function SalesMemo({
                             <p className="text-xs text-muted-foreground">
                               {formatSaleLineDate(r.date)} · {r.quantity} {r.unit} · ৳{r.total.toLocaleString()}
                             </p>
-                          </label>
+                  </label>
                           <Button
                             type="button"
                             variant="ghost"
@@ -679,9 +679,9 @@ export default function SalesMemo({
                           No sale records — record a sale or add custom lines below
                         </p>
                       )}
-                    </div>
-                  </ScrollArea>
-                </div>
+              </div>
+            </ScrollArea>
+          </div>
 
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -791,9 +791,9 @@ export default function SalesMemo({
                     <span className="font-bold" style={{ color: accent }}>
                       ৳{draft.grandTotal.toLocaleString()}
                     </span>
-                  </div>
-                )}
-              </div>
+            </div>
+          )}
+        </div>
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Live preview</p>
@@ -928,7 +928,7 @@ export default function SalesMemo({
             <DialogDescription className="sr-only">Add a sale and include it on this memo.</DialogDescription>
           </DialogHeader>
           <SaleRecordFormFields form={saleForm} onChange={(patch) => setSaleForm((p) => ({ ...p, ...patch }))} />
-          <DialogFooter>
+        <DialogFooter>
             <Button className="text-white" style={{ backgroundColor: accent }} onClick={handleSaleAdd}>
               Record sale
             </Button>
@@ -948,10 +948,10 @@ export default function SalesMemo({
             </Button>
             <Button variant="destructive" onClick={handleSaleDelete}>
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

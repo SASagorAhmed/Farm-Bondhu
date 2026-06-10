@@ -44,7 +44,7 @@ export const OFFICIAL_SHOP_ADMIN_NAV: OfficialShopNavItem[] = [
 export const MARKETPLACE_ADMIN_NAV: OfficialShopNavItem[] = [
   { title: "Marketplace", url: "/admin/marketplace", icon: LayoutDashboard, iconColor: ICON_COLORS.cart },
   { title: "Flash Sale", url: "/admin/marketplace?tab=flash-sale", icon: ShoppingCart, iconColor: MARKETPLACE_THEME.primary },
-  { title: "Seller lane approvals", url: "/admin/marketplace/seller-lanes", icon: Store, iconColor: ICON_COLORS.store },
+  { title: "Seller lane approvals", url: "/admin/marketplace?tab=seller-lanes", icon: Store, iconColor: ICON_COLORS.store },
   { title: "Buyers", url: "/admin/marketplace/buyers", icon: Users, iconColor: ICON_COLORS.cart },
   { title: "Sellers", url: "/admin/marketplace/sellers", icon: Store, iconColor: ICON_COLORS.store },
   { title: "Transactions", url: "/admin/marketplace/transactions", icon: Receipt, iconColor: ICON_COLORS.finance },
