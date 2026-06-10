@@ -61,9 +61,108 @@ async function canActOnCommunityContent(uid, ownerUserId) {
   return isSuperAdminUser(uid);
 }
 
+function canEditCommunityPost(uid, ownerUserId) {
+  return ownerUserId === uid;
+}
+
+function isCommunityCompatTable(table) {
+  const t = String(table || "");
+  return t === "community_posts" || t.startsWith("community_");
+}
+
+async function isCommunityBlockedUser(userId) {
+  if (!isUuid(userId)) return false;
+  const [row] = await sql`
+    select is_enabled
+    from user_capabilities
+    where user_id = ${userId}
+      and capability_code = 'can_access_community'
+      and is_enabled = false
+    limit 1
+  `;
+  return Boolean(row);
+}
+
+async function isAdminUser(userId) {
+  if (!isUuid(userId)) return false;
+  const [row] = await sql`
+    select 1 as ok
+    from user_roles
+    where user_id = ${userId} and role = 'admin'
+    limit 1
+  `;
+  return Boolean(row);
+}
+
+async function blockCommunityAccessIfNeeded(req, res, table) {
+  if (!isCommunityCompatTable(table)) return false;
+  if (await isAdminUser(req.userId)) return false;
+  if (!(await isCommunityBlockedUser(req.userId))) return false;
+  bad(res, "Your Community access is blocked. Contact support if you think this is a mistake.", 403);
+  return true;
+}
+
 /** @param {unknown} v */
 function isUuid(v) {
   return typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+}
+
+async function insertCommunityNotification({ userId, title, message, actionUrl, priority = "normal" }) {
+  if (!isUuid(userId)) return;
+  try {
+    await sql`
+      insert into notifications ${sql({
+        user_id: userId,
+        type: "community",
+        context: "community",
+        priority,
+        title,
+        message,
+        link: actionUrl,
+        action_url: actionUrl,
+        read: false,
+        created_at: new Date().toISOString(),
+      })}
+    `;
+  } catch (err) {
+    console.error("[community] notification insert failed:", err?.message || err);
+  }
+}
+
+async function syncCommunityPostCounts(postId) {
+  if (!isUuid(postId)) return null;
+  const [updated] = await sql`
+    update community_posts set
+      reaction_count = (select count(*)::int from community_reactions where post_id = ${postId}),
+      comment_count = (select count(*)::int from community_comments where post_id = ${postId}),
+      answer_count = (select count(*)::int from community_answers where post_id = ${postId}),
+      updated_at = now()
+    where id = ${postId}
+    returning reaction_count, comment_count, answer_count, share_count
+  `;
+  return updated || null;
+}
+
+async function syncCommunityCommentReactionCount(commentId) {
+  if (!isUuid(commentId)) return null;
+  const [updated] = await sql`
+    update community_comments set
+      reaction_count = (select count(*)::int from community_comment_reactions where comment_id = ${commentId}),
+      updated_at = now()
+    where id = ${commentId}
+    returning reaction_count
+  `;
+  return updated || null;
+}
+
+async function notifyCommunityPostOwner({ post, actorId, title, message, actionUrl }) {
+  if (!post?.user_id || post.user_id === actorId) return;
+  await insertCommunityNotification({
+    userId: post.user_id,
+    title,
+    message,
+    actionUrl,
+  });
 }
 
 router.post(
@@ -76,6 +175,7 @@ router.post(
     const uid = req.userId;
 
     if (await blockPreviewWriteIfNeeded(req, res, action, table)) return;
+    if (await blockCommunityAccessIfNeeded(req, res, table)) return;
 
     if (action === "select" && table === "profiles" && body.id) {
       if (!isUuid(body.id)) return bad(res, "Invalid id");
@@ -154,11 +254,21 @@ router.post(
           limit 1
         `;
         const [existingOverride] = await sql`
-          select 1 as ok
+          select is_enabled, granted_by
           from user_capabilities
           where user_id = ${uid} and capability_code = ${capabilityCode}
           limit 1
         `;
+        if (
+          capabilityCode === "can_access_community" &&
+          Boolean(row?.is_enabled) &&
+          existingOverride &&
+          existingOverride.is_enabled === false &&
+          existingOverride.granted_by &&
+          existingOverride.granted_by !== uid
+        ) {
+          return bad(res, "Community access is blocked by an admin", 403);
+        }
         /** Farmer/buyer may self-toggle MediBondhu even if `user_roles` is empty (profile.primary_role still farmer). */
         const implicitHumanBookOk =
           capabilityCode === "can_book_human" &&
@@ -187,7 +297,11 @@ router.post(
 
     if (action === "select" && table === "community_posts" && body.mode === "active_latest") {
       const rows = await sql`
-        select * from community_posts where status = 'active' order by created_at desc
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.status = 'active'
+        order by p.created_at desc
       `;
       return res.json({ data: rows, error: null });
     }
@@ -195,36 +309,46 @@ router.post(
     if (action === "select" && table === "community_posts" && body.mode === "active_category") {
       const cat = String(body.category || "");
       const rows = await sql`
-        select * from community_posts
-        where status = 'active' and category = ${cat}
-        order by created_at desc
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.status = 'active' and p.category = ${cat}
+        order by p.created_at desc
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "community_posts" && body.mode === "urgent") {
       const rows = await sql`
-        select * from community_posts
-        where status = 'active' and priority in ('urgent', 'expert_needed')
-        order by created_at desc
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.status = 'active' and p.priority in ('urgent', 'expert_needed')
+        order by p.created_at desc
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "community_posts" && body.mode === "unanswered") {
       const rows = await sql`
-        select * from community_posts
-        where status = 'active'
-          and post_type in ('question', 'help_request')
-          and answer_count = 0
-        order by created_at desc
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.status = 'active'
+          and p.post_type in ('question', 'help_request')
+          and p.answer_count = 0
+        order by p.created_at desc
       `;
       return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "community_posts" && body.mode === "by_user") {
       const rows = await sql`
-        select * from community_posts where user_id = ${uid} order by created_at desc
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.user_id = ${uid}
+        order by p.created_at desc
       `;
       return res.json({ data: rows, error: null });
     }
@@ -232,7 +356,11 @@ router.post(
     if (action === "select" && table === "community_posts" && body.mode === "by_id") {
       if (!isUuid(body.id)) return bad(res, "Invalid id");
       const [row] = await sql`
-        select * from community_posts where id = ${body.id} limit 1
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.id = ${body.id}
+        limit 1
       `;
       return res.json({ data: row || null, error: null });
     }
@@ -240,7 +368,13 @@ router.post(
     if (action === "select" && table === "community_posts" && body.mode === "by_ids") {
       const ids = (body.ids || []).filter(isUuid);
       if (!ids.length) return res.json({ data: [], error: null });
-      const rows = await sql`select * from community_posts where id in ${sql(ids)}`;
+      const rows = await sql`
+        select p.*, coalesce(author.name, 'User') as author_name, author.primary_role as author_role
+        from community_posts p
+        left join profiles author on author.id = p.user_id
+        where p.id in ${sql(ids)}
+        order by p.created_at desc
+      `;
       return res.json({ data: rows, error: null });
     }
 
@@ -253,9 +387,27 @@ router.post(
 
     if (action === "select" && table === "community_comments" && isUuid(body.post_id)) {
       const rows = await sql`
-        select * from community_comments where post_id = ${body.post_id} order by created_at asc
+        select
+          c.*,
+          coalesce(author.name, 'User') as author_name,
+          author.primary_role as author_role,
+          (select count(*)::int from community_comments r where r.parent_id = c.id) as reply_count,
+          exists(select 1 from community_comment_reactions cr where cr.comment_id = c.id and cr.user_id = ${uid}) as has_reacted
+        from community_comments c
+        left join profiles author on author.id = c.user_id
+        where c.post_id = ${body.post_id}
+        order by c.created_at asc
       `;
       return res.json({ data: rows, error: null });
+    }
+
+    if (action === "select" && table === "community_comment_reactions" && isUuid(body.comment_id)) {
+      const [row] = await sql`
+        select id from community_comment_reactions
+        where comment_id = ${body.comment_id} and user_id = ${uid}
+        limit 1
+      `;
+      return res.json({ data: row, error: null });
     }
 
     if (action === "select" && table === "community_answers" && isUuid(body.post_id)) {
@@ -281,6 +433,41 @@ router.post(
         select id from community_saves where post_id = ${body.post_id} and user_id = ${uid} limit 1
       `;
       return res.json({ data: row, error: null });
+    }
+
+    if (action === "select" && table === "community_activity_log") {
+      const actionType = String(body.action_type || "all");
+      const allowed = new Set(["post", "comment", "answer", "reaction", "save"]);
+      const limit = Math.min(Math.max(Number.parseInt(String(body.limit || "200"), 10) || 200, 1), 300);
+      const rows = await sql`
+        with activity as (
+          select id, 'post'::text as action_type, id as post_id, id as target_id, created_at
+          from community_posts
+          where user_id = ${uid}
+          union all
+          select id, 'comment'::text as action_type, post_id, id as target_id, created_at
+          from community_comments
+          where user_id = ${uid}
+          union all
+          select id, 'answer'::text as action_type, post_id, id as target_id, created_at
+          from community_answers
+          where user_id = ${uid}
+          union all
+          select id, 'reaction'::text as action_type, post_id, id as target_id, created_at
+          from community_reactions
+          where user_id = ${uid}
+          union all
+          select id, 'save'::text as action_type, post_id, id as target_id, created_at
+          from community_saves
+          where user_id = ${uid}
+        )
+        select *
+        from activity
+        where ${allowed.has(actionType) ? sql`action_type = ${actionType}` : sql`true`}
+        order by created_at desc
+        limit ${limit}
+      `;
+      return res.json({ data: rows, error: null });
     }
 
     if (action === "select" && table === "vets" && body.mode === "all") {
@@ -356,7 +543,7 @@ router.post(
         select user_id from community_posts where id = ${body.id} limit 1
       `;
       if (!owner) return res.json({ data: null, error: { message: "Not found" } });
-      if (!(await canActOnCommunityContent(uid, owner.user_id))) return bad(res, "Forbidden", 403);
+      if (!canEditCommunityPost(uid, owner.user_id)) return bad(res, "Forbidden", 403);
       const [updated] = await sql`
         update community_posts set ${sql(patch)} where id = ${body.id} returning *
       `;
@@ -376,20 +563,83 @@ router.post(
     if (action === "insert" && table === "community_comments" && isUuid(body.post_id)) {
       const text = String(body.body || "").trim();
       if (!text) return bad(res, "body required");
+      const parentId = isUuid(body.parent_id) ? body.parent_id : null;
+      const [post] = await sql`
+        select id, user_id, title
+        from community_posts
+        where id = ${body.post_id}
+        limit 1
+      `;
+      if (!post) return bad(res, "Post not found", 404);
+      let parent = null;
+      if (parentId) {
+        [parent] = await sql`
+          select id, user_id, parent_id, body
+          from community_comments
+          where id = ${parentId} and post_id = ${body.post_id}
+          limit 1
+        `;
+        if (!parent) return bad(res, "Parent comment not found", 404);
+      }
       const [created] = await sql`
         insert into community_comments ${sql({
           post_id: body.post_id,
           user_id: uid,
+          parent_id: parentId,
           body: text,
         })}
         returning *
       `;
-      return res.json({ data: created, error: null });
+      const counts = await syncCommunityPostCounts(body.post_id);
+      const actionUrl = `/community/post/${body.post_id}#comments`;
+      await notifyCommunityPostOwner({
+        post,
+        actorId: uid,
+        title: parent ? "New reply on your post" : "New comment on your post",
+        message: text.slice(0, 120),
+        actionUrl,
+      });
+      if (parent) {
+        const notified = new Set([uid, post.user_id]);
+        if (parent.user_id && !notified.has(parent.user_id)) {
+          await insertCommunityNotification({
+            userId: parent.user_id,
+            title: "New reply to your comment",
+            message: text.slice(0, 120),
+            actionUrl,
+          });
+          notified.add(parent.user_id);
+        }
+        if (parent.parent_id) {
+          const [root] = await sql`
+            select id, user_id
+            from community_comments
+            where id = ${parent.parent_id}
+            limit 1
+          `;
+          if (root?.user_id && !notified.has(root.user_id)) {
+            await insertCommunityNotification({
+              userId: root.user_id,
+              title: "New reply in your comment thread",
+              message: text.slice(0, 120),
+              actionUrl,
+            });
+          }
+        }
+      }
+      return res.json({ data: { ...created, post_counts: counts }, error: null });
     }
 
     if (action === "insert" && table === "community_answers" && isUuid(body.post_id)) {
       const text = String(body.body || "").trim();
       if (!text) return bad(res, "body required");
+      const [post] = await sql`
+        select id, user_id, title
+        from community_posts
+        where id = ${body.post_id}
+        limit 1
+      `;
+      if (!post) return bad(res, "Post not found", 404);
       const [created] = await sql`
         insert into community_answers ${sql({
           post_id: body.post_id,
@@ -398,10 +648,25 @@ router.post(
         })}
         returning *
       `;
-      return res.json({ data: created, error: null });
+      const counts = await syncCommunityPostCounts(body.post_id);
+      await notifyCommunityPostOwner({
+        post,
+        actorId: uid,
+        title: "New answer on your question",
+        message: text.slice(0, 120),
+        actionUrl: `/community/post/${body.post_id}`,
+      });
+      return res.json({ data: { ...created, post_counts: counts }, error: null });
     }
 
     if (action === "insert" && table === "community_reactions" && isUuid(body.post_id)) {
+      const [post] = await sql`
+        select id, user_id, title
+        from community_posts
+        where id = ${body.post_id}
+        limit 1
+      `;
+      if (!post) return bad(res, "Post not found", 404);
       const [ex] = await sql`
         select id from community_reactions where post_id = ${body.post_id} and user_id = ${uid} limit 1
       `;
@@ -409,15 +674,78 @@ router.post(
         await sql`
           insert into community_reactions ${sql({ post_id: body.post_id, user_id: uid })}
         `;
+        await notifyCommunityPostOwner({
+          post,
+          actorId: uid,
+          title: "New reaction on your post",
+          message: "Someone reacted to your Community post.",
+          actionUrl: `/community/post/${body.post_id}`,
+        });
       }
-      return res.json({ data: null, error: null });
+      const counts = await syncCommunityPostCounts(body.post_id);
+      return res.json({ data: { post_counts: counts }, error: null });
     }
 
     if (action === "delete" && table === "community_reactions" && isUuid(body.post_id)) {
       await sql`
         delete from community_reactions where post_id = ${body.post_id} and user_id = ${uid}
       `;
-      return res.json({ data: null, error: null });
+      const counts = await syncCommunityPostCounts(body.post_id);
+      return res.json({ data: { post_counts: counts }, error: null });
+    }
+
+    if (action === "insert" && table === "community_comment_reactions" && isUuid(body.comment_id)) {
+      const [comment] = await sql`
+        select c.id, c.post_id, c.user_id, c.body, p.user_id as post_owner_id
+        from community_comments c
+        join community_posts p on p.id = c.post_id
+        where c.id = ${body.comment_id}
+        limit 1
+      `;
+      if (!comment) return bad(res, "Comment not found", 404);
+      const [ex] = await sql`
+        select id from community_comment_reactions
+        where comment_id = ${body.comment_id} and user_id = ${uid}
+        limit 1
+      `;
+      if (!ex) {
+        await sql`
+          insert into community_comment_reactions ${sql({
+            comment_id: body.comment_id,
+            post_id: comment.post_id,
+            user_id: uid,
+          })}
+        `;
+        const notified = new Set([uid]);
+        if (comment.post_owner_id && !notified.has(comment.post_owner_id)) {
+          await insertCommunityNotification({
+            userId: comment.post_owner_id,
+            title: "New reaction in your post comments",
+            message: "Someone reacted to a comment on your Community post.",
+            actionUrl: `/community/post/${comment.post_id}#comments`,
+          });
+          notified.add(comment.post_owner_id);
+        }
+        if (comment.user_id && !notified.has(comment.user_id)) {
+          await insertCommunityNotification({
+            userId: comment.user_id,
+            title: "New reaction on your comment",
+            message: "Someone reacted to your Community comment.",
+            actionUrl: `/community/post/${comment.post_id}#comments`,
+          });
+        }
+      }
+      const counts = await syncCommunityCommentReactionCount(body.comment_id);
+      return res.json({ data: { comment_counts: counts }, error: null });
+    }
+
+    if (action === "delete" && table === "community_comment_reactions" && isUuid(body.comment_id)) {
+      await sql`
+        delete from community_comment_reactions
+        where comment_id = ${body.comment_id} and user_id = ${uid}
+      `;
+      const counts = await syncCommunityCommentReactionCount(body.comment_id);
+      return res.json({ data: { comment_counts: counts }, error: null });
     }
 
     if (action === "insert" && table === "community_saves" && isUuid(body.post_id)) {
@@ -742,12 +1070,16 @@ router.post(
 
     if (action === "delete" && table === "community_comments" && isUuid(body.id)) {
       const [r] = await sql`
-        select user_id from community_comments where id = ${body.id} limit 1
+        select user_id, post_id from community_comments where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: null });
       if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
-      await sql`delete from community_comments where id = ${body.id}`;
-      return res.json({ data: null, error: null });
+      await sql`
+        delete from community_comments
+        where id = ${body.id} or parent_id = ${body.id}
+      `;
+      const counts = await syncCommunityPostCounts(r.post_id);
+      return res.json({ data: { post_counts: counts }, error: null });
     }
 
     if (action === "update" && table === "community_answers" && isUuid(body.id)) {
@@ -765,12 +1097,13 @@ router.post(
 
     if (action === "delete" && table === "community_answers" && isUuid(body.id)) {
       const [r] = await sql`
-        select user_id from community_answers where id = ${body.id} limit 1
+        select user_id, post_id from community_answers where id = ${body.id} limit 1
       `;
       if (!r) return res.json({ data: null, error: null });
       if (!(await canActOnCommunityContent(uid, r.user_id))) return bad(res, "Forbidden", 403);
       await sql`delete from community_answers where id = ${body.id}`;
-      return res.json({ data: null, error: null });
+      const counts = await syncCommunityPostCounts(r.post_id);
+      return res.json({ data: { post_counts: counts }, error: null });
     }
 
     if (action === "update" && table === "community_answers" && body.mode === "clear_best" && isUuid(body.post_id)) {
@@ -895,6 +1228,147 @@ router.post(
         order by created_at desc
       `;
       return res.json({ data: rows, error: null });
+    }
+
+    if (
+      action === "select" &&
+      ((table === "community_blocks" && body.mode === "blocked_users") || table === "community_blocked_users")
+    ) {
+      const rows = await sql`
+        select
+          p.id as user_id,
+          p.name,
+          p.email,
+          p.primary_role,
+          p.signup_module,
+          p.avatar_url,
+          c.created_at as blocked_at,
+          c.granted_by as blocked_by
+        from user_capabilities c
+        join profiles p on p.id = c.user_id
+        where c.capability_code = 'can_access_community'
+          and c.is_enabled = false
+        order by c.created_at desc
+        limit 500
+      `;
+      return res.json({ data: rows, error: null });
+    }
+
+    if (
+      action === "select" &&
+      ((table === "community_users" && body.mode === "admin_all") || table === "community_users")
+    ) {
+      const limit = Math.min(Math.max(Number(body.limit) || 500, 1), 1000);
+      const rows = await sql`
+        with community_activity as (
+          select user_id, count(*)::int as post_count, 0::int as comment_count, 0::int as answer_count, 0::int as report_count, max(created_at) as latest_activity_at
+          from community_posts
+          group by user_id
+          union all
+          select user_id, 0::int as post_count, count(*)::int as comment_count, 0::int as answer_count, 0::int as report_count, max(created_at) as latest_activity_at
+          from community_comments
+          group by user_id
+          union all
+          select user_id, 0::int as post_count, 0::int as comment_count, count(*)::int as answer_count, 0::int as report_count, max(created_at) as latest_activity_at
+          from community_answers
+          group by user_id
+          union all
+          select reported_by as user_id, 0::int as post_count, 0::int as comment_count, 0::int as answer_count, count(*)::int as report_count, max(created_at) as latest_activity_at
+          from community_reports
+          where reported_by is not null
+          group by reported_by
+          union all
+          select user_id, 0::int as post_count, 0::int as comment_count, 0::int as answer_count, 0::int as report_count, max(created_at) as latest_activity_at
+          from user_capabilities
+          where capability_code = 'can_access_community'
+          group by user_id
+        ),
+        community_user_rollup as (
+          select
+            user_id,
+            sum(coalesce(post_count, 0))::int as post_count,
+            sum(coalesce(comment_count, 0))::int as comment_count,
+            sum(coalesce(answer_count, 0))::int as answer_count,
+            sum(coalesce(report_count, 0))::int as report_count,
+            max(latest_activity_at) as latest_activity_at
+          from community_activity
+          where user_id is not null
+          group by user_id
+        )
+        select
+          p.id as user_id,
+          p.name,
+          p.email,
+          p.primary_role,
+          p.signup_module,
+          p.avatar_url,
+          coalesce(r.post_count, 0)::int as post_count,
+          coalesce(r.comment_count, 0)::int as comment_count,
+          coalesce(r.answer_count, 0)::int as answer_count,
+          coalesce(r.report_count, 0)::int as report_count,
+          r.latest_activity_at,
+          c.created_at as blocked_at,
+          c.granted_by as blocked_by,
+          coalesce(c.is_enabled = false, false) as is_community_blocked
+        from community_user_rollup r
+        join profiles p on p.id = r.user_id
+        left join user_capabilities c
+          on c.user_id = p.id
+         and c.capability_code = 'can_access_community'
+        order by coalesce(c.is_enabled = false, false) desc, r.latest_activity_at desc nulls last, p.created_at desc
+        limit ${limit}
+      `;
+      return res.json({ data: rows, error: null });
+    }
+
+    if (
+      action === "community_block_user" ||
+      (action === "update" && table === "community_blocks" && body.mode === "block")
+    ) {
+      const targetUserId = body.user_id || body.target_user_id;
+      if (!isUuid(targetUserId)) return bad(res, "Invalid user id");
+      if (targetUserId === req.userId) return bad(res, "You cannot block yourself from Community");
+      const [profile] = await sql`select id from profiles where id = ${targetUserId} limit 1`;
+      if (!profile) return bad(res, "User not found", 404);
+      const [row] = await sql`
+        insert into user_capabilities ${sql({
+          user_id: targetUserId,
+          capability_code: "can_access_community",
+          is_enabled: false,
+          granted_by: req.userId,
+          created_at: new Date().toISOString(),
+        })}
+        on conflict (user_id, capability_code) do update set
+          is_enabled = false,
+          granted_by = ${req.userId},
+          created_at = excluded.created_at
+        returning user_id, capability_code, is_enabled, granted_by, created_at
+      `;
+      return res.json({ data: row, error: null });
+    }
+
+    if (
+      action === "community_unblock_user" ||
+      (action === "update" && table === "community_blocks" && body.mode === "unblock")
+    ) {
+      const targetUserId = body.user_id || body.target_user_id;
+      if (!isUuid(targetUserId)) return bad(res, "Invalid user id");
+      const [profile] = await sql`select id from profiles where id = ${targetUserId} limit 1`;
+      if (!profile) return bad(res, "User not found", 404);
+      const [row] = await sql`
+        insert into user_capabilities ${sql({
+          user_id: targetUserId,
+          capability_code: "can_access_community",
+          is_enabled: true,
+          granted_by: req.userId,
+          created_at: new Date().toISOString(),
+        })}
+        on conflict (user_id, capability_code) do update set
+          is_enabled = true,
+          granted_by = ${req.userId}
+        returning user_id, capability_code, is_enabled, granted_by, created_at
+      `;
+      return res.json({ data: row, error: null });
     }
 
     if (action === "select" && table === "role_permissions" && body.mode === "permissions_list") {

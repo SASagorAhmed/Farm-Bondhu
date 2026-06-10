@@ -15,6 +15,7 @@ function useProfileColor(pathname: string): string {
   if (pathname.startsWith("/marketplace")) return ICON_COLORS.cart;
   if (pathname.startsWith("/vetbondhu")) return ICON_COLORS.vetbondhu;
   if (pathname.startsWith("/medibondhu")) return ICON_COLORS.medibondhu;
+  if (pathname.startsWith("/community")) return ICON_COLORS.community;
   if (pathname.startsWith("/vet")) return ICON_COLORS.vet;
   if (pathname.startsWith("/buyer")) return ICON_COLORS.cart;
   if (pathname.startsWith("/seller")) return ICON_COLORS.store;
@@ -30,6 +31,7 @@ function getContextProfilePath(pathname: string): string {
   if (pathname.startsWith("/vet")) return "/vet/profile";
   if (pathname.startsWith("/medibondhu")) return "/medibondhu/profile";
   if (pathname.startsWith("/learning")) return "/learning/profile";
+  if (pathname.startsWith("/community")) return "/community/profile";
   if (pathname.startsWith("/admin")) return "/admin/profile";
   return "/profile";
 }

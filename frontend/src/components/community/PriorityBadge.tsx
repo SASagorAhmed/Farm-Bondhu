@@ -1,10 +1,11 @@
 import { Badge } from "@/components/ui/badge";
+import { ICON_COLORS } from "@/lib/iconColors";
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
   normal: { label: "Normal", color: "#6B7280" },
   important: { label: "Important", color: "#F59E0B" },
   urgent: { label: "Urgent", color: "#F43F5E" },
-  expert_needed: { label: "Expert Needed", color: "#8B5CF6" },
+  expert_needed: { label: "Expert Needed", color: ICON_COLORS.community },
 };
 
 export default function PriorityBadge({ priority }: { priority: string }) {

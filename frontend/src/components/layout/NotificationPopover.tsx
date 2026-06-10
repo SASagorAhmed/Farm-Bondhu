@@ -40,6 +40,10 @@ export default function NotificationPopover({ notificationsPath }: NotificationP
     queryFn: () => fetchNotifications(userId),
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      return 10_000;
+    },
   });
 
   const preview = useMemo(() => notifications.slice(0, PREVIEW_LIMIT), [notifications]);

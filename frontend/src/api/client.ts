@@ -244,10 +244,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           body: JSON.stringify(this.insertRow),
         });
         if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
-        let data = (body as { data: unknown }).data;
-        if (this.expectOne && data && typeof data === "object") {
-          data = data;
-        }
+        const data = (body as { data: unknown }).data;
         return { data, error: null };
       }
 
@@ -313,7 +310,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
       if (this.op === "select" && this.table === "animals" && !this.expectOne) {
         const { res, body } = await apiJson("/v1/animals");
         if (!res.ok) return { data: null, error: new Error(String(body.error || res.status)) };
-        let rows = (body as { data: unknown[] }).data || [];
+        const rows = (body as { data: unknown[] }).data || [];
         const headF = this.filters.find((f): f is Extract<Filter, { type: "head" }> => f.type === "head");
         if (headF) {
           return { data: null, error: null, count: rows.length };
@@ -854,7 +851,7 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
           if (!inAdminArea) {
             return { data: [], error: null };
           }
-          let { res, body } = await apiJson("/v1/compat/from/admin", {
+          const { res, body } = await apiJson("/v1/compat/from/admin", {
             method: "POST",
             body: JSON.stringify({ action: "select", table: "profiles", mode: "all_admin" }),
           });
@@ -1285,10 +1282,22 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
     }
 
     if (t === "community_posts" && this.op === "select") {
+      const ids = this.getIn("id");
+      if (ids?.length) {
+        return { action: "select", table: "community_posts", mode: "by_ids", ids, user_id: uid };
+      }
+      const postTypes = this.getIn("post_type");
+      if (this.getEq("status") === "active" && postTypes?.length && Number(this.getEq("answer_count")) === 0) {
+        return { action: "select", table: "community_posts", mode: "unanswered", user_id: uid };
+      }
+      const priorities = this.getIn("priority");
+      if (this.getEq("status") === "active" && priorities?.length) {
+        return { action: "select", table: "community_posts", mode: "urgent", user_id: uid };
+      }
       if (this.getEq("status") === "active" && this.getEq("category")) {
         return { action: "select", table: "community_posts", mode: "active_category", category: this.getEq("category"), user_id: uid };
       }
-      if (this.getEq("status") === "active" && this.getEq("user_id") === uid) {
+      if (this.getEq("user_id") === uid) {
         return { action: "select", table: "community_posts", mode: "by_user", user_id: uid };
       }
       if (this.getEq("status") === "active") {
@@ -1297,6 +1306,96 @@ class QueryBuilder implements PromiseLike<{ data: unknown; error: Error | null; 
       const id = this.getEq("id");
       if (id && this.expectOne) {
         return { action: "select", table: "community_posts", mode: "by_id", id, user_id: uid };
+      }
+    }
+
+    if (t === "community_saves") {
+      const postId = this.getEq("post_id");
+      if (this.op === "select") {
+        if (postId) return { action: "select", table: "community_saves", post_id: postId, user_id: uid };
+        if (this.getEq("user_id") === uid) return { action: "select", table: "community_saves", user_id: uid };
+      }
+      if (this.op === "insert" && this.insertRow) {
+        const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+        const rowPostId = row && typeof row === "object" ? (row as Record<string, unknown>).post_id : undefined;
+        return { action: "insert", table: "community_saves", post_id: rowPostId, user_id: uid };
+      }
+      if (this.op === "delete" && postId) {
+        return { action: "delete", table: "community_saves", post_id: postId, user_id: uid };
+      }
+    }
+
+    if (t === "community_reactions") {
+      const postId = this.getEq("post_id");
+      if (this.op === "select" && postId) return { action: "select", table: "community_reactions", post_id: postId, user_id: uid };
+      if (this.op === "insert" && this.insertRow) {
+        const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+        const rowPostId = row && typeof row === "object" ? (row as Record<string, unknown>).post_id : undefined;
+        return { action: "insert", table: "community_reactions", post_id: rowPostId, user_id: uid };
+      }
+      if (this.op === "delete" && postId) {
+        return { action: "delete", table: "community_reactions", post_id: postId, user_id: uid };
+      }
+    }
+
+    if (t === "community_comments") {
+      const postId = this.getEq("post_id");
+      const id = this.getEq("id");
+      if (this.op === "select" && postId) return { action: "select", table: "community_comments", post_id: postId, user_id: uid };
+      if (this.op === "insert" && this.insertRow) {
+        const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+        const payload = row && typeof row === "object" ? row as Record<string, unknown> : {};
+        return { action: "insert", table: "community_comments", post_id: payload.post_id, parent_id: payload.parent_id, body: payload.body, user_id: uid };
+      }
+      if (this.op === "update" && id) return { action: "update", table: "community_comments", id, patch: this.updatePatch || {}, user_id: uid };
+      if (this.op === "delete" && id) return { action: "delete", table: "community_comments", id, user_id: uid };
+    }
+
+    if (t === "community_answers") {
+      const postId = this.getEq("post_id");
+      const id = this.getEq("id");
+      if (this.op === "select" && postId) return { action: "select", table: "community_answers", post_id: postId, user_id: uid };
+      if (this.op === "insert" && this.insertRow) {
+        const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+        const payload = row && typeof row === "object" ? row as Record<string, unknown> : {};
+        return { action: "insert", table: "community_answers", post_id: payload.post_id, body: payload.body, user_id: uid };
+      }
+      if (this.op === "update" && postId && this.updatePatch?.is_best_answer === false) {
+        return { action: "update", table: "community_answers", mode: "clear_best", post_id: postId, user_id: uid };
+      }
+      if (this.op === "update" && id && this.updatePatch?.is_best_answer === true) {
+        return { action: "update", table: "community_answers", mode: "set_best", id, user_id: uid };
+      }
+      if (this.op === "update" && id) return { action: "update", table: "community_answers", id, patch: this.updatePatch || {}, user_id: uid };
+      if (this.op === "delete" && id) return { action: "delete", table: "community_answers", id, user_id: uid };
+    }
+
+    if (t === "community_comment_reactions") {
+      const commentId = this.getEq("comment_id");
+      if (this.op === "select" && commentId) return { action: "select", table: "community_comment_reactions", comment_id: commentId, user_id: uid };
+      if (this.op === "insert" && this.insertRow) {
+        const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+        const payload = row && typeof row === "object" ? row as Record<string, unknown> : {};
+        return { action: "insert", table: "community_comment_reactions", comment_id: payload.comment_id, user_id: uid };
+      }
+      if (this.op === "delete" && commentId) return { action: "delete", table: "community_comment_reactions", comment_id: commentId, user_id: uid };
+    }
+
+    if (t === "community_activity_log" && this.op === "select") {
+      const actionType = this.getEq("action_type");
+      return {
+        action: "select",
+        table: "community_activity_log",
+        action_type: actionType,
+        limit: lim?.n ?? 200,
+        user_id: uid,
+      };
+    }
+
+    if (t === "community_posts" && this.op === "insert" && this.insertRow) {
+      const row = Array.isArray(this.insertRow) ? this.insertRow[0] : this.insertRow;
+      if (row && typeof row === "object") {
+        return { action: "insert", table: "community_posts", row, user_id: uid };
       }
     }
 

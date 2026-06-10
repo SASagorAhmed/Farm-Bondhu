@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Warehouse, ShoppingCart, Stethoscope, BookOpen, MessageSquareText } from "lucide-react";
 import { ICON_COLORS } from "@/lib/iconColors";
+import { MARKETPLACE_THEME } from "@/lib/marketplaceTheme";
 import { useAuth, isPlatformAdmin, canAccessWorkspace, type WorkspaceKey } from "@/contexts/AuthContext";
 
 interface WorkspaceTarget {
@@ -18,7 +19,7 @@ interface WorkspaceTarget {
 
 const ALL_WORKSPACES: Record<string, WorkspaceTarget> = {
   farm: { label: "Go to Farm", adminLabel: "Preview Farm", url: "/dashboard", icon: Warehouse, color: ICON_COLORS.farm },
-  marketplace: { label: "Go to Marketplace", adminLabel: "Preview Marketplace", url: "/marketplace", icon: ShoppingCart, color: ICON_COLORS.cart },
+  marketplace: { label: "Go to Marketplace", adminLabel: "Preview Marketplace", url: "/marketplace", icon: ShoppingCart, color: MARKETPLACE_THEME.primary },
   vet: { label: "Go to Vet portal", adminLabel: "Preview Vet portal", url: "/vet/dashboard", icon: Stethoscope, color: ICON_COLORS.vet },
   medibondhu: {
     label: "Go to MediBondhu",

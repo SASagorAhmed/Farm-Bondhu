@@ -1,12 +1,14 @@
 import { Badge } from "@/components/ui/badge";
-import { HelpCircle, MessageSquare, BookOpen, AlertTriangle, Lightbulb } from "lucide-react";
+import { HelpCircle, MessageSquare, BookOpen, AlertTriangle, Lightbulb, Briefcase } from "lucide-react";
+import { ICON_COLORS } from "@/lib/iconColors";
 
 const POST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   question: { label: "Question", color: "#3B82F6", icon: HelpCircle },
-  discussion: { label: "Discussion", color: "#8B5CF6", icon: MessageSquare },
+  discussion: { label: "Discussion", color: ICON_COLORS.community, icon: MessageSquare },
   experience: { label: "Experience", color: "#10B981", icon: BookOpen },
   help_request: { label: "Help Request", color: "#F43F5E", icon: AlertTriangle },
   knowledge_share: { label: "Knowledge", color: "#F59E0B", icon: Lightbulb },
+  hiring: { label: "Hiring", color: ICON_COLORS.community, icon: Briefcase },
 };
 
 export default function PostTypeBadge({ type }: { type: string }) {

@@ -25,6 +25,10 @@ export interface User {
   avatar?: string;
   phone?: string;
   location?: string;
+  cvUrl?: string;
+  cvFilename?: string;
+  cvMimeType?: string;
+  cvUpdatedAt?: string;
 }
 
 const ADMIN_TEAM_LABELS: Record<AdminTeamLevel, string> = {

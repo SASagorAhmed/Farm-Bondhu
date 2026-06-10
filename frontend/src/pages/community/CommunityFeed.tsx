@@ -1,131 +1,96 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, PenSquare, Search, Sparkles, Flame, HelpCircle, Clock } from "lucide-react";
+import { Loader2, PenSquare, Search } from "lucide-react";
 import { motion } from "framer-motion";
-import PostCard, { CATEGORY_LABELS, ANIMAL_LABELS } from "@/components/community/PostCard";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import PostCard from "@/components/community/PostCard";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { moduleCachePolicy } from "@/lib/queryClient";
-
-type PostRow = {
-  id: string; user_id: string; post_type: string; title: string; body: string;
-  category: string; animal_type: string; priority: string; status: string;
-  comment_count: number; answer_count: number; reaction_count: number;
-  created_at: string; updated_at: string;
-};
-
-const TABS = [
-  { value: "latest", label: "Latest", icon: Clock },
-  { value: "questions", label: "Questions", icon: HelpCircle },
-  { value: "urgent", label: "Urgent", icon: Flame },
-  { value: "unanswered", label: "Unanswered", icon: Sparkles },
-];
+import { fetchCommunityFeed, type CommunityFeedPost, type CommunityFeedResponse } from "@/lib/communityFeedApi";
+import { COMMUNITY_FEED_FILTERS, type CommunityFeedFilter } from "@/lib/communityCategories";
 
 export default function CommunityFeed() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("latest");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [animalFilter, setAnimalFilter] = useState("all");
+  const [filter, setFilter] = useState<CommunityFeedFilter>("all");
   const [search, setSearch] = useState("");
-  const [showAllCategories, setShowAllCategories] = useState(false);
-  const [showAllAnimals, setShowAllAnimals] = useState(false);
-
-  const fetchPosts = async () => {
-    const { data, error } = await api.from("community_posts").select("*").eq("status", "active").order("created_at", { ascending: false });
-    if (error) throw error;
-    const rows = (data || []) as PostRow[];
-    let profileMap: Record<string, { name: string; primary_role: string }> = {};
-    const userIds = [...new Set(rows.map((p) => p.user_id))];
-    if (userIds.length > 0) {
-      const { data: profs, error: profilesError } = await api.from("profiles").select("id, name, primary_role").in("id", userIds);
-      if (profilesError) throw profilesError;
-      profileMap = (profs || []).reduce((acc: Record<string, { name: string; primary_role: string }>, p: any) => {
-        acc[p.id] = { name: p.name, primary_role: p.primary_role };
-        return acc;
-      }, {});
-    }
-    return { posts: rows, profiles: profileMap };
-  };
-
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["community-feed", "active"],
-    queryFn: fetchPosts,
-    staleTime: moduleCachePolicy.dashboard.staleTime,
-    gcTime: moduleCachePolicy.dashboard.gcTime,
-    placeholderData: (prev) => prev,
-  });
-
-  const posts = data?.posts || [];
-  const profiles = data?.profiles || {};
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const activeFilter = COMMUNITY_FEED_FILTERS.find((item) => item.value === filter) || COMMUNITY_FEED_FILTERS[0];
+  const feedQueryKey = ["community-feed", "infinite", filter, debouncedSearch] as const;
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const { data, isLoading, isFetching, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: feedQueryKey,
+    queryFn: ({ pageParam }) =>
+      fetchCommunityFeed({
+        tab: activeFilter.tab,
+        intent: activeFilter.intent,
+        postType: activeFilter.postType,
+        q: debouncedSearch,
+        limit: 30,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: CommunityFeedResponse) => lastPage.nextCursor,
+    staleTime: moduleCachePolicy.dashboard.staleTime,
+    gcTime: moduleCachePolicy.dashboard.gcTime,
+  });
+
+  const posts = data?.pages?.flatMap((page) => page.posts) || [];
+
+  useEffect(() => {
+    const refreshCommunity = () => {
+      void queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
     const channel = api
-      .channel("community-posts-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, (payload) => {
-        const updated = (payload.eventType === "DELETE" ? payload.old : payload.new) as PostRow;
-        queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
-          ["community-feed", "active"],
-          (prev) => {
-            if (!prev) return prev;
-            if (payload.eventType === "DELETE") {
-              return { ...prev, posts: prev.posts.filter((p) => p.id !== updated.id) };
-            }
-            if (payload.eventType === "INSERT") {
-              return { ...prev, posts: [updated, ...prev.posts] };
-            }
-            return {
-              ...prev,
-              posts: prev.posts.map((p) =>
-                p.id === updated.id
-                  ? {
-                      ...p,
-                      reaction_count: updated.reaction_count,
-                      comment_count: updated.comment_count,
-                      answer_count: updated.answer_count,
-                    }
-                  : p
-              ),
-            };
-          }
-        );
-      })
+      .channel("community-feed-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_posts" }, refreshCommunity)
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_comments" }, refreshCommunity)
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_reactions" }, refreshCommunity)
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_comment_reactions" }, refreshCommunity)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, refreshCommunity)
       .subscribe();
     return () => { api.removeChannel(channel); };
   }, [queryClient]);
 
-  const handleReactionChange = (postId: string, newCount: number) => {
-    queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
-      ["community-feed", "active"],
-      (prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          posts: prev.posts.map((p) => (p.id === postId ? { ...p, reaction_count: newCount } : p)),
-        };
-      }
-    );
+  const updatePostInFeed = (postId: string, updater: (post: CommunityFeedPost) => CommunityFeedPost) => {
+    queryClient.setQueriesData<InfiniteData<CommunityFeedResponse>>({ queryKey: ["community-feed"] }, (prev) => {
+      if (!prev || !Array.isArray(prev.pages)) return prev;
+      return {
+        ...prev,
+        pages: prev.pages.map((page) => ({
+          ...page,
+          posts: page.posts.map((post) => (post.id === postId ? updater(post) : post)),
+        })),
+      };
+    });
   };
 
-  let filtered = posts;
-  if (tab === "questions") filtered = filtered.filter(p => p.post_type === "question" || p.post_type === "help_request");
-  if (tab === "urgent") filtered = filtered.filter(p => p.priority === "urgent" || p.priority === "expert_needed");
-  if (tab === "unanswered") filtered = filtered.filter(p => (p.post_type === "question" || p.post_type === "help_request") && p.answer_count === 0);
-  if (categoryFilter !== "all") filtered = filtered.filter(p => p.category === categoryFilter);
-  if (animalFilter !== "all") filtered = filtered.filter(p => p.animal_type === animalFilter);
-  if (search.trim()) {
-    const s = search.toLowerCase();
-    filtered = filtered.filter(p => p.title.toLowerCase().includes(s) || p.body.toLowerCase().includes(s));
-  }
+  const handleReactionChange = (postId: string, newCount: number, hasReacted: boolean) => {
+    updatePostInFeed(postId, (post) => ({ ...post, reaction_count: newCount, has_reacted: hasReacted }));
+  };
 
-  const categoryEntries = Object.entries(CATEGORY_LABELS);
-  const animalEntries = Object.entries(ANIMAL_LABELS);
-  const visibleCategories = showAllCategories ? categoryEntries : categoryEntries.slice(0, 5);
-  const visibleAnimals = showAllAnimals ? animalEntries : animalEntries.slice(0, 5);
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasNextPage) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    }, { rootMargin: "360px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   return (
     <div className="space-y-5">
@@ -152,26 +117,24 @@ export default function CommunityFeed() {
       {/* Search */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Search posts..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 rounded-full bg-card border-border/60" />
+        <Input placeholder="Search posts, hiring, work, farm help..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 rounded-full bg-card border-border/60" />
       </div>
 
-      {/* Pill tabs */}
+      {/* Compact feed filters */}
       <div className="flex items-center gap-2 flex-wrap">
-        {TABS.map(t => {
-          const Icon = t.icon;
-          const isActive = tab === t.value;
+        {COMMUNITY_FEED_FILTERS.map((item) => {
+          const isActive = filter === item.value;
           return (
             <button
-              key={t.value}
-              onClick={() => setTab(t.value)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+              key={item.value}
+              onClick={() => setFilter(item.value)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
                 isActive
                   ? "bg-teal-500 text-white shadow-sm"
                   : "bg-muted/60 text-muted-foreground hover:bg-muted"
               }`}
             >
-              <Icon className="h-3.5 w-3.5" />
-              {t.label}
+              {item.label}
             </button>
           );
         })}
@@ -180,68 +143,27 @@ export default function CommunityFeed() {
       {isFetching && posts.length > 0 && (
         <p className="text-xs text-muted-foreground">Refreshing posts...</p>
       )}
-
-      {/* Filter chips */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-medium text-muted-foreground mr-1">Category:</span>
-          <button
-            onClick={() => setCategoryFilter("all")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-              categoryFilter === "all" ? "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" : "bg-muted/50 text-muted-foreground hover:bg-muted"
-            }`}
-          >All</button>
-          {visibleCategories.map(([k, v]) => (
-            <button
-              key={k}
-              onClick={() => setCategoryFilter(k === categoryFilter ? "all" : k)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                categoryFilter === k ? "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" : "bg-muted/50 text-muted-foreground hover:bg-muted"
-              }`}
-            >{v}</button>
-          ))}
-          {categoryEntries.length > 5 && (
-            <button onClick={() => setShowAllCategories(!showAllCategories)} className="text-[11px] text-teal-600 hover:underline">
-              {showAllCategories ? "Less" : `+${categoryEntries.length - 5} more`}
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-medium text-muted-foreground mr-1">Animal:</span>
-          <button
-            onClick={() => setAnimalFilter("all")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-              animalFilter === "all" ? "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" : "bg-muted/50 text-muted-foreground hover:bg-muted"
-            }`}
-          >All</button>
-          {visibleAnimals.map(([k, v]) => (
-            <button
-              key={k}
-              onClick={() => setAnimalFilter(k === animalFilter ? "all" : k)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                animalFilter === k ? "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" : "bg-muted/50 text-muted-foreground hover:bg-muted"
-              }`}
-            >{v}</button>
-          ))}
-          {animalEntries.length > 5 && (
-            <button onClick={() => setShowAllAnimals(!showAllAnimals)} className="text-[11px] text-teal-600 hover:underline">
-              {showAllAnimals ? "Less" : `+${animalEntries.length - 5} more`}
-            </button>
-          )}
-        </div>
-      </div>
+      {debouncedSearch && posts.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Showing best matches for "{debouncedSearch}"
+        </p>
+      )}
 
       {/* Posts */}
       {isLoading && !posts.length ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-      ) : filtered.length === 0 ? (
+      ) : posts.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-muted-foreground">No posts found</p>
+          <p className="text-muted-foreground">
+            {debouncedSearch
+              ? "No posts match this search or filter"
+              : "No posts found"}
+          </p>
           <Button variant="outline" className="mt-3 rounded-full" onClick={() => navigate("/community/create")}>Be the first to post</Button>
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((post, i) => (
+          {posts.map((post, i) => (
             <motion.div
               key={post.id}
               initial={{ opacity: 0, y: 12 }}
@@ -249,21 +171,34 @@ export default function CommunityFeed() {
               transition={{ delay: i * 0.04, duration: 0.3 }}
             >
               <PostCard
-                post={{
-                  ...post,
-                  author_name: profiles[post.user_id]?.name,
-                  author_role: profiles[post.user_id]?.primary_role,
-                }}
+                post={post}
                 onReactionChange={handleReactionChange}
                 onDeleted={(postId) => {
-                  queryClient.setQueryData<{ posts: PostRow[]; profiles: Record<string, { name: string; primary_role: string }> }>(
-                    ["community-feed", "active"],
-                    (prev) => (prev ? { ...prev, posts: prev.posts.filter((p) => p.id !== postId) } : prev)
-                  );
+                  queryClient.setQueriesData<InfiniteData<CommunityFeedResponse>>({ queryKey: ["community-feed"] }, (prev) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      pages: prev.pages.map((page) => ({
+                        ...page,
+                        posts: page.posts.filter((p) => p.id !== postId),
+                      })),
+                    };
+                  });
                 }}
               />
             </motion.div>
           ))}
+          <div ref={loadMoreRef} className="flex justify-center py-4">
+            {isFetchingNextPage ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : hasNextPage ? (
+              <Button variant="outline" className="rounded-full" onClick={() => void fetchNextPage()}>
+                Load more posts
+              </Button>
+            ) : posts.length > 0 ? (
+              <p className="text-xs text-muted-foreground">You reached the older posts.</p>
+            ) : null}
+          </div>
         </div>
       )}
     </div>

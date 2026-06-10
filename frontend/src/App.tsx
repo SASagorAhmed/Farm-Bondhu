@@ -105,6 +105,10 @@ import VetBondhuAccessDenied from "./pages/vetbondhu/VetBondhuAccessDenied";
 
 // Learning
 import LearningCenter from "./pages/learning/LearningCenter";
+import LearningDashboard from "./pages/learning/LearningDashboard";
+import MyCourses from "./pages/learning/MyCourses";
+import CoursePlayer from "./pages/learning/CoursePlayer";
+import CourseDetail from "./pages/learning/CourseDetail";
 
 // Vet pages
 import VetDashboard from "./pages/vet/VetDashboard";
@@ -174,8 +178,6 @@ import CommunityLayout from "@/components/layout/CommunityLayout";
 import CommunityFeed from "./pages/community/CommunityFeed";
 import CreatePost from "./pages/community/CreatePost";
 import PostDetail from "./pages/community/PostDetail";
-import UnansweredPosts from "./pages/community/UnansweredPosts";
-import UrgentPosts from "./pages/community/UrgentPosts";
 import MyPosts from "./pages/community/MyPosts";
 import SavedPosts from "./pages/community/SavedPosts";
 
@@ -395,7 +397,12 @@ const App = () => (
 
                 {/* ============ LEARNING (requires can_access_learning) ============ */}
                 <Route path="/learning" element={<ProtectedRoute requireAnyCapability={["can_access_learning", "can_book_vet"]}><LearningLayout /></ProtectedRoute>}>
-                  <Route index element={<LearningCenter />} />
+                  <Route index element={<Navigate to="dashboard" replace />} />
+                  <Route path="articles" element={<LearningCenter />} />
+                  <Route path="dashboard" element={<LearningDashboard />} />
+                  <Route path="my-course" element={<MyCourses />} />
+                  <Route path="my-course/:courseId" element={<CoursePlayer />} />
+                  <Route path="courses/:courseId" element={<CourseDetail />} />
                   <Route path="profile" element={<ProfilePage />} />
                   <Route path="notifications" element={<Notifications contextFilter={["learning", "general"]} />} />
                   <Route path="access-center" element={<AccessCenter />} />
@@ -622,13 +629,11 @@ const App = () => (
                   <Route path="create" element={<CreatePost />} />
                   <Route path="post/:id" element={<PostDetail />} />
                   <Route path="category/:category" element={<LazyPage><CategoryFeed /></LazyPage>} />
-                  <Route path="unanswered" element={<UnansweredPosts />} />
-                  <Route path="urgent" element={<UrgentPosts />} />
                   <Route path="my-posts" element={<MyPosts />} />
                   <Route path="saved" element={<SavedPosts />} />
                   <Route path="history" element={<LazyPage><CommunityHistory /></LazyPage>} />
                   <Route path="profile" element={<ProfilePage />} />
-                  <Route path="notifications" element={<Notifications contextFilter={["general"]} />} />
+                  <Route path="notifications" element={<Notifications contextFilter={["community"]} />} />
                   <Route path="settings" element={<Settings />} />
                   <Route path="support" element={<CustomerSupportPage />} />
                   <Route path="support/chat/:conversationId" element={<SupportChatThread />} />

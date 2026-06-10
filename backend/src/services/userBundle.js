@@ -108,5 +108,9 @@ export async function buildUserBundle(userId) {
     avatar: profile.avatar_url || undefined,
     phone: profile.phone || undefined,
     location: profile.location || undefined,
+    cvUrl: profile.cv_url || undefined,
+    cvFilename: profile.cv_filename || undefined,
+    cvMimeType: profile.cv_mime_type || undefined,
+    cvUpdatedAt: profile.cv_updated_at || undefined,
   };
 }
