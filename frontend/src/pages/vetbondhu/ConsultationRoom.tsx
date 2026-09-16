@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   Send, MessageSquare, Stethoscope, Clock, Camera,
-  ArrowLeft, FileText, PhoneOff, Maximize2, Minimize2,
+  ArrowLeft, FileText, PhoneOff, Maximize2, Minimize2, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
   copyMainCallVideoToClipboard,
   isCallScreenshotHotkey,
 } from "@/lib/consultationScreenshot";
+import { useCallStageZoom } from "@/lib/useCallStageZoom";
 
 const VB = ICON_COLORS.vetbondhu;
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled"]);
@@ -124,6 +125,7 @@ export default function ConsultationRoom() {
 
   // ZegoCloud
   const stageShellRef = useRef<HTMLDivElement>(null);
+  const zoomFrameRef = useRef<HTMLDivElement>(null);
   const zegoContainerRef = useRef<HTMLDivElement>(null);
   const zegoInstanceRef = useRef<any>(null);
   /** True while React/Zego is destroying the instance so `onLeaveRoom` does not PATCH + navigate. */
@@ -239,6 +241,13 @@ export default function ConsultationRoom() {
     }
     setIsStageFullscreen(false);
   }, []);
+
+  const {
+    style: zoomFrameStyle,
+    zoomIn,
+    zoomOut,
+    scale: zoomScale,
+  } = useCallStageZoom(zoomFrameRef, isStageFullscreen);
 
   const copyCallScreenshot = useCallback(async () => {
     if (isCapturingScreenshot) return;
@@ -1089,6 +1098,36 @@ export default function ConsultationRoom() {
                   style={{ borderColor: `${VB}33` }}
                 >
                   <div className="consultation-zego-stage-toolbar">
+                    {isStageFullscreen && (
+                      <>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                          style={{ borderColor: `${VB}55`, color: VB }}
+                          aria-label="Zoom out"
+                          title="Zoom out"
+                          disabled={zoomScale <= 1}
+                          onClick={() => zoomOut()}
+                        >
+                          <ZoomOut className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                          style={{ borderColor: `${VB}55`, color: VB }}
+                          aria-label="Zoom in"
+                          title="Zoom in"
+                          disabled={zoomScale >= 4}
+                          onClick={() => zoomIn()}
+                        >
+                          <ZoomIn className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                     <Button
                       type="button"
                       size="icon"
@@ -1114,21 +1153,13 @@ export default function ConsultationRoom() {
                       {isStageFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                     </Button>
                   </div>
-                  <div className="consultation-zego-frame">
+                  <div
+                    ref={zoomFrameRef}
+                    className="consultation-zego-frame"
+                    style={isStageFullscreen ? zoomFrameStyle : undefined}
+                  >
                     <div ref={zegoContainerRef} className="consultation-zego-sdk-root" />
                   </div>
-                  {isStageFullscreen && (
-                    <Button
-                      type="button"
-                      size="icon"
-                      className="consultation-zego-floating-close h-10 w-10 rounded-full p-0 text-white"
-                      style={{ backgroundColor: VB }}
-                      aria-label="Close fullscreen"
-                      onClick={() => void exitStageFullscreen()}
-                    >
-                      <Minimize2 className="h-4 w-4" />
-                    </Button>
-                  )}
                 </div>
               </CardContent>
             </Card>

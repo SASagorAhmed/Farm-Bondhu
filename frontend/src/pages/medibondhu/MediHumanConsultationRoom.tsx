@@ -20,6 +20,8 @@ import {
   PhoneOff,
   Send,
   Stethoscope,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
@@ -31,6 +33,7 @@ import {
   copyMainCallVideoToClipboard,
   isCallScreenshotHotkey,
 } from "@/lib/consultationScreenshot";
+import { useCallStageZoom } from "@/lib/useCallStageZoom";
 
 const MB = ICON_COLORS.medibondhu;
 
@@ -99,6 +102,7 @@ export default function MediHumanConsultationRoom() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const bookingRef = useRef<RoomBootstrap["appointment"] | null>(null);
   const stageShellRef = useRef<HTMLDivElement>(null);
+  const zoomFrameRef = useRef<HTMLDivElement>(null);
   const zegoContainerRef = useRef<HTMLDivElement>(null);
   const zegoInstanceRef = useRef<{ destroy: () => void } | null>(null);
   const zegoAttemptRef = useRef(0);
@@ -153,6 +157,13 @@ export default function MediHumanConsultationRoom() {
     }
     setIsStageFullscreen(false);
   }, []);
+
+  const {
+    style: zoomFrameStyle,
+    zoomIn,
+    zoomOut,
+    scale: zoomScale,
+  } = useCallStageZoom(zoomFrameRef, isStageFullscreen);
 
   const copyCallScreenshot = useCallback(async () => {
     if (isCapturingScreenshot) return;
@@ -791,6 +802,36 @@ export default function MediHumanConsultationRoom() {
                 style={{ borderColor: `${MB}33` }}
               >
                 <div className="consultation-zego-stage-toolbar">
+                  {isStageFullscreen && (
+                    <>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                        style={{ borderColor: `${MB}55`, color: MB }}
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                        disabled={zoomScale <= 1}
+                        onClick={() => zoomOut()}
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                        style={{ borderColor: `${MB}55`, color: MB }}
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                        disabled={zoomScale >= 4}
+                        onClick={() => zoomIn()}
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                   <Button
                     type="button"
                     size="icon"
@@ -816,21 +857,13 @@ export default function MediHumanConsultationRoom() {
                     {isStageFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                   </Button>
                 </div>
-                <div className="consultation-zego-frame">
+                <div
+                  ref={zoomFrameRef}
+                  className="consultation-zego-frame"
+                  style={isStageFullscreen ? zoomFrameStyle : undefined}
+                >
                   <div ref={zegoContainerRef} className="consultation-zego-sdk-root" />
                 </div>
-                {isStageFullscreen && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    className="consultation-zego-floating-close h-10 w-10 rounded-full p-0 text-white"
-                    style={{ backgroundColor: MB }}
-                    aria-label="Close fullscreen"
-                    onClick={() => void exitStageFullscreen()}
-                  >
-                    <Minimize2 className="h-4 w-4" />
-                  </Button>
-                )}
               </div>
             </CardContent>
           </Card>

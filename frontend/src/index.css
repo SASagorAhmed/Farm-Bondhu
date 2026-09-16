@@ -464,11 +464,20 @@
     border-width: 0 !important;
   }
 
+  .consultation-zego-stage-fullscreen .consultation-zego-stage-toolbar {
+    z-index: 40;
+    top: max(0.75rem, env(safe-area-inset-top, 0px));
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+
   .consultation-zego-stage-fullscreen .consultation-zego-frame {
     height: 100vh !important;
     min-height: 100vh !important;
     max-height: none !important;
     aspect-ratio: auto !important;
+    overflow: hidden !important;
+    touch-action: none;
+    transform-origin: center center;
   }
 
   .vetbondhu-zego-stage.consultation-zego-stage-fullscreen .consultation-zego-frame video {
@@ -491,14 +500,6 @@
   .medibondhu-zego-stage.consultation-zego-stage-fullscreen [style*="position: absolute"][style*="right"]:has(video) video,
   .medibondhu-zego-stage.consultation-zego-stage-fullscreen [style*="position:absolute"][style*="right"]:has(video) video {
     object-fit: cover !important;
-  }
-
-  .consultation-zego-floating-close {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    z-index: 30;
-    border-radius: 0.75rem;
   }
 
   .consultation-mobile-help-strip {
@@ -624,18 +625,18 @@
       justify-content: flex-start;
     }
 
+    .consultation-zego-stage-fullscreen .consultation-zego-stage-toolbar {
+      z-index: 40;
+      top: auto;
+      right: auto;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 4.75rem);
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+    }
+
     .consultation-zego-stage-toolbar button {
       height: 2rem;
       width: 2rem;
       box-shadow: 0 10px 24px rgb(15 23 42 / 0.24);
-    }
-
-    .consultation-zego-floating-close {
-      top: auto;
-      right: auto;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 4.75rem);
-      left: 0.75rem;
-      z-index: 32;
     }
 
     .consultation-zego-stage [style*="position: absolute"][style*="top"][style*="right"]:has(video),
