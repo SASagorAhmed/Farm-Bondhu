@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  Camera,
   Clock,
   Maximize2,
   MessageSquare,
@@ -24,6 +25,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { withApiTiming } from "@/lib/perfMetrics";
 import { ICON_COLORS } from "@/lib/iconColors";
+import {
+  callScreenshotErrorMessage,
+  callScreenshotSuccessMessage,
+  copyMainCallVideoToClipboard,
+  isCallScreenshotHotkey,
+} from "@/lib/consultationScreenshot";
 
 const MB = ICON_COLORS.medibondhu;
 
@@ -88,6 +95,7 @@ export default function MediHumanConsultationRoom() {
   const [leaveGraceSeconds, setLeaveGraceSeconds] = useState<number | null>(null);
   const [roomError, setRoomError] = useState<string | null>(null);
   const [isStageFullscreen, setIsStageFullscreen] = useState(false);
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const bookingRef = useRef<RoomBootstrap["appointment"] | null>(null);
   const stageShellRef = useRef<HTMLDivElement>(null);
@@ -146,12 +154,31 @@ export default function MediHumanConsultationRoom() {
     setIsStageFullscreen(false);
   }, []);
 
+  const copyCallScreenshot = useCallback(async () => {
+    if (isCapturingScreenshot) return;
+    const node = stageShellRef.current;
+    if (!node) return;
+    setIsCapturingScreenshot(true);
+    try {
+      const result = await copyMainCallVideoToClipboard(node);
+      toast.success(callScreenshotSuccessMessage(result));
+    } catch (err) {
+      toast.error(callScreenshotErrorMessage(err));
+    } finally {
+      setIsCapturingScreenshot(false);
+    }
+  }, [isCapturingScreenshot]);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsStageFullscreen(document.fullscreenElement === stageShellRef.current);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") void exitStageFullscreen();
+      if (isCallScreenshotHotkey(event)) {
+        event.preventDefault();
+        void copyCallScreenshot();
+      }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("keydown", handleKeyDown);
@@ -159,7 +186,7 @@ export default function MediHumanConsultationRoom() {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [exitStageFullscreen]);
+  }, [copyCallScreenshot, exitStageFullscreen]);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -764,6 +791,19 @@ export default function MediHumanConsultationRoom() {
                 style={{ borderColor: `${MB}33` }}
               >
                 <div className="consultation-zego-stage-toolbar">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                    style={{ borderColor: `${MB}55`, color: MB }}
+                    aria-label="Copy call video screenshot (Alt+X)"
+                    title="Copy call video screenshot (Alt+X)"
+                    disabled={isCapturingScreenshot}
+                    onClick={() => void copyCallScreenshot()}
+                  >
+                    <Camera className="h-4 w-4" />
+                  </Button>
                   <Button
                     type="button"
                     size="icon"

@@ -8,7 +8,7 @@ import { vetbondhuApi, readSession, API_BASE } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
-  Send, MessageSquare, Stethoscope, Clock,
+  Send, MessageSquare, Stethoscope, Clock, Camera,
   ArrowLeft, FileText, PhoneOff, Maximize2, Minimize2,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -16,6 +16,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { moduleCachePolicy, queryKeys } from "@/lib/queryClient";
 import { withApiTiming } from "@/lib/perfMetrics";
 import { ICON_COLORS } from "@/lib/iconColors";
+import {
+  callScreenshotErrorMessage,
+  callScreenshotSuccessMessage,
+  copyMainCallVideoToClipboard,
+  isCallScreenshotHotkey,
+} from "@/lib/consultationScreenshot";
 
 const VB = ICON_COLORS.vetbondhu;
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled"]);
@@ -106,6 +112,7 @@ export default function ConsultationRoom() {
   const [leaveGraceSeconds, setLeaveGraceSeconds] = useState<number | null>(null);
   const [zegoRetryTick, setZegoRetryTick] = useState(0);
   const [isStageFullscreen, setIsStageFullscreen] = useState(false);
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([]);
@@ -233,12 +240,31 @@ export default function ConsultationRoom() {
     setIsStageFullscreen(false);
   }, []);
 
+  const copyCallScreenshot = useCallback(async () => {
+    if (isCapturingScreenshot) return;
+    const node = stageShellRef.current;
+    if (!node) return;
+    setIsCapturingScreenshot(true);
+    try {
+      const result = await copyMainCallVideoToClipboard(node);
+      toast.success(callScreenshotSuccessMessage(result));
+    } catch (err) {
+      toast.error(callScreenshotErrorMessage(err));
+    } finally {
+      setIsCapturingScreenshot(false);
+    }
+  }, [isCapturingScreenshot]);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsStageFullscreen(document.fullscreenElement === stageShellRef.current);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") void exitStageFullscreen();
+      if (isCallScreenshotHotkey(event)) {
+        event.preventDefault();
+        void copyCallScreenshot();
+      }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("keydown", handleKeyDown);
@@ -246,7 +272,7 @@ export default function ConsultationRoom() {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [exitStageFullscreen]);
+  }, [copyCallScreenshot, exitStageFullscreen]);
 
   const normalizedConsultMethod = useMemo(
     () => String(booking?.consultation_method ?? "").toLowerCase(),
@@ -1063,6 +1089,19 @@ export default function ConsultationRoom() {
                   style={{ borderColor: `${VB}33` }}
                 >
                   <div className="consultation-zego-stage-toolbar">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-9 w-9 shrink-0 rounded-full bg-background/90 p-0"
+                      style={{ borderColor: `${VB}55`, color: VB }}
+                      aria-label="Copy call video screenshot (Alt+X)"
+                      title="Copy call video screenshot (Alt+X)"
+                      disabled={isCapturingScreenshot}
+                      onClick={() => void copyCallScreenshot()}
+                    >
+                      <Camera className="h-4 w-4" />
+                    </Button>
                     <Button
                       type="button"
                       size="icon"
