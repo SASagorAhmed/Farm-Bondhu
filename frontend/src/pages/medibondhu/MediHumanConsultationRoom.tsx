@@ -33,6 +33,11 @@ import {
   copyMainCallVideoToClipboard,
   isCallScreenshotHotkey,
 } from "@/lib/consultationScreenshot";
+import {
+  installMeetLikeScreenShareAudio,
+  SCREEN_SHARE_AUDIO_ERROR,
+  SCREEN_SHARE_AUDIO_HELP,
+} from "@/lib/consultationScreenShareAudio";
 import { useCallStageZoom } from "@/lib/useCallStageZoom";
 
 const MB = ICON_COLORS.medibondhu;
@@ -562,6 +567,7 @@ export default function MediHumanConsultationRoom() {
     zegoAttemptRef.current += 1;
     const attemptId = zegoAttemptRef.current;
     let cancelled = false;
+    const uninstallScreenShareAudio = installMeetLikeScreenShareAudio();
 
     const zegoRoomId = String(roomBootstrap?.permissions?.zegoRoomId || `medi-human-${appointmentId}`);
 
@@ -642,7 +648,7 @@ export default function MediHumanConsultationRoom() {
             pullStreamMirror: false,
           },
           screenSharingConfig: {
-            onError: () => "Screen sharing may require a desktop browser. Please use laptop/desktop if this phone does not support it.",
+            onError: () => SCREEN_SHARE_AUDIO_ERROR,
           },
           onJoinRoom: () => {
             const current = bookingRef.current;
@@ -671,6 +677,7 @@ export default function MediHumanConsultationRoom() {
 
     return () => {
       cancelled = true;
+      uninstallScreenShareAudio();
       destroyZegoInstance();
     };
   }, [
@@ -873,7 +880,7 @@ export default function MediHumanConsultationRoom() {
             className="consultation-mobile-help-strip"
             style={{ borderColor: `${MB}35`, backgroundColor: `${MB}10`, color: MB }}
           >
-            Controls stay in the bottom call bar. Use More for extra options; screen share may need a desktop browser.
+            Controls stay in the bottom call bar. Use More for extra options. {SCREEN_SHARE_AUDIO_HELP}
           </div>
         </div>
 
