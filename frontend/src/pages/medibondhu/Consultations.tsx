@@ -25,6 +25,7 @@ type ApptRow = {
 };
 
 function appointmentDisplayStatus(appt: ApptRow) {
+  if (appt.status === "in_progress" && appt.left_user_id) return "paused";
   if (appt.status === "in_progress" && appt.leave_deadline_at) return "ending";
   return appt.status;
 }

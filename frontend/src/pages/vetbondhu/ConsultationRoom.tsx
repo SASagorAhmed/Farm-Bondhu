@@ -152,7 +152,7 @@ export default function ConsultationRoom() {
   const markLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
   const clearLeaveGraceTimerRef = useRef<(() => void) | null>(null);
   const clearLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
-  const finalizeConsultationRef = useRef<((source: "sdk_leave" | "grace_timeout") => Promise<void>) | null>(null);
+  const finalizeConsultationRef = useRef<((source: "sdk_leave" | "grace_timeout" | "both_left") => Promise<void>) | null>(null);
 
   useEffect(() => {
     bookingRef.current = booking;
@@ -429,7 +429,7 @@ export default function ConsultationRoom() {
     clearLeaveGraceTimerRef.current = clearLeaveGraceTimer;
   }, [clearLeaveGraceTimer]);
 
-  /** Clear local grace state when the session is active and DB has no leave window (chat rejoin, realtime clear, bootstrap). */
+  /** Clear local pause UI when session is active and nobody is marked as left. */
   const resetGraceUiWhenNoLeaveDeadline = useCallback(() => {
     clearLeaveGraceTimer();
     hasExitGraceStartedRef.current = false;
@@ -437,38 +437,36 @@ export default function ConsultationRoom() {
 
   useEffect(() => {
     const b = roomBootstrap?.booking;
-    if (!b || b.status !== "in_progress" || b.leave_deadline_at) return;
+    if (!b || b.status !== "in_progress") return;
+    if (b.left_user_id || b.leave_deadline_at) return;
     resetGraceUiWhenNoLeaveDeadline();
   }, [roomBootstrap, resetGraceUiWhenNoLeaveDeadline]);
 
-  const markLeaveGraceInDb = useCallback(async () => {
+  const markLeavePauseInDb = useCallback(async () => {
     if (!bookingId || !user?.id) return;
     const b = bookingRef.current;
     if (!b || isTerminalBookingStatus(b.status)) return;
-    const deadlineDate = new Date(Date.now() + 20_000);
-    const deadline = deadlineDate.toISOString();
-    // Keep timer visible immediately even if DB/realtime response arrives late.
     lastLeftParticipantIdRef.current = user.id;
-    localLeaveDeadlineRef.current = deadlineDate;
-    setLeaveGraceSeconds(20);
+    localLeaveDeadlineRef.current = null;
+    setLeaveGraceSeconds(0); // 0 = paused banner (no countdown)
     const { error } = await vetbondhuApi
       .from("consultation_bookings")
       .update({
-        leave_deadline_at: deadline,
+        leave_deadline_at: null,
         left_user_id: user.id,
       })
       .eq("id", bookingId);
     if (error) {
-      console.error("Failed to set leave grace timer:", error.message);
+      console.error("Failed to pause consultation:", error.message);
       return;
     }
     setBooking((prev: any) =>
-      prev ? { ...prev, leave_deadline_at: deadline, left_user_id: user.id } : prev
+      prev ? { ...prev, leave_deadline_at: null, left_user_id: user.id } : prev
     );
   }, [bookingId, user?.id]);
   useEffect(() => {
-    markLeaveGraceInDbRef.current = markLeaveGraceInDb;
-  }, [markLeaveGraceInDb]);
+    markLeaveGraceInDbRef.current = markLeavePauseInDb;
+  }, [markLeavePauseInDb]);
 
   const clearLeaveGraceInDb = useCallback(async () => {
     if (!bookingId) return;
@@ -488,7 +486,7 @@ export default function ConsultationRoom() {
     clearLeaveGraceInDbRef.current = clearLeaveGraceInDb;
   }, [clearLeaveGraceInDb]);
 
-  const finalizeConsultation = useCallback(async (source: "sdk_leave" | "grace_timeout") => {
+  const finalizeConsultation = useCallback(async (_source: "sdk_leave" | "grace_timeout" | "both_left") => {
     if (!bookingId) {
       return;
     }
@@ -567,14 +565,25 @@ export default function ConsultationRoom() {
         }
         hasExitGraceStartedRef.current = true;
       }
-      await markLeaveGraceInDb();
+
+      const current = bookingRef.current;
+      const alreadyLeftId = String(current?.left_user_id || lastLeftParticipantIdRef.current || "");
+      const otherAlreadyLeft =
+        Boolean(alreadyLeftId) && alreadyLeftId !== String(user.id);
+
+      if (otherAlreadyLeft) {
+        await finalizeConsultation("both_left");
+        return;
+      }
+
+      await markLeavePauseInDb();
       if (reason === "sdk_leave") {
-        toast.info("You left the room. Rejoin within 20 seconds or consultation will auto-complete.");
+        toast.info("Consultation paused. You can rejoin anytime until both participants leave.");
       }
       queryClient.invalidateQueries({ queryKey: queryKeys().vetbondhuConsultationRoom(bookingId) });
       if (opts?.navigateAway) navigate(consultationsPath);
     },
-    [bookingId, consultationsPath, markLeaveGraceInDb, navigate, queryClient, user?.id]
+    [bookingId, consultationsPath, finalizeConsultation, markLeavePauseInDb, navigate, queryClient, user?.id]
   );
 
   const completeConsultationImmediately = useCallback(async () => {
@@ -907,11 +916,27 @@ export default function ConsultationRoom() {
             mergedNew &&
             typeof mergedNew === "object" &&
             Object.prototype.hasOwnProperty.call(mergedNew, "leave_deadline_at");
+          const hadLeftUserInPayload =
+            mergedNew &&
+            typeof mergedNew === "object" &&
+            Object.prototype.hasOwnProperty.call(mergedNew, "left_user_id");
           const clearedDeadline =
             hadDeadlineInPayload &&
             (mergedNew!.leave_deadline_at == null || mergedNew!.leave_deadline_at === "");
-          if (clearedDeadline) {
-            resetGraceUiWhenNoLeaveDeadline();
+          const clearedLeftUser =
+            hadLeftUserInPayload &&
+            (mergedNew!.left_user_id == null || mergedNew!.left_user_id === "");
+          if (
+            (clearedDeadline && (!hadLeftUserInPayload || clearedLeftUser)) ||
+            (clearedLeftUser && (!hadDeadlineInPayload || clearedDeadline))
+          ) {
+            if (!mergedNew?.left_user_id && !mergedNew?.leave_deadline_at) {
+              resetGraceUiWhenNoLeaveDeadline();
+            }
+          }
+          if (mergedNew?.left_user_id) {
+            lastLeftParticipantIdRef.current = String(mergedNew.left_user_id);
+            setLeaveGraceSeconds(0);
           }
           const nextStatus = String((payload.new as any)?.status || "");
           if ((nextStatus === "completed" || nextStatus === "cancelled") && !hasHandledTerminalStatusRef.current) {
@@ -926,34 +951,23 @@ export default function ConsultationRoom() {
   }, [bookingId, handleTerminalBookingStatus, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
-    const activeNoGrace =
-      booking?.status === "in_progress" && !booking?.leave_deadline_at;
-    if (!activeNoGrace) return;
+    const activeNoPause =
+      booking?.status === "in_progress" && !booking?.leave_deadline_at && !booking?.left_user_id;
+    if (!activeNoPause) return;
     resetGraceUiWhenNoLeaveDeadline();
-  }, [booking?.leave_deadline_at, booking?.status, resetGraceUiWhenNoLeaveDeadline]);
+  }, [booking?.leave_deadline_at, booking?.left_user_id, booking?.status, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
-    const deadlineFromDb = booking?.leave_deadline_at
-      ? new Date(booking.leave_deadline_at)
-      : null;
-    const effectiveDeadline = deadlineFromDb ?? localLeaveDeadlineRef.current;
     const leftUserId = booking?.left_user_id ?? lastLeftParticipantIdRef.current;
-    if (!effectiveDeadline || !leftUserId) {
-      clearLeaveGraceTimer();
+    if (booking?.status === "in_progress" && leftUserId) {
+      lastLeftParticipantIdRef.current = String(leftUserId);
+      setLeaveGraceSeconds(0);
       return;
     }
-    const updateRemaining = () => {
-      const ms = effectiveDeadline.getTime() - Date.now();
-      const sec = Math.max(0, Math.ceil(ms / 1000));
-      setLeaveGraceSeconds(sec);
-      if (sec === 0 && !hasFinalizedRef.current && !finalizeInFlightRef.current) {
-        void finalizeConsultation("grace_timeout");
-      }
-    };
-    updateRemaining();
-    const interval = setInterval(updateRemaining, 1000);
-    return () => clearInterval(interval);
-  }, [booking?.leave_deadline_at, booking?.left_user_id, clearLeaveGraceTimer, finalizeConsultation]);
+    if (!leftUserId) {
+      setLeaveGraceSeconds(null);
+    }
+  }, [booking?.left_user_id, booking?.status]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -1074,7 +1088,7 @@ export default function ConsultationRoom() {
 
       {leaveGraceSeconds !== null && (
         <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: `${VB}55`, backgroundColor: `${VB}12`, color: VB }}>
-          Rejoin within <span className="font-bold">{leaveGraceSeconds}</span>s or this consultation will end automatically.
+          Consultation paused. Rejoin anytime until both participants leave or someone ends the visit.
         </div>
       )}
 

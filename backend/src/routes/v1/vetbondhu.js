@@ -631,8 +631,15 @@ router.get(
       const pageRows = rows.slice(0, limit);
       const withFlags = pageRows.map((r) => ({
         ...r,
-        display_status: r.status === "in_progress" && r.leave_deadline_at ? "ending" : r.status,
-        can_rejoin: r.status === "in_progress" && (!r.leave_deadline_at || String(r.left_user_id || "") === String(req.userId)),
+        display_status:
+          r.status === "in_progress" && r.left_user_id
+            ? "paused"
+            : r.status === "in_progress" && r.leave_deadline_at
+              ? "ending"
+              : r.status,
+        can_rejoin:
+          r.status === "in_progress" &&
+          (!r.leave_deadline_at || String(r.left_user_id || "") === String(req.userId)),
       }));
       const hasMore = rows.length > limit;
       return {

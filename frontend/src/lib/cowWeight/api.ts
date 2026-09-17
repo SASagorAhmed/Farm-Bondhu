@@ -15,6 +15,7 @@ function authErrorMessage(body: Record<string, unknown>, res: Response): string 
   return `Request failed (${res.status})`;
 }
 
+/** Called after apiJson already attempted one token refresh on 401. */
 function handleAuthFailure(res: Response, body: Record<string, unknown>): never {
   if (res.status === 401 || res.status === 403) {
     clearStoredSession();

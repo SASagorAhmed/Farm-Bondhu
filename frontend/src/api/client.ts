@@ -38,6 +38,70 @@ export function clearStoredSession() {
   writeSession(null);
 }
 
+const REFRESH_SKEW_SEC = 5 * 60;
+let refreshInFlight: Promise<AppSession | null> | null = null;
+
+function sessionFromAuthBody(body: Record<string, unknown>): AppSession | null {
+  const nested = body.session as AppSession | undefined;
+  const access_token = (nested?.access_token || body.access_token) as string | undefined;
+  const refresh_token = (nested?.refresh_token || body.refresh_token) as string | undefined;
+  if (!access_token || !refresh_token) return null;
+  const userRaw = (nested?.user || body.user) as { id?: string; email?: string } | undefined;
+  const expIn = (body.expires_in || (body.session as { expires_in?: number })?.expires_in) as
+    | number
+    | undefined;
+  return {
+    access_token,
+    refresh_token,
+    expires_at: expIn ? Math.floor(Date.now() / 1000) + expIn : nested?.expires_at,
+    user: { id: userRaw?.id || "", email: userRaw?.email },
+  };
+}
+
+/** Exchange refresh_token for a new session. Uses raw fetch to avoid 401 retry loops. */
+export async function refreshSession(): Promise<AppSession | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const current = readSession();
+    const refreshToken = current?.refresh_token;
+    if (!refreshToken) return null;
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      const text = await res.text();
+      let body: Record<string, unknown> = {};
+      try {
+        body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      } catch {
+        body = {};
+      }
+      if (!res.ok) return null;
+      const merged = sessionFromAuthBody(body);
+      if (!merged) return null;
+      writeSession(merged);
+      return merged;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** Refresh when access token is missing expiry or within REFRESH_SKEW_SEC of expiry. */
+export async function ensureFreshSession(): Promise<AppSession | null> {
+  const s = readSession();
+  if (!s?.refresh_token) return s;
+  const now = Math.floor(Date.now() / 1000);
+  const exp = typeof s.expires_at === "number" ? s.expires_at : 0;
+  if (exp && exp - now > REFRESH_SKEW_SEC) return s;
+  return (await refreshSession()) || s;
+}
+
 function authHeaders(method: string, hasBody: boolean): HeadersInit {
   const s = readSession();
   const h: Record<string, string> = {};
@@ -49,29 +113,16 @@ function authHeaders(method: string, hasBody: boolean): HeadersInit {
   return h;
 }
 
-export async function apiJson(path: string, init: RequestInit = {}) {
-  let res: Response;
-  let text: string;
+async function fetchApiJsonOnce(path: string, init: RequestInit = {}) {
   const method = String(init.method || "GET").toUpperCase();
   const hasBody = init.body !== undefined && init.body !== null && init.body !== "";
-  try {
-    res = await withApiTiming(path, () =>
-      fetch(`${API_BASE}${path}`, {
-        ...init,
-        headers: { ...authHeaders(method, hasBody), ...(init.headers || {}) },
-      })
-    );
-    text = await res.text();
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : "Network error";
-    return {
-      // `Response` status must be 200-599 in browsers; use 503 for network-unreachable synthetic failures.
-      res: new Response(null, { status: 503, statusText: "Network Error" }),
-      body: {
-        error: `Cannot reach the API (${reason}). Check that the backend is running and VITE_API_URL matches it (e.g. http://127.0.0.1:3001).`,
-      },
-    };
-  }
+  const res = await withApiTiming(path, () =>
+    fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { ...authHeaders(method, hasBody), ...(init.headers || {}) },
+    })
+  );
+  const text = await res.text();
   let body: Record<string, unknown> = {};
   try {
     body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
@@ -79,6 +130,38 @@ export async function apiJson(path: string, init: RequestInit = {}) {
     body = { error: text || `Invalid response (${res.status})` };
   }
   return { res, body };
+}
+
+export async function apiJson(path: string, init: RequestInit = {}) {
+  try {
+    // Skip refresh loop for auth endpoints that mint/rotate tokens.
+    const skipRefreshRetry =
+      path.startsWith("/v1/auth/sign-in") ||
+      path.startsWith("/v1/auth/refresh") ||
+      path.startsWith("/v1/auth/register") ||
+      path.startsWith("/v1/auth/recover");
+
+    let { res, body } = await fetchApiJsonOnce(path, init);
+
+    if (res.status === 401 && !skipRefreshRetry && readSession()?.refresh_token) {
+      const refreshed = await refreshSession();
+      if (refreshed?.access_token) {
+        ({ res, body } = await fetchApiJsonOnce(path, init));
+      } else {
+        clearStoredSession();
+      }
+    }
+
+    return { res, body };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "Network error";
+    return {
+      res: new Response(null, { status: 503, statusText: "Network Error" }),
+      body: {
+        error: `Cannot reach the API (${reason}). Check that the backend is running and VITE_API_URL matches it (e.g. http://127.0.0.1:3001).`,
+      },
+    };
+  }
 }
 
 /** Prefer JSON `error`, then HTTP status, then fallback — never an empty string. */
@@ -1493,23 +1576,21 @@ export const api = {
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) return { data: { session: null, user: null }, error: { message: messageFromApiJson(body, res, "Sign-in failed.") } };
-      const b = body as Record<string, unknown>;
-      const nested = b.session as AppSession | undefined;
-      const access_token = (nested?.access_token || b.access_token) as string;
-      const refresh_token = (nested?.refresh_token || b.refresh_token) as string;
-      if (!access_token || !refresh_token) {
+      const merged = sessionFromAuthBody(body as Record<string, unknown>);
+      if (!merged) {
         return { data: { session: null, user: null }, error: { message: "Invalid sign-in response from server (missing tokens)" } };
       }
-      const userRaw = (nested?.user || b.user) as { id?: string; email?: string } | undefined;
-      const expIn = (b.expires_in || (b.session as { expires_in?: number })?.expires_in) as number | undefined;
-      const merged: AppSession = {
-        access_token,
-        refresh_token,
-        expires_at: expIn ? Math.floor(Date.now() / 1000) + expIn : nested?.expires_at,
-        user: { id: userRaw?.id || "", email: userRaw?.email },
-      };
       writeSession(merged);
       return { data: { session: merged as unknown, user: merged.user }, error: null };
+    },
+    async refreshSession() {
+      const merged = await refreshSession();
+      if (!merged) return { data: { session: null, user: null }, error: { message: "Could not refresh session" } };
+      return { data: { session: merged as unknown, user: merged.user }, error: null };
+    },
+    async ensureFreshSession() {
+      const merged = await ensureFreshSession();
+      return { data: { session: merged as unknown, user: merged?.user || null }, error: null };
     },
     /** Sends a 6-digit code via Brevo SMTP; complete with `verifyRegistrationOtp`. */
     async sendRegistrationOtp(payload: {

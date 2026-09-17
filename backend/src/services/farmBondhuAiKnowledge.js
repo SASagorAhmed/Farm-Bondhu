@@ -85,7 +85,7 @@ MediBondhu:
 - Doctors maintain profile, designation, availability, schedules, appointments, consultations, and prescriptions.
 - Doctor availability fields include accepting patients, online consultation, chamber consultation, future time slots, online status, can_book, and availability label where shown.
 - Status flow: pending/confirmed means waiting; in_progress means active consultation; completed, cancelled, or rejected are terminal.
-- Online consultation supports a 20-second leave/rejoin grace timer. If a participant leaves, the room waits briefly for rejoin before finalizing; if they rejoin in time, the session continues.
+- Online consultation supports leave/rejoin pause. If a participant leaves, the visit stays paused so they can rejoin anytime; it completes when both have left or someone ends the visit explicitly.
 - MediBondhu should not be described as veterinary care. For animal issues, direct users to VetBondhu.
 - For emergency human medical problems, advise users to seek local emergency care immediately instead of waiting for online consultation.
 
@@ -93,7 +93,7 @@ Video consultation behavior:
 - VetBondhu and MediBondhu both use online rooms but are separate modules with separate routes, roles, data, and themes.
 - Patient pending/confirmed Join Again should go to waiting room. Active and joinable consultations go to room. Terminal appointments/bookings have no join button.
 - Waiting rooms listen for doctor/vet start through realtime/polling and then navigate to the room.
-- If the opposite participant owns an ending grace window, show ending/rejoin guidance instead of opening a room incorrectly.
+- If the opposite participant has left (paused visit), show paused/rejoin guidance instead of opening a room incorrectly.
 - Chat history and consultation records should remain viewable for authorized participants after completion when the module supports it.
 
 Community and Learning:

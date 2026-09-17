@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { api, readSession, API_BASE, type AppSession, clearStoredSession } from "@/api/client";
+import {
+  api,
+  readSession,
+  API_BASE,
+  type AppSession,
+  clearStoredSession,
+  refreshSession,
+  ensureFreshSession,
+} from "@/api/client";
 import { AuthContext, type User, type SignupData, type UserRole, WORKSPACE_CAPABILITIES, isSuperAdmin } from "./auth-context";
 import { primaryRoleForModule } from "@/lib/signupModules";
 import { queryClient } from "@/lib/queryClient";
@@ -29,21 +37,35 @@ function shellUserFromSession(session: AppSession): User {
 
 /** Loads app user from Express `GET /api/v1/me` (Bearer = access_token in localStorage). */
 async function fetchMe(): Promise<MeResult> {
-  const s = readSession();
+  let s = readSession();
   if (!s?.access_token) return { ok: false, error: "No session token" };
   try {
-    const r = await withApiTiming("/v1/me", () =>
-      fetch(`${API_BASE}/v1/me`, {
-        headers: { Authorization: `Bearer ${s.access_token}` },
-      })
-    );
-    const text = await r.text();
-    let body: { user?: User; error?: string } = {};
-    try {
-      body = text ? (JSON.parse(text) as { user?: User; error?: string }) : {};
-    } catch {
-      body = { error: text?.slice(0, 200) || `HTTP ${r.status}` };
+    const requestMe = async (token: string) => {
+      const r = await withApiTiming("/v1/me", () =>
+        fetch(`${API_BASE}/v1/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      );
+      const text = await r.text();
+      let body: { user?: User; error?: string } = {};
+      try {
+        body = text ? (JSON.parse(text) as { user?: User; error?: string }) : {};
+      } catch {
+        body = { error: text?.slice(0, 200) || `HTTP ${r.status}` };
+      }
+      return { r, body };
+    };
+
+    let { r, body } = await requestMe(s.access_token);
+
+    if (r.status === 401 && s.refresh_token) {
+      const refreshed = await refreshSession();
+      if (refreshed?.access_token) {
+        s = refreshed;
+        ({ r, body } = await requestMe(refreshed.access_token));
+      }
     }
+
     if (r.status === 401 || r.status === 403) {
       clearStoredSession();
       return { ok: false, error: body.error || "Session expired or invalid. Please sign in again." };
@@ -165,6 +187,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       if (now - lastRefreshAt < AUTH_PROFILE_FOCUS_REFRESH_MS) return;
       lastRefreshAt = now;
+      const next = await ensureFreshSession();
+      if (next?.access_token) {
+        setSession(next);
+      }
       await loadProfile({ force: true, keepUserOnError: true });
     };
     const onFocus = () => {
@@ -177,8 +203,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
+    const proactive = window.setInterval(() => {
+      void ensureFreshSession().then((next) => {
+        if (next?.access_token && active) setSession(next);
+      });
+    }, 60_000);
+    void ensureFreshSession().then((next) => {
+      if (next?.access_token && active) setSession(next);
+    });
     return () => {
       active = false;
+      window.clearInterval(proactive);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };

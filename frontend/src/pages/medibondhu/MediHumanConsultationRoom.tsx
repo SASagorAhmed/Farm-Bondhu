@@ -412,22 +412,20 @@ export default function MediHumanConsultationRoom() {
     setLeaveGraceSeconds(null);
   }, []);
 
-  const markLeaveGraceInDb = useCallback(async () => {
+  const markLeavePauseInDb = useCallback(async () => {
     if (!appointmentId || !user?.id) return;
     const current = bookingRef.current;
     if (!current || isTerminal(current.status)) return;
-    const deadlineDate = new Date(Date.now() + 20_000);
-    const deadline = deadlineDate.toISOString();
     lastLeftParticipantIdRef.current = user.id;
-    localLeaveDeadlineRef.current = deadlineDate;
-    setLeaveGraceSeconds(20);
-    patchRoomAppointment({ leave_deadline_at: deadline, left_user_id: user.id });
+    localLeaveDeadlineRef.current = null;
+    setLeaveGraceSeconds(0);
+    patchRoomAppointment({ leave_deadline_at: null, left_user_id: user.id });
     const { res, body } = await mediHumanJson(`/appointments/${appointmentId}`, {
       method: "PATCH",
-      body: JSON.stringify({ leave_deadline_at: deadline, left_user_id: user.id }),
+      body: JSON.stringify({ leave_deadline_at: null, left_user_id: user.id }),
     });
     if (!res.ok) {
-      toast.error(String((body as { error?: string }).error || "Could not start leave timer"));
+      toast.error(String((body as { error?: string }).error || "Could not pause consultation"));
     }
   }, [appointmentId, patchRoomAppointment, user?.id]);
 
@@ -473,44 +471,48 @@ export default function MediHumanConsultationRoom() {
         if (navigateAway) navigate(listBack);
         return;
       }
-      await markLeaveGraceInDb();
-      toast.info("You left the room. Rejoin within 20 seconds or consultation will auto-complete.");
+      const alreadyLeftId = String(current?.left_user_id || lastLeftParticipantIdRef.current || "");
+      const otherAlreadyLeft =
+        Boolean(alreadyLeftId) && user?.id && alreadyLeftId !== String(user.id);
+      if (otherAlreadyLeft) {
+        await finalizeVisitAfterGrace();
+        if (navigateAway) navigate(listBack);
+        return;
+      }
+      await markLeavePauseInDb();
+      toast.info("Consultation paused. You can rejoin anytime until both participants leave.");
       void qc.invalidateQueries({ queryKey: roomQueryKey });
       if (navigateAway) navigate(listBack);
     },
-    [appointmentId, listBack, markLeaveGraceInDb, navigate, qc, roomQueryKey]
+    [
+      appointmentId,
+      finalizeVisitAfterGrace,
+      listBack,
+      markLeavePauseInDb,
+      navigate,
+      qc,
+      roomQueryKey,
+      user?.id,
+    ]
   );
 
   useEffect(() => {
-    if (appt?.status !== "in_progress" || appt.leave_deadline_at) return;
+    if (appt?.status !== "in_progress") return;
+    if (appt.leave_deadline_at || appt.left_user_id) return;
     resetGraceUiWhenNoLeaveDeadline();
-  }, [appt?.leave_deadline_at, appt?.status, resetGraceUiWhenNoLeaveDeadline]);
+  }, [appt?.leave_deadline_at, appt?.left_user_id, appt?.status, resetGraceUiWhenNoLeaveDeadline]);
 
   useEffect(() => {
-    const deadlineFromDb = appt?.leave_deadline_at
-      ? new Date(appt.leave_deadline_at)
-      : null;
-    const effectiveDeadline = deadlineFromDb ?? localLeaveDeadlineRef.current;
     const leftUserId = appt?.left_user_id ?? lastLeftParticipantIdRef.current;
-    if (!effectiveDeadline || !leftUserId) {
-      setLeaveGraceSeconds(null);
+    if (appt?.status === "in_progress" && leftUserId) {
+      lastLeftParticipantIdRef.current = String(leftUserId);
+      setLeaveGraceSeconds(0);
       return;
     }
-
-    lastLeftParticipantIdRef.current = String(leftUserId);
-    localLeaveDeadlineRef.current = effectiveDeadline;
-    const updateRemaining = () => {
-      const ms = effectiveDeadline.getTime() - Date.now();
-      const sec = Math.max(0, Math.ceil(ms / 1000));
-      setLeaveGraceSeconds(sec);
-      if (sec === 0 && !hasFinalizedRef.current && !finalizeBusyRef.current) {
-        void finalizeVisitAfterGrace();
-      }
-    };
-    updateRemaining();
-    const interval = setInterval(updateRemaining, 1000);
-    return () => clearInterval(interval);
-  }, [appt?.leave_deadline_at, appt?.left_user_id, finalizeVisitAfterGrace]);
+    if (!leftUserId) {
+      setLeaveGraceSeconds(null);
+    }
+  }, [appt?.left_user_id, appt?.status]);
 
   const sendMessage = useCallback(async () => {
     if (!newMessage.trim() || !user || !appointmentId) return;
@@ -767,7 +769,7 @@ export default function MediHumanConsultationRoom() {
           className="rounded-md border px-3 py-2 text-sm"
           style={{ borderColor: `${MB}55`, backgroundColor: `${MB}12`, color: MB }}
         >
-          Rejoin within <span className="font-bold">{leaveGraceSeconds}</span>s or this consultation will end automatically.
+          Consultation paused. Rejoin anytime until both participants leave or someone ends the visit.
         </div>
       )}
 

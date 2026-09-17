@@ -44,6 +44,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function bookingDisplayStatus(booking: JoinableBooking): string {
+  if (booking?.status === "in_progress" && booking?.left_user_id) return "paused";
   if (booking?.status === "in_progress" && booking?.leave_deadline_at) return "ending";
   return String(booking?.status || "pending");
 }
@@ -52,6 +53,7 @@ function canRejoinNow(booking: JoinableBooking, currentUserId?: string) {
   if (booking?.status !== "in_progress") return false;
   const leftUserId = String(booking?.left_user_id || "");
   const hasLeaveDeadline = Boolean(booking?.leave_deadline_at);
+  // Indefinite pause (left_user_id, no deadline): either participant may rejoin.
   if (!hasLeaveDeadline) return true;
   return !!currentUserId && leftUserId === String(currentUserId);
 }
