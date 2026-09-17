@@ -38,6 +38,13 @@ import {
   SCREEN_SHARE_AUDIO_ERROR,
   SCREEN_SHARE_AUDIO_HELP,
 } from "@/lib/consultationScreenShareAudio";
+import {
+  createIntentionalLeaveGate,
+  createSoftRejoinFlight,
+  decideCallStayAlive,
+  requestCallWakeLock,
+  type WakeLockHandle,
+} from "@/lib/consultationCallStayAlive";
 import { useCallStageZoom } from "@/lib/useCallStageZoom";
 
 const MB = ICON_COLORS.medibondhu;
@@ -104,6 +111,7 @@ export default function MediHumanConsultationRoom() {
   const [roomError, setRoomError] = useState<string | null>(null);
   const [isStageFullscreen, setIsStageFullscreen] = useState(false);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [zegoRetryTick, setZegoRetryTick] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const bookingRef = useRef<RoomBootstrap["appointment"] | null>(null);
   const stageShellRef = useRef<HTMLDivElement>(null);
@@ -112,16 +120,50 @@ export default function MediHumanConsultationRoom() {
   const zegoInstanceRef = useRef<{ destroy: () => void } | null>(null);
   const zegoAttemptRef = useRef(0);
   const skipLeaveHookRef = useRef(false);
+  const hasJoinedZegoRoomRef = useRef(false);
+  const isUnmountingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const finalizeBusyRef = useRef(false);
   const hasFinalizedRef = useRef(false);
   const lastLeftParticipantIdRef = useRef<string | null>(null);
   const localLeaveDeadlineRef = useRef<Date | null>(null);
   const terminalNavHandledRef = useRef(false);
   const doctorAcceptStartedRef = useRef(false);
+  const beginGraceLeaveRef = useRef<((navigateAway?: boolean) => Promise<void>) | null>(null);
+  const intentionalLeaveGateRef = useRef(createIntentionalLeaveGate());
+  const softRejoinFlightRef = useRef(createSoftRejoinFlight());
+  const lastHiddenAtRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const roomQueryKey = useMemo(
     () => queryKeys().medibondhuHumanConsultationRoom(appointmentId),
     [appointmentId]
   );
+
+  const releaseCallWakeLock = useCallback(() => {
+    const handle = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (handle) void handle.release();
+  }, []);
+
+  const acquireCallWakeLock = useCallback(async () => {
+    releaseCallWakeLock();
+    wakeLockRef.current = await requestCallWakeLock();
+  }, [releaseCallWakeLock]);
+
+  const scheduleAmbientSoftRejoin = useCallback(() => {
+    if (zegoInstanceRef.current) return;
+    if (!softRejoinFlightRef.current.tryBegin()) return;
+    setZegoRetryTick((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    isUnmountingRef.current = false;
+    return () => {
+      isMountedRef.current = false;
+      isUnmountingRef.current = true;
+    };
+  }, []);
 
   const patchRoomAppointment = useCallback(
     (patch: Partial<RoomBootstrap["appointment"]>) => {
@@ -271,6 +313,8 @@ export default function MediHumanConsultationRoom() {
   const destroyZegoInstance = useCallback(() => {
     zegoAttemptRef.current += 1;
     skipLeaveHookRef.current = true;
+    hasJoinedZegoRoomRef.current = false;
+    releaseCallWakeLock();
     const instance = zegoInstanceRef.current;
     zegoInstanceRef.current = null;
     if (instance) {
@@ -283,7 +327,7 @@ export default function MediHumanConsultationRoom() {
     window.setTimeout(() => {
       skipLeaveHookRef.current = false;
     }, 1000);
-  }, []);
+  }, [releaseCallWakeLock]);
 
   useEffect(() => {
     bookingRef.current = appt ?? null;
@@ -404,12 +448,16 @@ export default function MediHumanConsultationRoom() {
   }, [appointmentId, handleTerminalAppointmentStatus]);
 
   const completeVisit = useCallback(async () => {
+    intentionalLeaveGateRef.current.markEnd();
+    releaseCallWakeLock();
     await endVisit("completed");
-  }, [endVisit]);
+  }, [endVisit, releaseCallWakeLock]);
 
   const cancelVisit = useCallback(async () => {
+    intentionalLeaveGateRef.current.markEnd();
+    releaseCallWakeLock();
     await endVisit("cancelled");
-  }, [endVisit]);
+  }, [endVisit, releaseCallWakeLock]);
 
   const resetGraceUiWhenNoLeaveDeadline = useCallback(() => {
     localLeaveDeadlineRef.current = null;
@@ -500,6 +548,9 @@ export default function MediHumanConsultationRoom() {
       user?.id,
     ]
   );
+  useEffect(() => {
+    beginGraceLeaveRef.current = beginGraceLeave;
+  }, [beginGraceLeave]);
 
   useEffect(() => {
     if (appt?.status !== "in_progress") return;
@@ -563,6 +614,8 @@ export default function MediHumanConsultationRoom() {
     if (!canJoinRoom) return;
     const container = zegoContainerRef.current;
     if (!container) return;
+    // Never disconnect a live call just to rejoin / remount.
+    if (zegoInstanceRef.current && hasJoinedZegoRoomRef.current) return;
 
     zegoAttemptRef.current += 1;
     const attemptId = zegoAttemptRef.current;
@@ -573,13 +626,15 @@ export default function MediHumanConsultationRoom() {
 
     const run = async () => {
       if (zegoInstanceRef.current) {
-        destroyZegoInstance();
+        // Soft rejoin only when previous instance already cleared.
+        return;
       }
 
       try {
         const accessToken = readSession()?.access_token;
         if (!accessToken) {
           toast.error("Not authenticated");
+          softRejoinFlightRef.current.end();
           return;
         }
         const tk = await fetch(`${API_BASE}/v1/tools/zego-token`, {
@@ -651,6 +706,10 @@ export default function MediHumanConsultationRoom() {
             onError: () => SCREEN_SHARE_AUDIO_ERROR,
           },
           onJoinRoom: () => {
+            hasJoinedZegoRoomRef.current = true;
+            softRejoinFlightRef.current.end();
+            intentionalLeaveGateRef.current.reset();
+            void acquireCallWakeLock();
             const current = bookingRef.current;
             const sameUserLeft =
               user?.id &&
@@ -663,12 +722,32 @@ export default function MediHumanConsultationRoom() {
           },
           onLeaveRoom: () => {
             if (skipLeaveHookRef.current) return;
+            hasJoinedZegoRoomRef.current = false;
             zegoInstanceRef.current = null;
-            void beginGraceLeave(false);
+            releaseCallWakeLock();
+
+            const decision = decideCallStayAlive({
+              intentional: intentionalLeaveGateRef.current.kind(),
+              hasFinalized: hasFinalizedRef.current,
+              instanceAlive: false,
+              hasJoined: false,
+              reconnectInFlight: softRejoinFlightRef.current.inFlight,
+              documentHidden: typeof document !== "undefined" && document.visibilityState === "hidden",
+              msSinceHidden:
+                lastHiddenAtRef.current != null ? Date.now() - lastHiddenAtRef.current : null,
+              lastSoftRejoinAt: softRejoinFlightRef.current.lastAt,
+            });
+            if (decision.action === "complete_end" || decision.action === "pause_navigate") {
+              return;
+            }
+            if (decision.action === "soft_rejoin") {
+              scheduleAmbientSoftRejoin();
+            }
           },
         });
       } catch (err: unknown) {
         console.error("MediBondhu Zego init error:", err);
+        softRejoinFlightRef.current.end();
         toast.error(getZegoJoinErrorMessage(err));
       }
     };
@@ -677,21 +756,66 @@ export default function MediHumanConsultationRoom() {
 
     return () => {
       cancelled = true;
+      const intentional = intentionalLeaveGateRef.current.isIntentional();
+      const leavingPage = isUnmountingRef.current;
+      if (!intentional && !leavingPage && zegoInstanceRef.current) {
+        return;
+      }
       uninstallScreenShareAudio();
+      if (leavingPage && hasJoinedZegoRoomRef.current && !hasFinalizedRef.current) {
+        intentionalLeaveGateRef.current.markNavigateAway();
+        void beginGraceLeaveRef.current?.(false);
+      }
       destroyZegoInstance();
     };
   }, [
+    acquireCallWakeLock,
     appointmentId,
-    beginGraceLeave,
     canJoinRoom,
     clearLeaveGraceInDb,
     destroyZegoInstance,
+    releaseCallWakeLock,
     roomBootstrap?.permissions?.zegoRoomId,
+    scheduleAmbientSoftRejoin,
     user?.id,
     user?.name,
+    zegoRetryTick,
   ]);
 
+  // Phone minimize / PC tab switch: keep call; recover only if instance already dead.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState === "hidden") {
+        lastHiddenAtRef.current = Date.now();
+        return;
+      }
+      if (hasFinalizedRef.current || isUnmountingRef.current) return;
+      if (!canJoinRoom) return;
+      const decision = decideCallStayAlive({
+        intentional: intentionalLeaveGateRef.current.kind(),
+        hasFinalized: hasFinalizedRef.current,
+        instanceAlive: Boolean(zegoInstanceRef.current),
+        hasJoined: hasJoinedZegoRoomRef.current,
+        reconnectInFlight: softRejoinFlightRef.current.inFlight,
+        documentHidden: false,
+        msSinceHidden:
+          lastHiddenAtRef.current != null ? Date.now() - lastHiddenAtRef.current : null,
+        lastSoftRejoinAt: softRejoinFlightRef.current.lastAt,
+      });
+      if (decision.action === "soft_rejoin") {
+        scheduleAmbientSoftRejoin();
+      } else if (hasJoinedZegoRoomRef.current) {
+        void acquireCallWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [acquireCallWakeLock, canJoinRoom, scheduleAmbientSoftRejoin]);
+
   const leaveOnly = () => {
+    intentionalLeaveGateRef.current.markNavigateAway();
+    releaseCallWakeLock();
     void beginGraceLeave(true);
   };
 

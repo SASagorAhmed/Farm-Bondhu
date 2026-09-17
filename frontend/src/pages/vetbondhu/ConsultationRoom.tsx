@@ -27,6 +27,13 @@ import {
   SCREEN_SHARE_AUDIO_ERROR,
   SCREEN_SHARE_AUDIO_HELP,
 } from "@/lib/consultationScreenShareAudio";
+import {
+  createIntentionalLeaveGate,
+  createSoftRejoinFlight,
+  decideCallStayAlive,
+  requestCallWakeLock,
+  type WakeLockHandle,
+} from "@/lib/consultationCallStayAlive";
 import { useCallStageZoom } from "@/lib/useCallStageZoom";
 
 const VB = ICON_COLORS.vetbondhu;
@@ -158,6 +165,31 @@ export default function ConsultationRoom() {
   const clearLeaveGraceTimerRef = useRef<(() => void) | null>(null);
   const clearLeaveGraceInDbRef = useRef<(() => Promise<void>) | null>(null);
   const finalizeConsultationRef = useRef<((source: "sdk_leave" | "grace_timeout" | "both_left") => Promise<void>) | null>(null);
+  const beginGraceLeaveRef = useRef<
+    ((reason: "sdk_leave" | "navigate_back" | "unmount", opts?: { navigateAway?: boolean }) => Promise<void>) | null
+  >(null);
+  const intentionalLeaveGateRef = useRef(createIntentionalLeaveGate());
+  const softRejoinFlightRef = useRef(createSoftRejoinFlight());
+  const lastHiddenAtRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<WakeLockHandle | null>(null);
+
+  const releaseCallWakeLock = useCallback(() => {
+    const handle = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (handle) void handle.release();
+  }, []);
+
+  const acquireCallWakeLock = useCallback(async () => {
+    releaseCallWakeLock();
+    wakeLockRef.current = await requestCallWakeLock();
+  }, [releaseCallWakeLock]);
+
+  const scheduleAmbientSoftRejoin = useCallback(() => {
+    // Never disconnect a live call just to rejoin.
+    if (zegoInstanceRef.current) return;
+    if (!softRejoinFlightRef.current.tryBegin()) return;
+    setZegoRetryTick((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     bookingRef.current = booking;
@@ -198,6 +230,7 @@ export default function ConsultationRoom() {
 
   const destroyZegoInstance = useCallback(() => {
     clearZegoRetryTimer();
+    releaseCallWakeLock();
     zegoInitAttemptRef.current += 1;
     skipZegoLeaveHookRef.current = true;
     isDestroyingZegoRef.current = true;
@@ -221,7 +254,7 @@ export default function ConsultationRoom() {
     window.setTimeout(() => {
       skipZegoLeaveHookRef.current = false;
     }, 1000);
-  }, [clearZegoRetryTimer]);
+  }, [clearZegoRetryTimer, releaseCallWakeLock]);
 
   const enterStageFullscreen = useCallback(async () => {
     const node = stageShellRef.current;
@@ -590,6 +623,9 @@ export default function ConsultationRoom() {
     },
     [bookingId, consultationsPath, finalizeConsultation, markLeavePauseInDb, navigate, queryClient, user?.id]
   );
+  useEffect(() => {
+    beginGraceLeaveRef.current = beginGraceLeave;
+  }, [beginGraceLeave]);
 
   const completeConsultationImmediately = useCallback(async () => {
     if (!bookingId || !user) return;
@@ -654,12 +690,16 @@ export default function ConsultationRoom() {
   }, [bookingId, clearLeaveGraceTimer, consultationsPath, navigate, queryClient, user]);
 
   const endConsultation = useCallback(async () => {
+    intentionalLeaveGateRef.current.markEnd();
+    releaseCallWakeLock();
     await completeConsultationImmediately();
-  }, [completeConsultationImmediately]);
+  }, [completeConsultationImmediately, releaseCallWakeLock]);
 
   const leaveRoomAndGoBack = useCallback(async () => {
+    intentionalLeaveGateRef.current.markNavigateAway();
+    releaseCallWakeLock();
     await beginGraceLeave("navigate_back", { navigateAway: true });
-  }, [beginGraceLeave]);
+  }, [beginGraceLeave, releaseCallWakeLock]);
 
   const canJoinRoom = Boolean(
     canEnterActiveRoom(booking, user?.id)
@@ -672,6 +712,8 @@ export default function ConsultationRoom() {
     if (!normalizedConsultMethod || normalizedConsultMethod === "chat") return;
     if (!canJoinRoom) return;
     if (isUnmountingRef.current || !isMountedRef.current) return;
+    // Never disconnect a live call just to rejoin.
+    if (zegoInstanceRef.current && hasJoinedZegoRoomRef.current) return;
     const roomKey = `${bookingId}:${user.id}:${normalizedConsultMethod}`;
     if (zegoJoinedRoomKeyRef.current === roomKey) return;
     if (zegoRoomKeyRef.current === roomKey && zegoInitStatusRef.current === "joined") return;
@@ -687,14 +729,9 @@ export default function ConsultationRoom() {
     const initZego = async () => {
       try {
         if (zegoInstanceRef.current) {
-          isDestroyingZegoRef.current = true;
-          try {
-            zegoInstanceRef.current.destroy();
-          } catch {
-            /* ignore stale sdk cleanup */
-          }
-          zegoInstanceRef.current = null;
-          isDestroyingZegoRef.current = false;
+          // Soft rejoin only when previous instance already cleared.
+          softRejoinFlightRef.current.end();
+          return;
         }
         const accessToken = readSession()?.access_token;
         if (!accessToken) {
@@ -820,7 +857,10 @@ export default function ConsultationRoom() {
             zegoInitStatusRef.current = "joined";
             zegoJoinedRoomKeyRef.current = roomKey;
             zegoRetryCountRef.current = 0;
+            softRejoinFlightRef.current.end();
+            intentionalLeaveGateRef.current.reset();
             clearZegoRetryTimer();
+            void acquireCallWakeLock();
             // Successful room join always resets local leave cycle state.
             clearLeaveGraceTimer();
             hasExitGraceStartedRef.current = false;
@@ -837,18 +877,40 @@ export default function ConsultationRoom() {
           onLeaveRoom: () => {
             if (skipZegoLeaveHookRef.current) return;
             if (isDestroyingZegoRef.current) return;
-            if (!hasJoinedZegoRoomRef.current) return;
+            if (!hasJoinedZegoRoomRef.current && !zegoInstanceRef.current) return;
+
             clearZegoRetryTimer();
             hasJoinedZegoRoomRef.current = false;
             zegoInitStatusRef.current = "idle";
             zegoJoinedRoomKeyRef.current = null;
-            // SDK already left room; avoid duplicate destroy on unmount race.
+            // SDK already left — clear ref; never destroy-for-rejoin (already gone).
             zegoInstanceRef.current = null;
-            void beginGraceLeave("sdk_leave");
+            releaseCallWakeLock();
+
+            const decision = decideCallStayAlive({
+              intentional: intentionalLeaveGateRef.current.kind(),
+              hasFinalized: hasFinalizedRef.current,
+              instanceAlive: false,
+              hasJoined: false,
+              reconnectInFlight: softRejoinFlightRef.current.inFlight,
+              documentHidden: typeof document !== "undefined" && document.visibilityState === "hidden",
+              msSinceHidden:
+                lastHiddenAtRef.current != null ? Date.now() - lastHiddenAtRef.current : null,
+              lastSoftRejoinAt: softRejoinFlightRef.current.lastAt,
+            });
+
+            // End / Back already handled hangup or pause — do not pause again.
+            if (decision.action === "complete_end" || decision.action === "pause_navigate") {
+              return;
+            }
+            if (decision.action === "soft_rejoin") {
+              scheduleAmbientSoftRejoin();
+            }
           },
         });
       } catch (err: any) {
         console.error("ZegoCloud init error:", err);
+        softRejoinFlightRef.current.end();
         if (maybeRecoverFromChunkLoadError(err)) return;
         const friendlyMessage = getZegoJoinErrorMessage(err);
         setRoomError(friendlyMessage);
@@ -874,18 +936,25 @@ export default function ConsultationRoom() {
 
     return () => {
       cancelled = true;
-      uninstallScreenShareAudio();
       zegoInitAttemptRef.current += 1;
       clearZegoRetryTimer();
+      const intentional = intentionalLeaveGateRef.current.isIntentional();
+      const leavingPage = isUnmountingRef.current;
       const hadActiveRoom = hasJoinedZegoRoomRef.current;
-      if (isUnmountingRef.current && hadActiveRoom && !hasFinalizedRef.current) {
-        void beginGraceLeave("unmount");
+      // Soft-rejoin tick / stable dep churn: never destroy a still-living call.
+      if (!intentional && !leavingPage && zegoInstanceRef.current) {
+        return;
+      }
+      uninstallScreenShareAudio();
+      if (leavingPage && hadActiveRoom && !hasFinalizedRef.current) {
+        intentionalLeaveGateRef.current.markNavigateAway();
+        void beginGraceLeaveRef.current?.("unmount");
       }
       clearLeaveGraceTimerRef.current?.();
       destroyZegoInstance();
     };
   }, [
-    beginGraceLeave,
+    acquireCallWakeLock,
     bookingId,
     canJoinRoom,
     clearLeaveGraceInDb,
@@ -893,10 +962,43 @@ export default function ConsultationRoom() {
     clearZegoRetryTimer,
     destroyZegoInstance,
     normalizedConsultMethod,
+    releaseCallWakeLock,
+    scheduleAmbientSoftRejoin,
     user?.id,
     user?.name,
     zegoRetryTick,
   ]);
+
+  // Phone minimize / PC tab switch: keep call; recover only if instance already dead.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState === "hidden") {
+        lastHiddenAtRef.current = Date.now();
+        return;
+      }
+      if (hasFinalizedRef.current || isUnmountingRef.current) return;
+      if (!canJoinRoom) return;
+      const decision = decideCallStayAlive({
+        intentional: intentionalLeaveGateRef.current.kind(),
+        hasFinalized: hasFinalizedRef.current,
+        instanceAlive: Boolean(zegoInstanceRef.current),
+        hasJoined: hasJoinedZegoRoomRef.current,
+        reconnectInFlight: softRejoinFlightRef.current.inFlight,
+        documentHidden: false,
+        msSinceHidden:
+          lastHiddenAtRef.current != null ? Date.now() - lastHiddenAtRef.current : null,
+        lastSoftRejoinAt: softRejoinFlightRef.current.lastAt,
+      });
+      if (decision.action === "soft_rejoin") {
+        scheduleAmbientSoftRejoin();
+      } else if (hasJoinedZegoRoomRef.current) {
+        void acquireCallWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [acquireCallWakeLock, canJoinRoom, scheduleAmbientSoftRejoin]);
 
   useEffect(() => {
     if (!bookingId) return;
